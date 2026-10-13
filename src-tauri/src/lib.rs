@@ -12,6 +12,7 @@ mod commands;
 mod config;
 mod database;
 mod deeplink;
+mod enterprise;
 mod error;
 mod gemini_config;
 mod gemini_mcp;
@@ -1234,6 +1235,30 @@ pub fn run() {
                 log::info!("✓ XaiOAuthManager initialized");
             }
 
+            // 初始化企业版会话（token 只保存在 Rust 侧）
+            app.manage(commands::EnterpriseSessionState(Arc::new(
+                crate::enterprise::EnterpriseSession::new(crate::config::get_app_config_dir()),
+            )));
+            // 企业托管的 Codex 供应商卡随会话同步
+            crate::enterprise::providers::install(
+                app.handle(),
+                &app.state::<commands::EnterpriseSessionState>().0,
+            );
+            // 企业版对话留存：员工确认告知后后台上传 Codex 对话
+            {
+                let retention = crate::enterprise::RetentionService::new(
+                    app.state::<commands::EnterpriseSessionState>().0.clone(),
+                    crate::config::get_app_config_dir(),
+                );
+                app.manage(commands::EnterpriseRetentionState(retention.clone()));
+                tauri::async_runtime::spawn(retention.run_loop());
+            }
+            // 企业市场：必装技能 / 插件后台自动安装（启动约 45 秒后首次，之后每 10 分钟）
+            crate::enterprise::market::spawn_mandatory_auto_install(
+                app.state::<commands::EnterpriseSessionState>().0.clone(),
+                app.state::<AppState>().db.clone(),
+            );
+
             // 初始化全局出站代理 HTTP 客户端
             {
                 let db = &app.state::<AppState>().db;
@@ -1479,6 +1504,7 @@ pub fn run() {
             commands::restart_app,
             commands::install_update_and_restart,
             commands::check_app_update_available,
+            commands::check_app_update,
             commands::check_for_updates,
             commands::is_portable_mode,
             commands::copy_text_to_clipboard,
@@ -1505,6 +1531,17 @@ pub fn run() {
             commands::get_xai_oauth_quota,
             commands::get_coding_plan_quota,
             commands::get_balance,
+            // enterprise login
+            commands::enterprise_get_state,
+            commands::enterprise_login,
+            commands::enterprise_logout,
+            commands::enterprise_refresh_config,
+            commands::enterprise_market_list,
+            commands::enterprise_market_install,
+            commands::enterprise_market_uninstall,
+            commands::enterprise_retention_status,
+            commands::enterprise_retention_acknowledge,
+            commands::codex_set_provider_model,
             // New MCP via config.json (SSOT)
             commands::get_mcp_config,
             commands::upsert_mcp_server_in_config,

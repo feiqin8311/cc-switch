@@ -1,0 +1,21 @@
+{
+  "name": "cc-switch-enterprise",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.12.3",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ccse/server dev",
+    "dev:admin": "pnpm --filter @ccse/admin dev",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

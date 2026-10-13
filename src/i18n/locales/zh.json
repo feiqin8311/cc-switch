@@ -922,6 +922,10 @@
     "aboutHint": "查看版本信息与更新状态。",
     "portableMode": "当前为便携版，更新需手动下载。",
     "updateAvailable": "检测到新版本：{{version}}",
+    "updateDialogTitle": "有新版本可以更新",
+    "updateDialogBody": "v{{version}} 已发布。点「更新并重启」会下载、校验并自动重启。",
+    "updateLater": "稍后",
+    "updateNow": "更新并重启",
     "updateBadge": "有更新可用",
     "updateFailed": "更新安装失败，已尝试打开下载页面。",
     "checkUpdateFailed": "检查更新失败，请稍后重试。",
@@ -4779,5 +4783,64 @@
       "refresh": "刷新额度",
       "refreshAria": "刷新 {{login}} 的额度"
     }
+  },
+  "enterprise": {
+    "login": "企业登录",
+    "loginTitle": "登录企业中心",
+    "loginHint": "登录后将同步企业分配的角色、模型与插件。",
+    "serverUrl": "服务器地址",
+    "username": "用户名",
+    "password": "密码",
+    "loggingIn": "登录中...",
+    "loginFailed": "登录失败",
+    "logout": "退出登录",
+    "refresh": "同步企业配置",
+    "offline": "离线（使用上次同步的配置）",
+    "role": {
+      "admin": "管理员",
+      "member": "成员",
+      "viewer": "只读"
+    }
+  },
+  "enterpriseModels": {
+    "badge": "企业",
+    "badgeTitle": "由企业服务器管理的供应商（只读），退出企业登录后自动移除",
+    "selectLabel": "{{name}} 使用的模型",
+    "placeholder": "选择模型",
+    "changeFailed": "切换模型失败：{{error}}"
+  },
+  "enterpriseMarket": {
+    "title": "企业市场",
+    "skills": "技能",
+    "plugins": "插件",
+    "mandatory": "必装",
+    "status": {
+      "installed": "已安装",
+      "updateAvailable": "可更新",
+      "notInstalled": "未安装"
+    },
+    "install": "安装",
+    "update": "更新",
+    "uninstall": "卸载",
+    "loading": "正在加载企业市场…",
+    "empty": "企业市场暂无可用内容",
+    "loadFailed": "企业市场加载失败：{{error}}",
+    "toast": {
+      "installed": "已安装",
+      "uninstalled": "已卸载",
+      "installFailed": "安装失败：{{error}}",
+      "uninstallFailed": "卸载失败：{{error}}"
+    }
+  },
+  "enterpriseRetention": {
+    "title": "对话留存告知",
+    "noticeFallback": "企业管理员已开启对话留存。",
+    "scopeNote": "确认后，本设备上此后新开始的 Codex 对话会上传到企业服务器留存；确认之前已有的历史对话不会上传。如不同意，可退出企业登录。",
+    "acknowledge": "我已知悉并同意",
+    "logout": "退出企业登录",
+    "actionFailed": "操作失败：{{error}}",
+    "statusLabel": "对话留存：{{status}}",
+    "statusOn": "已开启",
+    "statusOff": "未开启"
   }
 }

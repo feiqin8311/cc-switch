@@ -21,6 +21,10 @@ fn default_true() -> bool {
     true
 }
 
+/// Enterprise edition switch: when true the app is locked to Codex and the
+/// effective visible apps are exactly { codex }, regardless of stored settings.
+pub const CODEX_ONLY: bool = true;
+
 /// 主页面显示的应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +58,20 @@ pub struct VisibleApps {
 
 impl Default for VisibleApps {
     fn default() -> Self {
+        if CODEX_ONLY {
+            return Self {
+                claude: false,
+                claude_desktop: false,
+                codex: true,
+                gemini: false,
+                grokbuild: false,
+                opencode: false,
+                openclaw: false,
+                hermes: false,
+                pi: false,
+                mcode: false,
+            };
+        }
         Self {
             claude: true,
             claude_desktop: true,
@@ -72,6 +90,9 @@ impl Default for VisibleApps {
 impl VisibleApps {
     /// Check if the specified app is visible
     pub fn is_visible(&self, app: &AppType) -> bool {
+        if CODEX_ONLY {
+            return matches!(app, AppType::Codex);
+        }
         match app {
             AppType::Claude => self.claude,
             AppType::ClaudeDesktop => self.claude_desktop,
@@ -844,6 +865,20 @@ pub fn get_settings_for_frontend() -> AppSettings {
         s3.secret_access_key.clear();
     }
     settings.webdav_backup = None;
+    if CODEX_ONLY {
+        settings.visible_apps = Some(VisibleApps {
+            claude: false,
+            claude_desktop: false,
+            codex: true,
+            gemini: false,
+            grokbuild: false,
+            opencode: false,
+            openclaw: false,
+            hermes: false,
+            pi: false,
+            mcode: false,
+        });
+    }
     settings
 }
 
@@ -1318,7 +1353,7 @@ mod tests {
         }))
         .expect("visible apps");
 
-        assert!(visible.is_visible(&AppType::ClaudeDesktop));
+        assert!(visible.claude_desktop);
     }
 
     #[test]

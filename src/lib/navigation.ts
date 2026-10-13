@@ -1,4 +1,5 @@
 import type { AppId } from "@/lib/api";
+import { CODEX_ONLY } from "@/config/edition";
 
 /**
  * 主窗口的导航模型（v7）：侧栏选一个应用或一个全局页；设置单独占一屏。
@@ -103,7 +104,8 @@ export function appPageBelongsTo(page: AppPage, app: AppId): boolean {
 
 export function readStoredView(): View {
   try {
-    return parseView(localStorage.getItem(VIEW_STORAGE_KEY)) ?? "providers";
+    const view = parseView(localStorage.getItem(VIEW_STORAGE_KEY)) ?? "providers";
+    return CODEX_ONLY && view === "auth" ? "providers" : view;
   } catch {
     return "providers";
   }

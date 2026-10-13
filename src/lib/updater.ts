@@ -22,16 +22,21 @@ export async function getCurrentVersion(): Promise<string> {
   }
 }
 
+interface AppUpdatePayload {
+  availableVersion: string;
+  notes?: string | null;
+  pubDate?: string | null;
+}
+
 export async function checkForUpdate(
-  opts: CheckOptions = {},
+  _opts: CheckOptions = {},
 ): Promise<
   { status: "up-to-date" } | { status: "available"; info: UpdateInfo }
 > {
-  // 动态引入，避免在未安装插件时导致打包期问题
-  const { check } = await import("@tauri-apps/plugin-updater");
-
+  // 走 Rust：清单地址是已登录的企业服务器，不走官方源。
+  const { invoke } = await import("@tauri-apps/api/core");
   const currentVersion = await getCurrentVersion();
-  const update = await check({ timeout: opts.timeout ?? 30000 } as any);
+  const update = await invoke<AppUpdatePayload | null>("check_app_update");
 
   if (!update) {
     return { status: "up-to-date" };
@@ -39,9 +44,9 @@ export async function checkForUpdate(
 
   const info: UpdateInfo = {
     currentVersion,
-    availableVersion: (update as any).version ?? "",
-    notes: (update as any).notes,
-    pubDate: (update as any).date,
+    availableVersion: update.availableVersion ?? "",
+    notes: update.notes ?? undefined,
+    pubDate: update.pubDate ?? undefined,
   };
 
   return { status: "available", info };

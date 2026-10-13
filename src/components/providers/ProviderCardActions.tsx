@@ -67,6 +67,8 @@ interface ProviderCardActionsProps {
   isTesting?: boolean;
   onConfigureUsage?: () => void;
   onOpenTerminal?: () => void;
+  /** Read-only card (e.g. enterprise-managed): no edit / duplicate / delete. */
+  readOnly?: boolean;
 }
 
 /**
@@ -85,9 +87,11 @@ export function ProviderCardActions({
   isTesting,
   onConfigureUsage,
   onOpenTerminal,
+  readOnly = false,
 }: ProviderCardActionsProps) {
   const { t } = useTranslation();
   const { status, buttons, move, menuItems = [] } = presentation;
+  const duplicate = readOnly ? undefined : onDuplicate;
 
   return (
     <div className="flex shrink-0 items-center gap-2">
@@ -141,19 +145,21 @@ export function ProviderCardActions({
         </div>
       )}
 
-      <IconAction
-        tip={t("common.edit")}
-        disabledReason={presentation.editDisabledReason}
-      >
-        <Button
-          variant="quiet"
-          size="icon-compact"
-          aria-label={t("providerCard.action.edit", { name: providerName })}
-          onClick={onEdit}
+      {!readOnly && (
+        <IconAction
+          tip={t("common.edit")}
+          disabledReason={presentation.editDisabledReason}
         >
-          <Pencil className="h-4 w-4" strokeWidth={1.5} />
-        </Button>
-      </IconAction>
+          <Button
+            variant="quiet"
+            size="icon-compact"
+            aria-label={t("providerCard.action.edit", { name: providerName })}
+            onClick={onEdit}
+          >
+            <Pencil className="h-4 w-4" strokeWidth={1.5} />
+          </Button>
+        </IconAction>
+      )}
 
       <DropdownMenu>
         <HoverTip content={t("common.more")}>
@@ -186,8 +192,8 @@ export function ProviderCardActions({
             </DropdownMenuItem>
           ))}
           {menuItems.length > 0 && <DropdownMenuSeparator />}
-          {onDuplicate && (
-            <DropdownMenuItem onSelect={onDuplicate}>
+          {duplicate && (
+            <DropdownMenuItem onSelect={duplicate}>
               {t("provider.duplicate")}
             </DropdownMenuItem>
           )}
@@ -207,21 +213,24 @@ export function ProviderCardActions({
               {t("provider.openTerminal")}
             </DropdownMenuItem>
           )}
-          {(onDuplicate || onTest || onConfigureUsage || onOpenTerminal) && (
-            <DropdownMenuSeparator />
-          )}
-          <DropdownMenuItem
-            disabled={Boolean(presentation.deleteDisabledReason)}
-            onSelect={onDelete}
-            className="flex-col items-start gap-0.5 text-danger-text focus:text-danger-text"
-          >
-            {t("common.delete")}
-            {presentation.deleteDisabledReason && (
-              <span className="text-caption text-fg-3">
-                {presentation.deleteDisabledReason}
-              </span>
+          {!readOnly &&
+            (duplicate || onTest || onConfigureUsage || onOpenTerminal) && (
+              <DropdownMenuSeparator />
             )}
-          </DropdownMenuItem>
+          {!readOnly && (
+            <DropdownMenuItem
+              disabled={Boolean(presentation.deleteDisabledReason)}
+              onSelect={onDelete}
+              className="flex-col items-start gap-0.5 text-danger-text focus:text-danger-text"
+            >
+              {t("common.delete")}
+              {presentation.deleteDisabledReason && (
+                <span className="text-caption text-fg-3">
+                  {presentation.deleteDisabledReason}
+                </span>
+              )}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

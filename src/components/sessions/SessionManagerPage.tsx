@@ -24,7 +24,7 @@ import {
 } from "@/lib/query";
 import { piApi, sessionsApi, type AppId } from "@/lib/api";
 import type { SessionMeta } from "@/types";
-import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
+import { resolveVisibleApps } from "@/config/appConfig";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { Notice } from "@/components/ui/notice";
@@ -195,7 +195,7 @@ export function SessionManagerPage({
 
   // 下拉里只列「应用」页设为显示的应用；Claude Code 的会话在 Claude Desktop 显示时也算
   const availableApps = useMemo(() => {
-    const visible = { ...DEFAULT_VISIBLE_APPS, ...settings?.visibleApps };
+    const visible = resolveVisibleApps(settings?.visibleApps);
     return SESSION_APP_IDS.filter(
       (app) =>
         visible[app] ||

@@ -1,0 +1,356 @@
+import {
+  ListMarketItemsResponseSchema,
+  type MarketItem,
+  type MarketItemPatch,
+  MarketItemSchema,
+} from "@ccse/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Sparkles, Upload } from "lucide-react";
+import { useState } from "react";
+import { useToast } from "../components/Toast";
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  Dialog,
+  EmptyState,
+  ErrorState,
+  InlineError,
+  LoadingState,
+  PageHeader,
+  Spinner,
+  Switch,
+  tableClass,
+  tdClass,
+  thClass,
+  trClass,
+} from "../components/ui";
+import { ApiError } from "../lib/api";
+import { useApi } from "../lib/auth";
+import {
+  describeError,
+  fieldErrorsOf,
+  formatBytes,
+  formatDateTime,
+} from "../lib/format";
+import { MarketUploadForm, type MarketUploadValues } from "./MarketUploadForm";
+
+const MARKET_KEY = ["market", "items"] as const;
+
+async function sha256Hex(blob: Blob): Promise<string | null> {
+  if (!globalThis.crypto?.subtle) return null;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await blob.arrayBuffer(),
+  );
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+export function MarketPage() {
+  const client = useApi();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [uploading, setUploading] = useState<MarketItem | "new" | null>(null);
+  const [deleting, setDeleting] = useState<MarketItem | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const items = useQuery({
+    queryKey: MARKET_KEY,
+    queryFn: ({ signal }) =>
+      client.get("/market/items", ListMarketItemsResponseSchema, signal),
+  });
+
+  const patch = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: MarketItemPatch }) =>
+      client.request(`/admin/market/items/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body,
+        schema: MarketItemSchema,
+      }),
+    onSuccess: (item) => {
+      qc.setQueryData(MARKET_KEY, (old: { items: MarketItem[] } | undefined) =>
+        old
+          ? { items: old.items.map((i) => (i.id === item.id ? item : i)) }
+          : old,
+      );
+      toast.success(
+        item.mandatory ? `${item.name} 已设为必装` : `${item.name} 已取消必装`,
+      );
+    },
+    onError: (err) => toast.error(`修改失败：${describeError(err)}`),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      client.request(`/admin/market/items/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: MARKET_KEY });
+      toast.success(`已删除 ${id}`);
+      setDeleting(null);
+    },
+    onError: (err) => toast.error(`删除失败：${describeError(err)}`),
+  });
+
+  const download = async (item: MarketItem) => {
+    setDownloadingId(item.id);
+    try {
+      const { blob, headers } = await client.download(
+        `/market/items/${encodeURIComponent(item.id)}/package`,
+      );
+      const expected = headers.get("X-Content-SHA256") ?? item.sha256;
+      const actual = await sha256Hex(blob);
+      if (actual && expected && actual !== expected.toLowerCase()) {
+        toast.error("下载的文件校验失败（SHA-256 不匹配），已取消保存");
+        return;
+      }
+      saveBlob(blob, `${item.id}-${item.version}.zip`);
+    } catch (err) {
+      toast.error(`下载失败：${describeError(err)}`);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const togglingId = patch.isPending ? patch.variables?.id : undefined;
+
+  return (
+    <div>
+      <PageHeader
+        title="技能与插件市场"
+        description="发布企业内部的 Codex 技能与插件。员工可在客户端安装，标记为必装的会自动安装。"
+        actions={
+          <Button variant="primary" onClick={() => setUploading("new")}>
+            <Upload className="size-4" />
+            上传
+          </Button>
+        }
+      />
+      <Card className="overflow-x-auto">
+        {items.isPending ? (
+          <LoadingState />
+        ) : items.isError ? (
+          <ErrorState error={items.error} onRetry={() => items.refetch()} />
+        ) : items.data.items.length === 0 ? (
+          <EmptyState
+            icon={<Sparkles className="size-6 stroke-[1.5]" />}
+            title="市场暂无内容"
+          >
+            市场还是空的，点击右上角「上传」发布第一个技能或插件。
+          </EmptyState>
+        ) : (
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className={thClass}>类型</th>
+                <th className={thClass}>ID</th>
+                <th className={thClass}>名称</th>
+                <th className={thClass}>版本</th>
+                <th className={thClass}>必装</th>
+                <th className={`${thClass} text-right`}>大小</th>
+                <th className={thClass}>更新时间</th>
+                <th className={`${thClass} text-right`}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.data.items.map((item) => (
+                <tr key={item.id} className={trClass}>
+                  <td className={tdClass}>
+                    {item.kind === "skill" ? (
+                      <Badge tone="blue">skill</Badge>
+                    ) : (
+                      <Badge tone="purple">plugin</Badge>
+                    )}
+                  </td>
+                  <td className={`${tdClass} font-mono text-xs`}>{item.id}</td>
+                  <td className={`${tdClass} max-w-72`}>
+                    <div>{item.name}</div>
+                    {item.description && (
+                      <div
+                        className="truncate text-xs text-zinc-500"
+                        title={item.description}
+                      >
+                        {item.description}
+                      </div>
+                    )}
+                  </td>
+                  <td className={`${tdClass} font-mono text-xs`}>
+                    {item.version}
+                  </td>
+                  <td className={tdClass}>
+                    <div className="flex items-center gap-1.5">
+                      <Switch
+                        label={`${item.name} 必装`}
+                        checked={item.mandatory}
+                        disabled={togglingId === item.id}
+                        onChange={(mandatory) =>
+                          patch.mutate({ id: item.id, body: { mandatory } })
+                        }
+                      />
+                      {togglingId === item.id && <Spinner className="size-3" />}
+                    </div>
+                  </td>
+                  <td
+                    className={`${tdClass} text-right whitespace-nowrap tabular-nums`}
+                  >
+                    {formatBytes(item.sizeBytes)}
+                  </td>
+                  <td className={`${tdClass} whitespace-nowrap`}>
+                    {formatDateTime(item.updatedAt)}
+                  </td>
+                  <td className={`${tdClass} text-right whitespace-nowrap`}>
+                    <div className="inline-flex gap-1">
+                      <Button
+                        size="sm"
+                        disabled={downloadingId === item.id}
+                        onClick={() => download(item)}
+                      >
+                        {downloadingId === item.id && (
+                          <Spinner className="size-3" />
+                        )}
+                        下载
+                      </Button>
+                      <Button size="sm" onClick={() => setUploading(item)}>
+                        新版本
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-600 dark:text-red-400"
+                        onClick={() => setDeleting(item)}
+                      >
+                        删除
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      {uploading && (
+        <UploadDialog
+          key={uploading === "new" ? "new" : uploading.id}
+          existing={uploading === "new" ? undefined : uploading}
+          onClose={() => setUploading(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={deleting !== null}
+        title="删除市场条目"
+        danger
+        confirmLabel="删除"
+        pending={remove.isPending}
+        message={
+          <>
+            确定删除 <b>{deleting?.name}</b>（{deleting?.id}
+            ）吗？已安装的客户端不会被卸载，但无法再从市场安装或更新。
+          </>
+        }
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
+    </div>
+  );
+}
+
+function UploadDialog({
+  existing,
+  onClose,
+}: {
+  existing?: MarketItem;
+  onClose(): void;
+}) {
+  const client = useApi();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const upload = useMutation({
+    mutationFn: (v: MarketUploadValues) =>
+      client.request(`/admin/market/items/${encodeURIComponent(v.id)}`, {
+        method: "PUT",
+        query: {
+          kind: v.kind,
+          name: v.name,
+          description: v.description,
+          version: v.version,
+          mandatory: v.mandatory ? "true" : "false",
+        },
+        raw: { data: v.file, contentType: "application/zip" },
+        schema: MarketItemSchema,
+      }),
+    onSuccess: (item) => {
+      qc.invalidateQueries({ queryKey: MARKET_KEY });
+      toast.success(`已发布 ${item.name} ${item.version}`);
+      onClose();
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === "payload_too_large") {
+        setServerErrors({ file: "文件超过服务器允许的大小（20 MB）" });
+        return;
+      }
+      const fields = fieldErrorsOf(err);
+      if (Object.keys(fields).length > 0) setServerErrors(fields);
+      // Zip layout problems come back as a 400 without field paths.
+      setFormError(describeError(err));
+    },
+  });
+
+  return (
+    <Dialog
+      open
+      width="max-w-2xl"
+      title={existing ? `发布新版本：${existing.name}` : "上传技能 / 插件"}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button
+            type="submit"
+            form="market-upload-form"
+            variant="primary"
+            disabled={upload.isPending}
+          >
+            {upload.isPending && <Spinner className="size-3" />}
+            上传
+          </Button>
+        </>
+      }
+    >
+      <MarketUploadForm
+        formId="market-upload-form"
+        existing={existing}
+        serverErrors={serverErrors}
+        onSubmit={(v) => {
+          setServerErrors({});
+          setFormError(null);
+          upload.mutate(v);
+        }}
+      />
+      {formError && (
+        <div className="mt-3">
+          <InlineError>{formError}</InlineError>
+        </div>
+      )}
+    </Dialog>
+  );
+}

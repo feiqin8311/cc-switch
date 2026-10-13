@@ -613,6 +613,9 @@ pub struct ProviderMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub stack_models: Option<Vec<ClaudeStackModel>>,
+    /// 企业版服务器托管的 Codex 供应商卡（只读，见 `enterprise::providers`）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enterprise: Option<crate::enterprise::EnterpriseProviderMeta>,
 }
 
 /// Stack 模式下 Claude Code 供应商发布的一个模型。

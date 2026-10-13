@@ -16,6 +16,7 @@ import {
 } from "@/lib/query/proxy";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { PROXY_APP_IDS, type ProxyAppId } from "@/config/appConfig";
+import { CODEX_ONLY } from "@/config/edition";
 import { providerNeedsRouting } from "@/utils/providerCapabilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,7 +105,9 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
   const [clientHost, setClientHost] = useState("");
   const [clientHostError, setClientHostError] = useState<string | null>(null);
   const [confirmExitAll, setConfirmExitAll] = useState(false);
-  const [failoverApp, setFailoverApp] = useState<ProxyAppId>("claude");
+  const [failoverApp, setFailoverApp] = useState<ProxyAppId>(
+    CODEX_ONLY ? "codex" : "claude",
+  );
 
   useEffect(() => {
     if (config) {
@@ -410,7 +413,7 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
                 onOpen={() => onOpenApp(app)}
               />
             ))}
-            {desktopMapping && desktopCurrent && (
+            {!CODEX_ONLY && desktopMapping && desktopCurrent && (
               <UsingAppRow
                 app="claude-desktop"
                 modeLabel={t("routingSettings.desktopMode")}

@@ -76,6 +76,8 @@ import {
 import { WindowControls } from "@/components/shell/WindowControls";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
+import { UserStatusPill } from "@/components/auth/UserStatusPill";
+import { useAuth } from "@/contexts/AuthContext";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import {
@@ -104,6 +106,7 @@ import PromptPanel from "@/components/prompts/PromptPanel";
 import { PROMPT_APP_IDS } from "@/lib/query/prompts";
 import UnifiedSkillsPanel from "@/components/skills/UnifiedSkillsPanel";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
+import { AppUpdateDialog } from "@/components/AppUpdateDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { WhatsNewNotice } from "@/components/WhatsNewDialog";
 import { Badge } from "@/components/ui/badge";
@@ -132,11 +135,8 @@ import OpenClawHealthBanner from "@/components/openclaw/OpenClawHealthBanner";
 import HermesMemoryPanel, {
   HermesMemorySaveButton,
 } from "@/components/hermes/HermesMemoryPanel";
-import {
-  APP_IDS,
-  DEFAULT_VISIBLE_APPS,
-  isProxyAppId,
-} from "@/config/appConfig";
+import { APP_IDS, isProxyAppId, resolveVisibleApps } from "@/config/appConfig";
+import { CODEX_ONLY } from "@/config/edition";
 
 interface SyncStatusUpdatedPayload {
   source?: string;
@@ -147,6 +147,7 @@ interface SyncStatusUpdatedPayload {
 type OpenClawConfigTab = "env" | "tools" | "agents";
 
 const getInitialApp = (): AppId => {
+  if (CODEX_ONLY) return "codex";
   const saved = localStorage.getItem(APP_STORAGE_KEY) as AppId | null;
   if (saved && APP_IDS.includes(saved)) {
     return saved;
@@ -200,18 +201,24 @@ function App() {
   const [promptNavigationBusy, setPromptNavigationBusy] = useState(false);
 
   useEffect(() => {
+    if (CODEX_ONLY && currentView === "auth") {
+      setCurrentView("providers");
+    }
+  }, [currentView]);
+
+  useEffect(() => {
     storeView(currentView);
   }, [currentView]);
+
+  const { state: authState, hasPermission } = useAuth();
+  const canManageProviders = !authState.loggedIn || hasPermission("providers.manage");
 
   const { data: settingsData } = useSettingsQuery();
   // Windows 一律去掉系统标题栏，用页头里的应用内窗口按钮；Linux 由设置决定
   const useAppWindowControls =
     isWindows() || (isLinux() && (settingsData?.useAppWindowControls ?? false));
   const visibleApps = useMemo<VisibleApps>(
-    () => ({
-      ...DEFAULT_VISIBLE_APPS,
-      ...settingsData?.visibleApps,
-    }),
+    () => resolveVisibleApps(settingsData?.visibleApps),
     [settingsData?.visibleApps],
   );
 
@@ -304,6 +311,7 @@ function App() {
   const currentModeView =
     providerModeView?.app === activeApp ? providerModeView.view : undefined;
   const openAddProvider = (modeView: AppMode | undefined) => {
+    if (!canManageProviders) return;
     setFormModeView(modeView);
     setIsAddOpen(true);
   };
@@ -666,6 +674,7 @@ function App() {
   };
 
   const selectApp = (app: AppId) => {
+    if (CODEX_ONLY && app !== "codex") return;
     if (managementBusyRef.current) return;
     if (confirmLeave(() => selectApp(app))) return;
     closeProviderPanels();
@@ -698,7 +707,7 @@ function App() {
         openSettings(navigation.section);
         return;
       }
-      if (!navigation.app) return;
+      if (!navigation.app || (CODEX_ONLY && navigation.app !== "codex")) return;
       selectApp(navigation.app);
       // 托盘先换应用：新应用那格还没报上来，按它实际生效的模式
       if (navigation.intent === "add") openAddProvider(undefined);
@@ -720,13 +729,15 @@ function App() {
       openSettings("about");
       return;
     }
-    if (page === "usage") setUsageAppFilter("all");
+    if (page === "usage") setUsageAppFilter(CODEX_ONLY ? "codex" : "all");
     openPage(page);
   };
 
   const openSettingsRef = useRef(openSettings);
   openSettingsRef.current = openSettings;
-  const [usageAppFilter, setUsageAppFilter] = useState<AppTypeFilter>("all");
+  const [usageAppFilter, setUsageAppFilter] = useState<AppTypeFilter>(
+    CODEX_ONLY ? "codex" : "all",
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1175,6 +1186,7 @@ function App() {
       }
       actions={
         <>
+          <UserStatusPill />
           {currentView === "providers" &&
             activeApp !== "mcode" &&
             (settingsData?.showProfileSwitcher ?? false) && (
@@ -1209,7 +1221,7 @@ function App() {
                 </Button>
               </HoverTip>
             )}
-          {currentView === "providers" && (
+          {currentView === "providers" && canManageProviders && (
             <Button
               variant="solid"
               size="regular"
@@ -1276,7 +1288,7 @@ function App() {
     onConfigureUsage: setUsageProvider,
     onOpenWebsite: handleOpenWebsite,
     onOpenTerminal: activeApp === "claude" ? handleOpenTerminal : undefined,
-    onCreate: () => openAddProvider(currentModeView),
+    onCreate: canManageProviders ? () => openAddProvider(currentModeView) : undefined,
     searchOpen: providerSearchOpen,
     onSearchOpenChange: setProviderSearchOpen,
   };
@@ -1692,6 +1704,7 @@ function App() {
 
       <DeepLinkImportDialog />
       <FirstRunNoticeDialog />
+      <AppUpdateDialog />
       <NewLayoutDialog />
       <WhatsNewNotice />
     </WindowControlsContext.Provider>

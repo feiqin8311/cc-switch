@@ -8,6 +8,7 @@ import { useProxyStatusQuery } from "@/lib/query/proxy";
 import { proxyApi } from "@/lib/api/proxy";
 import { useUsageSummary } from "@/lib/query/usage";
 import { PROXY_APP_IDS, isProxyAppId } from "@/config/appConfig";
+import { CODEX_ONLY } from "@/config/edition";
 import { providerNeedsRouting } from "@/utils/providerCapabilities";
 import { parseFiniteNumber } from "@/components/usage/format";
 import type { UsageRangeSelection } from "@/types/usage";
@@ -41,9 +42,13 @@ export function useSidebarStatus() {
     })),
   });
   const { data: desktopProviders } = useProvidersQuery("claude-desktop");
-  const { data: todaySummary } = useUsageSummary(TODAY, undefined, {
-    refetchInterval: 60_000,
-  });
+  const { data: todaySummary } = useUsageSummary(
+    TODAY,
+    CODEX_ONLY ? { appType: "codex" } : undefined,
+    {
+      refetchInterval: 60_000,
+    },
+  );
 
   const authStatuses = useQueries({
     queries: MANAGED_AUTH_PROVIDERS.map((provider) => ({

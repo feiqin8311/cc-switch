@@ -922,6 +922,10 @@
     "aboutHint": "バージョン情報と更新状況を表示します。",
     "portableMode": "ポータブルモード: 更新は手動ダウンロードが必要です。",
     "updateAvailable": "新しいバージョンがあります: {{version}}",
+    "updateDialogTitle": "新しいバージョンがあります",
+    "updateDialogBody": "v{{version}} を公開しました。「更新して再起動」でダウンロード、署名の確認、再起動まで行います。",
+    "updateLater": "後で",
+    "updateNow": "更新して再起動",
     "updateBadge": "更新あり",
     "updateFailed": "更新のインストールに失敗しました。ダウンロードページを開こうとしました。",
     "checkUpdateFailed": "更新の確認に失敗しました。時間をおいて再試行してください。",
@@ -4779,5 +4783,64 @@
       "refresh": "残量を更新",
       "refreshAria": "{{login}} の残量を更新"
     }
+  },
+  "enterprise": {
+    "login": "企業ログイン",
+    "loginTitle": "企業センターにログイン",
+    "loginHint": "ログインすると、組織が割り当てたロール・モデル・プラグインが同期されます。",
+    "serverUrl": "サーバー URL",
+    "username": "ユーザー名",
+    "password": "パスワード",
+    "loggingIn": "ログイン中...",
+    "loginFailed": "ログインに失敗しました",
+    "logout": "ログアウト",
+    "refresh": "企業設定を同期",
+    "offline": "オフライン（最後に同期した設定を使用）",
+    "role": {
+      "admin": "管理者",
+      "member": "メンバー",
+      "viewer": "閲覧のみ"
+    }
+  },
+  "enterpriseModels": {
+    "badge": "企業",
+    "badgeTitle": "企業サーバーが管理するプロバイダー（読み取り専用）。サインアウトすると削除されます",
+    "selectLabel": "{{name}} が使用するモデル",
+    "placeholder": "モデルを選択",
+    "changeFailed": "モデルの切り替えに失敗しました: {{error}}"
+  },
+  "enterpriseMarket": {
+    "title": "エンタープライズマーケット",
+    "skills": "スキル",
+    "plugins": "プラグイン",
+    "mandatory": "必須",
+    "status": {
+      "installed": "インストール済み",
+      "updateAvailable": "更新あり",
+      "notInstalled": "未インストール"
+    },
+    "install": "インストール",
+    "update": "更新",
+    "uninstall": "アンインストール",
+    "loading": "エンタープライズマーケットを読み込み中…",
+    "empty": "エンタープライズマーケットに項目がありません",
+    "loadFailed": "エンタープライズマーケットの読み込みに失敗しました：{{error}}",
+    "toast": {
+      "installed": "インストールしました",
+      "uninstalled": "アンインストールしました",
+      "installFailed": "インストールに失敗しました：{{error}}",
+      "uninstallFailed": "アンインストールに失敗しました：{{error}}"
+    }
+  },
+  "enterpriseRetention": {
+    "title": "会話保存に関するお知らせ",
+    "noticeFallback": "企業の管理者が会話保存を有効にしました。",
+    "scopeNote": "同意すると、このデバイスで今後開始される Codex の会話が企業サーバーに保存のためアップロードされます。同意前の会話はアップロードされません。同意しない場合は、企業アカウントからサインアウトしてください。",
+    "acknowledge": "内容を理解し同意します",
+    "logout": "企業アカウントからサインアウト",
+    "actionFailed": "操作に失敗しました：{{error}}",
+    "statusLabel": "会話保存：{{status}}",
+    "statusOn": "有効",
+    "statusOff": "無効"
   }
 }

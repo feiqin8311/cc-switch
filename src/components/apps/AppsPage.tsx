@@ -18,6 +18,7 @@ import { providersApi } from "@/lib/api/providers";
 import type { ToolInstallationReport } from "@/lib/api/settings";
 import type { VisibleApps } from "@/types";
 import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
+import { CODEX_ONLY } from "@/config/edition";
 import { useSettings } from "@/hooks/useSettings";
 import { isUpdateAvailable } from "@/lib/version";
 import { cn } from "@/lib/utils";
@@ -80,13 +81,15 @@ const SOURCE_LABEL: Record<string, string> = {
 
 type Row = { kind: "tool"; tool: ToolName } | { kind: "desktop" };
 
-const ROWS: Row[] = [
-  { kind: "tool", tool: "claude" },
-  { kind: "desktop" },
-  ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
-    (tool): Row => ({ kind: "tool", tool }),
-  ),
-];
+const ROWS: Row[] = CODEX_ONLY
+  ? [{ kind: "tool", tool: "codex" }]
+  : [
+      { kind: "tool", tool: "claude" },
+      { kind: "desktop" },
+      ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
+        (tool): Row => ({ kind: "tool", tool }),
+      ),
+    ];
 
 function formatCheckedAt(timestamp: number, locale: string): string {
   const date = new Date(timestamp);
@@ -273,10 +276,14 @@ export function AppsPage() {
             </span>
             <span className="w-[200px]" />
             <span className="flex w-[56px] items-center justify-end gap-0.5">
-              {t("appsPage.columnVisible")}
-              <HelpTip title={t("appsPage.columnVisible")} align="end">
-                {t("appsPage.visibleHelp")}
-              </HelpTip>
+              {!CODEX_ONLY && (
+                <>
+                  {t("appsPage.columnVisible")}
+                  <HelpTip title={t("appsPage.columnVisible")} align="end">
+                    {t("appsPage.visibleHelp")}
+                  </HelpTip>
+                </>
+              )}
             </span>
           </div>
 
@@ -303,7 +310,9 @@ export function AppsPage() {
                           : t("appsPage.desktopNotConnected")}
                     </span>
                   }
-                  visibility={visibilitySwitch("claude-desktop")}
+                  visibility={
+                    CODEX_ONLY ? null : visibilitySwitch("claude-desktop")
+                  }
                 />
               ) : (
                 <ToolRow
@@ -318,7 +327,9 @@ export function AppsPage() {
                       [row.tool]: !prev[row.tool],
                     }))
                   }
-                  visibility={visibilitySwitch(TOOL_APP_IDS[row.tool])}
+                  visibility={
+                    CODEX_ONLY ? null : visibilitySwitch(TOOL_APP_IDS[row.tool])
+                  }
                 />
               ),
             )}
