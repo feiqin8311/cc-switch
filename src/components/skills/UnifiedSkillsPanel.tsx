@@ -28,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { AppGlyph, APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { SkillsIcon } from "@/components/BrandIcons";
+import { EnterpriseMarketPanel } from "@/components/skills/EnterpriseMarketPanel";
 import {
   type ImportSkillSelection,
   type InstalledSkill,
@@ -1435,6 +1436,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     <>
       {header}
       <div id="main-content" className="flex min-h-0 flex-1 flex-col">
+        <EnterpriseMarketPanel />
         <div className="shrink-0 px-6 pt-1">{viewTabs}</div>
         {/* 两段打开过就一直挂着，切回来不重新加载；不在看的那段只是隐藏 */}
         {discoverMounted && (

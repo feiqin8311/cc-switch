@@ -7,6 +7,9 @@ import { server } from "./msw/server";
 import { resetProviderState } from "./msw/state";
 import "./msw/tauriMocks";
 
+// Upstream suites cover the multi-app edition; the Codex-only lock is a fork switch.
+vi.mock("@/config/edition", () => ({ CODEX_ONLY: false }));
+
 beforeAll(async () => {
   server.listen({ onUnhandledRequest: "warn" });
   await i18n.use(initReactI18next).init({

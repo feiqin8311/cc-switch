@@ -922,6 +922,10 @@
     "aboutHint": "View version information and update status.",
     "portableMode": "Portable mode: updates require manual download.",
     "updateAvailable": "New version available: {{version}}",
+    "updateDialogTitle": "An update is available",
+    "updateDialogBody": "v{{version}} is ready. Update downloads the build, checks its signature, and restarts.",
+    "updateLater": "Later",
+    "updateNow": "Update and restart",
     "updateBadge": "Update available",
     "updateFailed": "Update installation failed, attempted to open download page.",
     "checkUpdateFailed": "Failed to check for updates, please try again later.",
@@ -4779,5 +4783,64 @@
       "refresh": "Refresh quota",
       "refreshAria": "Refresh quota for {{login}}"
     }
+  },
+  "enterprise": {
+    "login": "Enterprise sign-in",
+    "loginTitle": "Sign in to enterprise center",
+    "loginHint": "Signing in syncs the role, models and plugins your organization assigned to you.",
+    "serverUrl": "Server URL",
+    "username": "Username",
+    "password": "Password",
+    "loggingIn": "Signing in...",
+    "loginFailed": "Sign-in failed",
+    "logout": "Sign out",
+    "refresh": "Sync enterprise config",
+    "offline": "Offline (using last synced config)",
+    "role": {
+      "admin": "Admin",
+      "member": "Member",
+      "viewer": "Viewer"
+    }
+  },
+  "enterpriseModels": {
+    "badge": "Enterprise",
+    "badgeTitle": "Managed by your enterprise server (read-only); removed when you sign out",
+    "selectLabel": "Model used by {{name}}",
+    "placeholder": "Select model",
+    "changeFailed": "Failed to switch model: {{error}}"
+  },
+  "enterpriseMarket": {
+    "title": "Enterprise marketplace",
+    "skills": "Skills",
+    "plugins": "Plugins",
+    "mandatory": "Required",
+    "status": {
+      "installed": "Installed",
+      "updateAvailable": "Update available",
+      "notInstalled": "Not installed"
+    },
+    "install": "Install",
+    "update": "Update",
+    "uninstall": "Uninstall",
+    "loading": "Loading enterprise marketplace…",
+    "empty": "No items in the enterprise marketplace",
+    "loadFailed": "Failed to load the enterprise marketplace: {{error}}",
+    "toast": {
+      "installed": "Installed",
+      "uninstalled": "Uninstalled",
+      "installFailed": "Install failed: {{error}}",
+      "uninstallFailed": "Uninstall failed: {{error}}"
+    }
+  },
+  "enterpriseRetention": {
+    "title": "Conversation retention notice",
+    "noticeFallback": "Your enterprise administrator has enabled conversation retention.",
+    "scopeNote": "After you acknowledge, Codex conversations started on this device from now on are uploaded to the enterprise server for retention. Conversations from before your acknowledgment are never uploaded. If you do not agree, sign out of the enterprise account.",
+    "acknowledge": "I understand and agree",
+    "logout": "Sign out of enterprise",
+    "actionFailed": "Action failed: {{error}}",
+    "statusLabel": "Conversation retention: {{status}}",
+    "statusOn": "On",
+    "statusOff": "Off"
   }
 }

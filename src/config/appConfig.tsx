@@ -8,6 +8,7 @@ import {
   OpenClawIcon,
 } from "@/components/BrandIcons";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { CODEX_ONLY } from "@/config/edition";
 
 export interface AppConfig {
   label: string;
@@ -42,17 +43,34 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   mcode: true,
 };
 
+/**
+ * Effective visible apps: stored settings merged over defaults, or exactly
+ * { codex } in the Codex-only edition.
+ */
+export function resolveVisibleApps(stored?: Partial<VisibleApps>): VisibleApps {
+  if (CODEX_ONLY) {
+    const locked = { ...DEFAULT_VISIBLE_APPS };
+    for (const app of Object.keys(locked) as (keyof VisibleApps)[]) {
+      locked[app] = app === "codex";
+    }
+    return locked;
+  }
+  return { ...DEFAULT_VISIBLE_APPS, ...stored };
+}
+
 /** App IDs shown in Skills panels. */
-export const SKILLS_APP_IDS: AppId[] = [
-  "claude",
-  "codex",
-  "gemini",
-  "grokbuild",
-  "opencode",
-  "hermes",
-  "pi",
-  "mcode",
-];
+export const SKILLS_APP_IDS: AppId[] = CODEX_ONLY
+  ? ["codex"]
+  : [
+      "claude",
+      "codex",
+      "gemini",
+      "grokbuild",
+      "opencode",
+      "hermes",
+      "pi",
+      "mcode",
+    ];
 
 export type ProxyAppId = Extract<
   AppId,
@@ -60,12 +78,14 @@ export type ProxyAppId = Extract<
 >;
 
 /** Apps with a complete local gateway + failover data plane. */
-export const PROXY_APP_IDS: ProxyAppId[] = [
-  "claude",
-  "codex",
-  "gemini",
-  "grokbuild",
-];
+export const PROXY_APP_IDS: ProxyAppId[] = CODEX_ONLY
+  ? ["codex"]
+  : [
+      "claude",
+      "codex",
+      "gemini",
+      "grokbuild",
+    ];
 
 export function isProxyAppId(appId: string): appId is ProxyAppId {
   return (PROXY_APP_IDS as string[]).includes(appId);

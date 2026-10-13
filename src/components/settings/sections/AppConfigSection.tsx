@@ -18,6 +18,7 @@ import {
   SettingsRow,
   SettingsSwitchRow,
 } from "@/components/settings/SettingsLayout";
+import { CODEX_ONLY } from "@/config/edition";
 
 const DIRECTORY_FIELD: Record<DirectoryAppId, keyof Settings> = {
   claude: "claudeConfigDir",
@@ -41,16 +42,18 @@ const DIRECTORY_PLACEHOLDER: Record<DirectoryAppId, string> = {
   pi: "settings.browsePlaceholderPi",
 };
 
-const DIRECTORY_APPS: DirectoryAppId[] = [
-  "claude",
-  "codex",
-  "gemini",
-  "grokbuild",
-  "opencode",
-  "openclaw",
-  "hermes",
-  "pi",
-];
+const DIRECTORY_APPS: DirectoryAppId[] = CODEX_ONLY
+  ? ["codex"]
+  : [
+      "claude",
+      "codex",
+      "gemini",
+      "grokbuild",
+      "opencode",
+      "openclaw",
+      "hermes",
+      "pi",
+    ];
 
 const normalizeDir = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;

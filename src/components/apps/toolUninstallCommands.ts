@@ -1,4 +1,5 @@
 import type { ToolName } from "./useToolManagement";
+import { CODEX_ONLY } from "@/config/edition";
 
 // Audited against official installation docs, 2026-10-12.
 // An npm package does not imply support for every other package manager.
@@ -90,6 +91,7 @@ export function uninstallCommandsFor(
   environmentForTool: (tool: ToolName) => UninstallEnvironment | undefined,
 ) {
   return COMMANDS[method].filter(({ tool, environments }) => {
+    if (CODEX_ONLY && tool !== "codex") return false;
     const environment = environmentForTool(tool);
     return (
       !environments ||

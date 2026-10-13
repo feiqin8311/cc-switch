@@ -19,6 +19,7 @@ import {
   SettingsRow,
   SettingsSwitchRow,
 } from "@/components/settings/SettingsLayout";
+import { CODEX_ONLY } from "@/config/edition";
 
 type Language = SettingsFormState["language"];
 
@@ -132,15 +133,17 @@ export function GeneralSection({
 
       <SettingsBlock title={t("settings.general.sidebarAndHeader")}>
         <SettingsCard>
-          <SettingsRow
-            label={t("settings.general.visibleApps")}
-            control={
-              <Button variant="quiet" size="compact" onClick={onOpenApps}>
-                {t("settings.general.goToApps")}
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            }
-          />
+          {!CODEX_ONLY && (
+            <SettingsRow
+              label={t("settings.general.visibleApps")}
+              control={
+                <Button variant="quiet" size="compact" onClick={onOpenApps}>
+                  {t("settings.general.goToApps")}
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              }
+            />
+          )}
           <SettingsSwitchRow
             label={t("settings.appVisibility.showProfileSwitcher")}
             help={{

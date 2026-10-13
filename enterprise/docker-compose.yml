@@ -1,0 +1,43 @@
+# Production-style stack: Postgres + CC Switch Enterprise.
+#   cp .env.example .env   # fill in secrets
+#   docker compose up -d --build
+# Put a TLS-terminating reverse proxy (nginx/caddy) in front; the desktop client
+# only accepts https (http is allowed for localhost only).
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ccse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ccse
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ccse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://ccse:${POSTGRES_PASSWORD}@db:5432/ccse
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      SECRETS_KEY: ${SECRETS_KEY:?set SECRETS_KEY in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - server-data:/data
+
+volumes:
+  db-data:
+  server-data:

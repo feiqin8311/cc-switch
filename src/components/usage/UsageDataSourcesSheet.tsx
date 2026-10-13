@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { useGlobalProxyConfig } from "@/lib/query/proxy";
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { KNOWN_APP_TYPES } from "@/types/usage";
+import { CODEX_ONLY } from "@/config/edition";
 import { cn } from "@/lib/utils";
 import { getResolvedLang, joinNames } from "./format";
 
@@ -95,7 +96,9 @@ export function UsageDataSourcesSheet({
 }: UsageDataSourcesSheetProps) {
   const { t, i18n } = useTranslation();
   const coveredApps = joinNames(
-    KNOWN_APP_TYPES.map((app) => APP_DISPLAY_NAME[app]),
+    (CODEX_ONLY ? ["codex"] : KNOWN_APP_TYPES).map(
+      (app) => APP_DISPLAY_NAME[app],
+    ),
     getResolvedLang(i18n),
   );
   const cadence = sessionAutoSyncEnabled

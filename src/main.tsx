@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { DatabaseUpgrade } from "./components/DatabaseUpgrade";
 import { UpdateProvider } from "./contexts/UpdateContext";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { EnterpriseOverlays } from "@/components/auth/EnterpriseOverlays";
 import "./index.css";
 // 导入国际化配置
 import i18n, { syncLanguageFromSettings } from "./i18n";
@@ -139,7 +141,10 @@ async function bootstrap() {
               <MotionConfig reducedMotion="user">
                 {/* 全局悬停提示：移上去立即出现（HoverTip） */}
                 <TooltipProvider delayDuration={0} skipDelayDuration={0}>
-                  <App />
+                  <AuthProvider>
+                    <App />
+                    <EnterpriseOverlays />
+                  </AuthProvider>
                 </TooltipProvider>
               </MotionConfig>
               <Toaster />

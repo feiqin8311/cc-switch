@@ -24,6 +24,7 @@ import {
 import type { AppId } from "@/lib/api";
 import type { VisibleApps } from "@/types";
 import { APP_IDS } from "@/config/appConfig";
+import { CODEX_ONLY } from "@/config/edition";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
@@ -209,7 +210,9 @@ function MainDirectory({
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
   const { appStatus, todayCost, authNeedsAttention } = useSidebarStatus();
-  const apps = APP_IDS.filter((app) => visibleApps[app]);
+  const apps = APP_IDS.filter((app) =>
+    CODEX_ONLY ? app === "codex" : visibleApps[app],
+  );
   const onAppPage = isAppPage(view);
 
   const todayLabel =
@@ -228,12 +231,16 @@ function MainDirectory({
     { page: "skills", label: "Skills", icon: SkillsIcon },
     { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
     { page: "sessions", label: t("nav.sessions"), icon: History },
-    {
-      page: "auth",
-      label: t("nav.auth"),
-      icon: KeyRound,
-      alert: authNeedsAttention ? t("nav.authNeedsReauth") : undefined,
-    },
+    ...(!CODEX_ONLY
+      ? [
+          {
+            page: "auth" as const,
+            label: t("nav.auth"),
+            icon: KeyRound,
+            alert: authNeedsAttention ? t("nav.authNeedsReauth") : undefined,
+          },
+        ]
+      : []),
     {
       page: "usage",
       label: t("nav.usage"),

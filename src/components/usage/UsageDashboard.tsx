@@ -32,6 +32,7 @@ import {
   type AppTypeFilter,
   type UsageRangeSelection,
 } from "@/types/usage";
+import { CODEX_ONLY } from "@/config/edition";
 import {
   usageKeys,
   useModelStats,
@@ -152,7 +153,7 @@ export function UsageDashboard({
   onRefreshIntervalChange,
   sessionAutoSyncEnabled = true,
   onSessionAutoSyncEnabledChange,
-  initialAppType = "all",
+  initialAppType = CODEX_ONLY ? "codex" : "all",
   onOpenRoutingSettings,
 }: UsageDashboardProps = {}) {
   const { t, i18n } = useTranslation();
@@ -160,7 +161,9 @@ export function UsageDashboard({
   const [range, setRange] = useState<UsageRangeSelection>({
     preset: "today",
   });
-  const [appType, setAppType] = useState<AppTypeFilter>(initialAppType);
+  const [appType, setAppType] = useState<AppTypeFilter>(() =>
+    CODEX_ONLY ? "codex" : initialAppType,
+  );
   const [providerName, setProviderName] = useState<string | undefined>(
     undefined,
   );
@@ -195,7 +198,7 @@ export function UsageDashboard({
   }, [savedRefreshIntervalMs]);
 
   useEffect(() => {
-    setAppType(initialAppType);
+    setAppType(CODEX_ONLY ? "codex" : initialAppType);
     setProviderName(undefined);
     setModel(undefined);
   }, [initialAppType]);
@@ -203,6 +206,7 @@ export function UsageDashboard({
   // 切应用时清掉下游筛选，避免留下一个在新范围内查无数据的"幽灵"组合；
   // 切供应商同理清掉模型（模型选项随供应商级联）。
   const changeAppType = (next: AppTypeFilter) => {
+    if (CODEX_ONLY && next !== "codex") return;
     setAppType(next);
     if (next !== appType) {
       setProviderName(undefined);
@@ -472,6 +476,8 @@ export function UsageDashboard({
         : "font-medium text-fg-2 hover:text-fg-1",
     );
 
+  const activeAppTypes = CODEX_ONLY ? (["codex"] as const) : KNOWN_APP_TYPES;
+
   const filterRow = (
     <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-1.5 px-6 py-2">
       <div
@@ -485,16 +491,18 @@ export function UsageDashboard({
           animate={appFilterIndicator.animate}
           className="rounded-[5px]"
         />
-        <button
-          type="button"
-          aria-pressed={appType === "all"}
-          className={chipClass(appType === "all")}
-          onClick={() => changeAppType("all")}
-        >
-          {t("usage.appFilter.all")}
-        </button>
+        {!CODEX_ONLY && (
+          <button
+            type="button"
+            aria-pressed={appType === "all"}
+            className={chipClass(appType === "all")}
+            onClick={() => changeAppType("all")}
+          >
+            {t("usage.appFilter.all")}
+          </button>
+        )}
         {/* 应用只露图标，名字放悬停提示和 aria-label */}
-        {KNOWN_APP_TYPES.map((app) => (
+        {activeAppTypes.map((app) => (
           <HoverTip key={app} content={APP_DISPLAY_NAME[app]}>
             <button
               type="button"
@@ -502,7 +510,7 @@ export function UsageDashboard({
               aria-label={APP_DISPLAY_NAME[app]}
               className={cn(
                 chipClass(appType === app),
-                "w-[30px] justify-center px-0",
+                CODEX_ONLY ? "gap-1.5 px-2.5" : "w-[30px] justify-center px-0",
               )}
               onClick={() => changeAppType(app)}
             >
@@ -511,6 +519,7 @@ export function UsageDashboard({
                 size={16}
                 badgeClassName={appType === app ? "bg-surface" : "bg-subtle"}
               />
+              {CODEX_ONLY && <span>{APP_DISPLAY_NAME[app]}</span>}
             </button>
           </HoverTip>
         ))}

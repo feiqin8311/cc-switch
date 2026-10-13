@@ -17,6 +17,7 @@ import type { AppId } from "@/lib/api/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isWindows } from "@/lib/platform";
 import { isUpdateAvailable } from "@/lib/version";
+import { CODEX_ONLY } from "@/config/edition";
 
 /**
  * 「应用」页的安装 / 升级 / 卸载逻辑。任务、确认队列和版本结果放在模块级的
@@ -47,6 +48,9 @@ export const TOOL_NAMES = [
   "mcode",
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
+export const ACTIVE_TOOL_NAMES: readonly ToolName[] = CODEX_ONLY
+  ? (["codex"] as const)
+  : TOOL_NAMES;
 export type ToolLifecycleAction = "install" | "update" | "uninstall";
 
 interface PendingUpgrade {
@@ -162,9 +166,11 @@ npm i -g @earendil-works/pi-coding-agent@latest
 # MiniMax Code
 ${MCODE_WINDOWS_INSTALL_COMMAND}`;
 
-export const ONE_CLICK_INSTALL_COMMANDS = isWindows()
-  ? WINDOWS_ONE_CLICK_INSTALL_COMMANDS
-  : POSIX_ONE_CLICK_INSTALL_COMMANDS;
+export const ONE_CLICK_INSTALL_COMMANDS = CODEX_ONLY
+  ? "# Codex\nnpm i -g @openai/codex@latest"
+  : isWindows()
+    ? WINDOWS_ONE_CLICK_INSTALL_COMMANDS
+    : POSIX_ONE_CLICK_INSTALL_COMMANDS;
 
 export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   claude: "Claude Code",
@@ -261,9 +267,9 @@ export async function checkToolUpdatesInBackground(): Promise<void> {
   const cache = toolManagementState.toolVersionsCache;
   if (cache && Date.now() - cache.at < TOOL_VERSIONS_CACHE_TTL_MS) return;
   const requestId = ++toolVersionRequestSequence;
-  TOOL_NAMES.forEach((name) => latestToolVersionRequests.set(name, requestId));
+  ACTIVE_TOOL_NAMES.forEach((name) => latestToolVersionRequests.set(name, requestId));
   try {
-    const results = await settingsApi.getToolVersions([...TOOL_NAMES]);
+    const results = await settingsApi.getToolVersions([...ACTIVE_TOOL_NAMES]);
     const current = results.filter(
       (tool) => latestToolVersionRequests.get(tool.name) === requestId,
     );
@@ -287,9 +293,11 @@ export function useToolUpdatesAvailable(): boolean {
     getToolManagementState,
   );
   return (
-    toolVersionsCache?.data.some((tool) =>
-      isUpdateAvailable(tool.version, tool.latest_version),
-    ) ?? false
+    toolVersionsCache?.data
+      .filter((tool) => (ACTIVE_TOOL_NAMES as readonly string[]).includes(tool.name))
+      .some((tool) =>
+        isUpdateAvailable(tool.version, tool.latest_version),
+      ) ?? false
   );
 }
 
@@ -335,7 +343,7 @@ export function useToolManagement() {
 
   const updatableToolNames = useMemo(
     () =>
-      TOOL_NAMES.filter((toolName) => {
+      ACTIVE_TOOL_NAMES.filter((toolName) => {
         const tool = toolVersionByName.get(toolName);
         return (
           !busyTools.has(toolName) &&
@@ -431,7 +439,7 @@ export function useToolManagement() {
         // 不拖累其余），故 Promise.all 永不 reject。Respect current shell/flag overrides.
         // 切页后即使缓存已过期，也跳过忙碌工具，由原任务在执行结束后刷新版本。
         await Promise.all(
-          TOOL_NAMES.filter(
+          ACTIVE_TOOL_NAMES.filter(
             (toolName) => !toolManagementState.busyTools.has(toolName),
           ).map((toolName) => refreshToolVersions([toolName], wslShellByTool)),
         );
@@ -478,7 +486,7 @@ export function useToolManagement() {
       if (!options?.force && toolManagementState.installReports) return;
       try {
         const reports = await settingsApi.listToolInstallations([
-          ...TOOL_NAMES,
+          ...ACTIVE_TOOL_NAMES,
         ]);
         const next: Partial<Record<ToolName, ToolInstallationReport>> = {};
         for (const report of reports) {
@@ -563,7 +571,7 @@ export function useToolManagement() {
   const handleDiagnoseAll = useCallback(async () => {
     setIsDiagnosingAll(true);
     try {
-      const reports = await settingsApi.probeToolInstallations([...TOOL_NAMES]);
+      const reports = await settingsApi.probeToolInstallations([...ACTIVE_TOOL_NAMES]);
       const next: Partial<Record<ToolName, ToolInstallation[]>> = {};
       const installReports: Partial<Record<ToolName, ToolInstallationReport>> =
         {};

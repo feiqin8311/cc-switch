@@ -1,0 +1,19 @@
+# Caddy 自动化反向代理配置示例 (Enterprise Hub Gateway)
+# Caddy 自带自动获取 Let's Encrypt 证书功能
+
+codex-hub.yourcompany.internal {
+    # 限制上传大小 50MB
+    request_body {
+        max_size 50MB
+    }
+
+    # 反代至 Node.js 企业管理服务端
+    reverse_proxy 127.0.0.1:28473 {
+        # 延长超时适配 LLM 长耗时输出
+        transport http {
+            read_timeout 600s
+            write_timeout 600s
+        }
+        # Caddy 默认对流式响应透明直通无缓冲
+    }
+}

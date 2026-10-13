@@ -3687,6 +3687,17 @@ fn locate_default_tool(
     }
 }
 
+/// Default executable of `tool`, resolved like the CLI lifecycle commands
+/// (works when the app is launched from Finder with a minimal PATH). For
+/// callers that need arguments `run_detected_tool_command_with_timeout`
+/// rejects (paths, `plugin@marketplace`).
+pub(crate) fn locate_tool_executable(
+    tool: &str,
+    timeout: Option<std::time::Duration>,
+) -> Result<std::path::PathBuf, String> {
+    locate_default_tool(tool, CommandDeadline::from_timeout(timeout))
+}
+
 #[derive(Clone, Copy)]
 struct CommandDeadline {
     expires_at: std::time::Instant,

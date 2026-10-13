@@ -33,7 +33,9 @@ import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
 import { resolveProviderIcon } from "@/utils/providerIcon";
 import { isAdditiveAppId, isProxyAppId } from "@/config/appConfig";
+import { isEnterpriseManagedProvider } from "@/lib/api/enterpriseModels";
 import { ProviderCardActions } from "./ProviderCardActions";
+import { ProviderModelSelect } from "./ProviderModelSelect";
 import type { CardChip, CardPresentation, CardTone } from "./presentation";
 
 interface DragHandleProps {
@@ -175,6 +177,8 @@ export function ProviderCard({
   dragHandleProps,
 }: ProviderCardProps) {
   const { t } = useTranslation();
+  const isEnterpriseManaged =
+    appId === "codex" && isEnterpriseManagedProvider(provider);
   const codexOfficialIdentity = resolveCodexOfficialIdentity(appId, provider);
   const managedCodexAccountId = resolveManagedAccountId(
     provider.meta,
@@ -343,6 +347,16 @@ export function ProviderCard({
             >
               {provider.name}
             </h3>
+            {isEnterpriseManaged && (
+              <CardChipBadge
+                chip={{
+                  key: "enterprise",
+                  label: t("enterpriseModels.badge"),
+                  tone: "route",
+                  title: t("enterpriseModels.badgeTitle"),
+                }}
+              />
+            )}
             {presentation.chips.map((chip) => (
               <CardChipBadge key={chip.key} chip={chip} />
             ))}
@@ -439,6 +453,7 @@ export function ProviderCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-3">
+          {appId === "codex" && <ProviderModelSelect provider={provider} />}
           {/* 额度列 136 宽，带重置倒计时时 194 宽（见 QuotaLines） */}
           <div className="max-w-[208px] text-end">
             <div className="flex items-center justify-end gap-1">
@@ -542,6 +557,7 @@ export function ProviderCard({
             onOpenTerminal={
               onOpenTerminal ? () => onOpenTerminal(provider) : undefined
             }
+            readOnly={isEnterpriseManaged}
           />
         </div>
       </div>

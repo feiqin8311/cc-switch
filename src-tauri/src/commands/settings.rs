@@ -1,7 +1,66 @@
 #![allow(non_snake_case)]
 
-use tauri::{AppHandle, Emitter};
+use std::time::Duration;
+
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
+use url::Url;
+
+/// 企业服务器上的 Tauri 更新清单。没登录过（会话里没有服务器地址）时不检查，
+/// 避免打到官方源把企业版装回去。
+fn update_manifest_url(server_url: &str) -> Result<Url, String> {
+    let base = server_url.trim().trim_end_matches('/');
+    Url::parse(&format!("{base}/updates/latest.json")).map_err(|e| format!("更新地址无效: {e}"))
+}
+
+async fn enterprise_update_endpoint(app: &AppHandle) -> Result<Option<Url>, String> {
+    let session = app.state::<super::EnterpriseSessionState>();
+    match session.0.server_url().await {
+        Some(server_url) if !server_url.trim().is_empty() => {
+            update_manifest_url(&server_url).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn updater_for(
+    app: &AppHandle,
+    endpoint: Url,
+) -> Result<tauri_plugin_updater::Updater, String> {
+    app.updater_builder()
+        .timeout(Duration::from_secs(30))
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("初始化更新器失败: {e}"))?
+        .build()
+        .map_err(|e| format!("初始化更新器失败: {e}"))
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdatePayload {
+    pub available_version: String,
+    pub notes: Option<String>,
+    pub pub_date: Option<String>,
+}
+
+async fn find_app_update(app: &AppHandle) -> Result<Option<AppUpdatePayload>, String> {
+    let Some(endpoint) = enterprise_update_endpoint(app).await? else {
+        return Ok(None);
+    };
+    let updater = updater_for(app, endpoint)?;
+    let Some(update) = updater
+        .check()
+        .await
+        .map_err(|e| format!("检查更新失败: {e}"))?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(AppUpdatePayload {
+        available_version: update.version,
+        notes: update.body,
+        pub_date: update.date.map(|date| date.to_string()),
+    }))
+}
 
 /// 应用更新下载进度（通过 `update-download-progress` 事件发给前端）。
 #[derive(Clone, serde::Serialize)]
@@ -259,10 +318,10 @@ pub async fn restart_app(app: AppHandle) -> Result<bool, String> {
 /// 这里把退出清理、安装和重启串在同一个后端流程中，避免依赖旧前端继续执行。
 #[tauri::command]
 pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> {
-    let updater = app
-        .updater_builder()
-        .build()
-        .map_err(|e| format!("初始化更新器失败: {e}"))?;
+    let Some(endpoint) = enterprise_update_endpoint(&app).await? else {
+        return Err("还没配置企业服务器，无法更新".to_string());
+    };
+    let updater = updater_for(&app, endpoint)?;
 
     let Some(update) = updater
         .check()
@@ -336,15 +395,15 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
 /// 升级无法解决，而不是让其反复尝试。
 #[tauri::command]
 pub async fn check_app_update_available(app: AppHandle) -> Result<Option<String>, String> {
-    let updater = app
-        .updater_builder()
-        .build()
-        .map_err(|e| format!("初始化更新器失败: {e}"))?;
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| format!("检查更新失败: {e}"))?;
-    Ok(update.map(|u| u.version))
+    Ok(find_app_update(&app)
+        .await?
+        .map(|update| update.available_version))
+}
+
+/// 启动时的更新弹窗用：有新版本时带上说明，没有服务器地址或已是最新时返回 None。
+#[tauri::command]
+pub async fn check_app_update(app: AppHandle) -> Result<Option<AppUpdatePayload>, String> {
+    find_app_update(&app).await
 }
 
 /// 获取 app_config_dir 覆盖配置 (从 Store)
@@ -377,12 +436,23 @@ pub async fn set_auto_launch(enabled: bool) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_settings_for_save;
+    use super::{merge_settings_for_save, update_manifest_url};
     use crate::settings::{
         AppSettings, CodexOfficialHistoryUnifyMigration, CodexProviderTemplateMigration,
         CodexThirdPartyHistoryProviderBucketMigration, LocalMigrations, S3SyncSettings,
         WebDavSyncSettings,
     };
+
+    #[test]
+    fn update_manifest_url_appends_latest_json() {
+        let url = update_manifest_url("http://127.0.0.1:4000").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:4000/updates/latest.json");
+        let url = update_manifest_url("https://ent.example.com/").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://ent.example.com/updates/latest.json"
+        );
+    }
 
     #[test]
     fn save_settings_should_keep_the_existing_proxy_client_host() {
