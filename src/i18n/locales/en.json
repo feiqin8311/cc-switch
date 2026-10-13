@@ -4802,6 +4802,10 @@
       "viewer": "Viewer"
     }
   },
+  "fleetModels": {
+    "badge": "Remote",
+    "badgeTitle": "Pushed by the enterprise console (read-only) and reconciled about every 30 seconds"
+  },
   "enterpriseModels": {
     "badge": "Enterprise",
     "badgeTitle": "Managed by your enterprise server (read-only); removed when you sign out",

@@ -11,6 +11,8 @@ import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { describeError } from "../lib/format";
 
+import { BrandMark } from "../components/BrandMark";
+
 function loginErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "unauthorized") return "用户名或密码错误，或账号已被禁用";
@@ -56,30 +58,17 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-[#faf8f5] dark:bg-[#181715]">
-      {/* Background warm aesthetic glow */}
-      <div className="w-full max-w-md rounded-2xl border border-[#ebe7df] bg-white p-8 shadow-sm dark:border-[#2e2c28] dark:bg-[#201f1b]">
+    <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-background">
+      <div className="w-full max-w-md rounded-2xl border border-border/80 bg-card p-8 shadow-sm">
         {/* Brand header */}
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3.5 flex size-10 items-center justify-center rounded-xl bg-[#c9643b] text-white shadow-xs">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="size-5"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="3" fill="currentColor" />
-              <path d="M12 2v3m0 14v3M2 12h3m14 0h3m-3.5-6.5-2.2 2.2m-8.6 8.6-2.2 2.2m0-13 2.2 2.2m8.6 8.6 2.2 2.2" />
-            </svg>
+          <div className="mb-3.5 flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand shadow-xs">
+            <BrandMark className="size-6 text-brand" />
           </div>
-          <h1 className="font-serif text-2xl font-normal tracking-tight text-[#24221f] dark:text-[#f5f3ed]">
+          <h1 className="font-serif text-2xl font-normal tracking-tight text-foreground">
             CC Switch Enterprise
           </h1>
-          <p className="mt-1 text-xs text-[#7c776c] dark:text-[#9e9a8f]">
+          <p className="mt-1 text-xs text-muted-foreground">
             企业管理控制台登录
           </p>
         </div>
@@ -111,7 +100,7 @@ export function LoginPage() {
             type="submit"
             variant="primary"
             disabled={pending}
-            className="w-full mt-2 h-10"
+            className="w-full mt-2 h-9"
           >
             {pending && <Spinner className="size-3" />}
             登录
@@ -119,7 +108,7 @@ export function LoginPage() {
         </form>
       </div>
 
-      <p className="mt-6 text-xs text-[#8c877b] dark:text-[#8e8a7f]">
+      <p className="mt-6 text-xs text-muted-foreground">
         CC Switch Enterprise · Codex-Only Edition
       </p>
     </div>

@@ -4803,6 +4803,10 @@
       "viewer": "唯讀"
     }
   },
+  "fleetModels": {
+    "badge": "遠端",
+    "badgeTitle": "由企業管理台下發的供應商（唯讀），約 30 秒內與伺服器對齊"
+  },
   "enterpriseModels": {
     "badge": "企業",
     "badgeTitle": "由企業伺服器管理的供應商（唯讀），登出企業帳號後自動移除",

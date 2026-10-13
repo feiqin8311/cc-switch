@@ -78,6 +78,7 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
 | Models | gateway providers (keys encrypted), per-role access, per-user daily token limit, usage stats; `POST /gateway/<id>/v1/responses` streams to the upstream | one gateway key per login; each provider becomes a read-only `ccse-<id>` Codex card; model switcher on Codex cards. Personal ChatGPT login keeps working unchanged |
 | Retention | policy + notice, idempotent uploads, audit search, purge after `retentionDays` | uploads Codex rollouts only for sessions started **after** the employee acknowledged the notice; rollouts are the offline buffer |
 | Marketplace | admin uploads skill / Codex plugin zips (validated), mandatory flag, sha256 | one-click install / update / uninstall; skills go to `~/.codex/skills`, plugins via a local `ccswitch-enterprise` Codex marketplace + `codex plugin add`; mandatory items auto-install |
+| Device fleet | one Codex profile (mode, third-party providers, stack default) for every signed-in desktop; device list with the revision each machine applied | desktop polls every 30s, writes `fleet-*` cards through `ProviderService` and the mode controller, then reports success or the error |
 
 The desktop edition is locked to Codex by `CODEX_ONLY` in `src/config/edition.ts`
 and `src-tauri/src/settings.rs` (other apps' code is kept for upstream merges).

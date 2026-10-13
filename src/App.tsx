@@ -441,6 +441,8 @@ function App() {
 
   useTauriEvent("universal-provider-synced", async () => {
     await queryClient.invalidateQueries({ queryKey: ["providers"] });
+    await queryClient.invalidateQueries({ queryKey: proxyKeys.status });
+    await queryClient.invalidateQueries({ queryKey: proxyKeys.takeoverStatus });
     try {
       await providersApi.updateTrayMenu();
     } catch (error) {

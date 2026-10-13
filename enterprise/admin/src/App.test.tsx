@@ -23,6 +23,15 @@ const admin = {
 
 const FIXTURES: Record<string, unknown> = {
   "/admin/users": { items: [admin] },
+  "/admin/fleet": {
+    revision: 0,
+    mode: "direct",
+    activeProviderId: "",
+    stackMemberIds: [],
+    providers: [],
+    updatedAt: null,
+  },
+  "/admin/devices": { items: [], serverTime: "2026-10-13T00:00:00.000Z" },
   "/admin/providers": {
     items: [
       {
@@ -146,6 +155,7 @@ describe("App", () => {
   it.each([
     ["/users", "用户管理", "管理员甲"],
     ["/providers", "模型与网关", "openai-main"],
+    ["/devices", "设备配置", "还没有电脑上报"],
     ["/usage", "用量统计", "按用户汇总"],
     ["/conversations", "对话审计", "修复登录问题"],
     ["/retention", "留存策略", "对话将被留存用于审计"],

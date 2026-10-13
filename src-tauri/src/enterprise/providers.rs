@@ -37,7 +37,7 @@ const STARTUP_SYNC_DELAY: Duration = Duration::from_secs(3);
 const PROVIDERS_CHANGED_EVENT: &str = "universal-provider-synced";
 
 /// Serializes syncs and model changes so they never interleave.
-static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(crate) static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// What the managed cards should look like: `None` = no managed cards at all.
 pub(crate) struct DesiredGateway<'a> {

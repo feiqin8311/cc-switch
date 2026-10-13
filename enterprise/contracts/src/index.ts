@@ -596,3 +596,240 @@ export const HealthResponseSchema = z.object({
   version: z.string(),
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Device fleet — one Codex profile applied by every signed-in desktop
+// ---------------------------------------------------------------------------
+
+/** `direct` writes the provider into Codex. `route` / `stack` need the desktop app running. */
+export const FleetModeSchema = z.enum(["direct", "route", "stack"]);
+export type FleetMode = z.infer<typeof FleetModeSchema>;
+
+const FleetModelSchema = z.object({
+  id: z.string().trim().min(1).max(128),
+  displayName: z.string().trim().min(1).max(128),
+});
+
+/** https, or http only when the host is the machine itself. */
+export function isFleetBaseUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  if (url.protocol !== "http:") return false;
+  const host = url.hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+const FleetBaseUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine(isFleetBaseUrl, "http is only allowed for localhost");
+
+const FleetProviderWriteSchema = z.object({
+  id: ProviderIdSchema,
+  name: z.string().trim().min(1).max(64),
+  baseUrl: FleetBaseUrlSchema,
+  /** Omit or "" to keep the stored key. Required when the id is new. */
+  apiKey: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().min(1).max(512).optional(),
+  ),
+  model: z.string().trim().min(1).max(128),
+  models: z.array(FleetModelSchema).min(1).max(50).optional(),
+});
+
+/**
+ * PUT /admin/fleet. Replaces the profile and bumps `revision`. An empty
+ * `providers` list removes the managed cards; it does not by itself pick a
+ * local provider.
+ */
+export const PutFleetRequestSchema = z
+  .object({
+    mode: FleetModeSchema,
+    activeProviderId: z.string().max(32).default(""),
+    stackMemberIds: z.array(ProviderIdSchema).max(50).default([]),
+    providers: z.array(FleetProviderWriteSchema).max(30),
+  })
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.providers.forEach((p, i) => {
+      if (seen.has(p.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["providers", i, "id"],
+          message: "duplicate provider id",
+        });
+      }
+      seen.add(p.id);
+      const models = p.models ?? [{ id: p.model, displayName: p.model }];
+      if (!models.some((m) => m.id === p.model)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["providers", i, "model"],
+          message: "model must be one of models",
+        });
+      }
+    });
+    if (v.providers.length === 0) {
+      if (v.activeProviderId !== "") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["activeProviderId"],
+          message: "must be empty when there are no providers",
+        });
+      }
+      if (v.stackMemberIds.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stackMemberIds"],
+          message: "must be empty when there are no providers",
+        });
+      }
+      return;
+    }
+    if (!seen.has(v.activeProviderId)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["activeProviderId"],
+        message: "must be one of providers",
+      });
+    }
+    if (v.mode !== "stack" && v.stackMemberIds.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["stackMemberIds"],
+        message: "only used in stack mode",
+      });
+    }
+    v.stackMemberIds.forEach((id, i) => {
+      if (!seen.has(id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stackMemberIds", i],
+          message: "unknown provider",
+        });
+      }
+    });
+  });
+export type PutFleetRequest = z.infer<typeof PutFleetRequestSchema>;
+
+export const AdminFleetProviderSchema = z.object({
+  id: ProviderIdSchema,
+  name: z.string(),
+  baseUrl: z.string(),
+  /** Masked. The key itself is never returned to the admin console. */
+  apiKeyHint: z.string(),
+  model: z.string(),
+  models: z.array(FleetModelSchema),
+});
+export type AdminFleetProvider = z.infer<typeof AdminFleetProviderSchema>;
+
+/** GET /admin/fleet */
+export const AdminFleetSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  mode: FleetModeSchema,
+  activeProviderId: z.string(),
+  stackMemberIds: z.array(z.string()),
+  providers: z.array(AdminFleetProviderSchema),
+  updatedAt: z.string().nullable(),
+});
+export type AdminFleet = z.infer<typeof AdminFleetSchema>;
+
+/** What the desktop last observed. No secrets. */
+export const DeviceReportedSchema = z.object({
+  mode: FleetModeSchema,
+  activeProviderId: z.string().max(80).nullable(),
+  activeProviderName: z.string().max(100).nullable(),
+  providers: z
+    .array(
+      z.object({
+        id: z.string().max(80),
+        name: z.string().max(100),
+        managed: z.boolean(),
+      }),
+    )
+    .max(200),
+  /** Fleet provider ids (without the `fleet-` prefix) currently in the stack list. */
+  stackMemberIds: z.array(z.string().max(80)).max(50),
+});
+export type DeviceReported = z.infer<typeof DeviceReportedSchema>;
+
+/** POST /devices/heartbeat — any signed-in desktop. */
+export const DeviceHeartbeatRequestSchema = z.object({
+  deviceId: z.string().uuid(),
+  name: z.string().trim().min(1).max(100),
+  hostname: z.string().trim().max(100).default(""),
+  reported: DeviceReportedSchema,
+});
+export type DeviceHeartbeatRequest = z.infer<typeof DeviceHeartbeatRequestSchema>;
+
+/**
+ * Summary only: no API keys. The desktop compares this with what it just
+ * applied and, on a miss, calls GET /devices/me/desired.
+ */
+export const DeviceHeartbeatResponseSchema = z.object({
+  desiredRevision: z.number().int().nonnegative(),
+  mode: FleetModeSchema,
+  activeProviderId: z.string(),
+  stackMemberIds: z.array(z.string()),
+});
+export type DeviceHeartbeatResponse = z.infer<
+  typeof DeviceHeartbeatResponseSchema
+>;
+
+const DesiredFleetProviderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  baseUrl: z.string(),
+  /** Plain key. Only returned to a desktop that may use models. */
+  apiKey: z.string(),
+  model: z.string(),
+  models: z.array(FleetModelSchema),
+});
+
+/** GET /devices/me/desired?deviceId= — requires models.use. The device row must belong to the caller. */
+export const DesiredFleetSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  mode: FleetModeSchema,
+  activeProviderId: z.string(),
+  stackMemberIds: z.array(z.string()),
+  providers: z.array(DesiredFleetProviderSchema),
+});
+export type DesiredFleet = z.infer<typeof DesiredFleetSchema>;
+
+/** POST /devices/me/applied → 204. `error` set means the revision was not applied. */
+export const DeviceAppliedRequestSchema = z.object({
+  deviceId: z.string().uuid(),
+  revision: z.number().int().nonnegative(),
+  error: z.string().max(500).nullable().optional(),
+});
+export type DeviceAppliedRequest = z.infer<typeof DeviceAppliedRequestSchema>;
+
+export const AdminDeviceSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  username: z.string(),
+  displayName: z.string(),
+  name: z.string(),
+  hostname: z.string(),
+  lastSeenAt: z.string(),
+  /** Heartbeat within the last 2 minutes. */
+  online: z.boolean(),
+  reported: DeviceReportedSchema,
+  appliedRevision: z.number().int(),
+  applyError: z.string().nullable(),
+  desiredRevision: z.number().int(),
+});
+export type AdminDevice = z.infer<typeof AdminDeviceSchema>;
+
+/** GET /admin/devices */
+export const ListDevicesResponseSchema = z.object({
+  items: z.array(AdminDeviceSchema),
+  serverTime: z.string(),
+});
+export type ListDevicesResponse = z.infer<typeof ListDevicesResponseSchema>;

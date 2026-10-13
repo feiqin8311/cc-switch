@@ -30,6 +30,7 @@ export function ProviderModelSelect({ provider }: ProviderModelSelectProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const isEnterprise = isEnterpriseManagedProvider(provider);
+  const isFleet = provider.id.startsWith("fleet-");
   const options = useMemo(() => getProviderModelOptions(provider), [provider]);
   const currentModel = getProviderCurrentModel(provider);
 
@@ -48,7 +49,7 @@ export function ProviderModelSelect({ provider }: ProviderModelSelectProps) {
     },
   });
 
-  if (options.length < (isEnterprise ? 1 : 2)) {
+  if (options.length < (isEnterprise || isFleet ? 1 : 2)) {
     return null;
   }
 
@@ -67,7 +68,7 @@ export function ProviderModelSelect({ provider }: ProviderModelSelectProps) {
           mutation.mutate(model);
         }
       }}
-      disabled={mutation.isPending}
+      disabled={mutation.isPending || isFleet}
     >
       <SelectTrigger
         className="h-7 w-auto max-w-[160px] gap-1 px-2 text-caption"
