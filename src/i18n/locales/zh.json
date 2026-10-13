@@ -4802,6 +4802,10 @@
       "viewer": "只读"
     }
   },
+  "fleetModels": {
+    "badge": "远程",
+    "badgeTitle": "由企业管理台下发的供应商（只读），约 30 秒内与服务器对齐"
+  },
   "enterpriseModels": {
     "badge": "企业",
     "badgeTitle": "由企业服务器管理的供应商（只读），退出企业登录后自动移除",

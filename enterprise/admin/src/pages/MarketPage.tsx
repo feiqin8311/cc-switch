@@ -182,7 +182,7 @@ export function MarketPage() {
                     <div>{item.name}</div>
                     {item.description && (
                       <div
-                        className="truncate text-xs text-zinc-500"
+                        className="truncate text-xs text-muted-foreground"
                         title={item.description}
                       >
                         {item.description}
@@ -231,7 +231,7 @@ export function MarketPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="text-red-600 dark:text-red-400"
+                        className="text-destructive hover:bg-destructive/10"
                         onClick={() => setDeleting(item)}
                       >
                         删除

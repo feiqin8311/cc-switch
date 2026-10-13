@@ -9,6 +9,7 @@ import { adminProviderRoutes } from "./routes/admin-providers.ts";
 import { adminUserRoutes } from "./routes/admin-users.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { clientRoutes } from "./routes/client.ts";
+import { fleetRoutes } from "./routes/fleet.ts";
 import { gatewayRoutes } from "./routes/gateway.ts";
 import { marketRoutes } from "./routes/market.ts";
 import { retentionRoutes } from "./routes/retention.ts";
@@ -36,6 +37,8 @@ export async function buildApp(
               "req.headers.authorization",
               "req.body.password",
               "req.body.refreshToken",
+              "req.body.apiKey",
+              "req.body.providers[*].apiKey",
             ],
             ...(config.env === "development"
               ? { transport: { target: "pino-pretty" } }
@@ -61,6 +64,7 @@ export async function buildApp(
       await retentionRoutes(api, deps);
       await adminConversationRoutes(api, deps);
       await marketRoutes(api, deps);
+      await fleetRoutes(api, deps);
     },
     { prefix: API_PREFIX },
   );

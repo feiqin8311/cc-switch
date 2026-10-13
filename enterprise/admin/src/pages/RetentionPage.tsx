@@ -106,7 +106,7 @@ function PolicyForm({ initial }: { initial: AdminRetentionPolicy }) {
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-col gap-4">
       {!canEdit && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="text-xs text-muted-foreground">
           只读：修改留存策略需要「系统设置」权限。
         </p>
       )}

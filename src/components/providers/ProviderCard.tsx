@@ -179,6 +179,8 @@ export function ProviderCard({
   const { t } = useTranslation();
   const isEnterpriseManaged =
     appId === "codex" && isEnterpriseManagedProvider(provider);
+  const isFleetManaged =
+    appId === "codex" && provider.id.startsWith("fleet-");
   const codexOfficialIdentity = resolveCodexOfficialIdentity(appId, provider);
   const managedCodexAccountId = resolveManagedAccountId(
     provider.meta,
@@ -354,6 +356,16 @@ export function ProviderCard({
                   label: t("enterpriseModels.badge"),
                   tone: "route",
                   title: t("enterpriseModels.badgeTitle"),
+                }}
+              />
+            )}
+            {isFleetManaged && (
+              <CardChipBadge
+                chip={{
+                  key: "fleet",
+                  label: t("fleetModels.badge"),
+                  tone: "route",
+                  title: t("fleetModels.badgeTitle"),
                 }}
               />
             )}
@@ -557,7 +569,7 @@ export function ProviderCard({
             onOpenTerminal={
               onOpenTerminal ? () => onOpenTerminal(provider) : undefined
             }
-            readOnly={isEnterpriseManaged}
+            readOnly={isEnterpriseManaged || isFleetManaged}
           />
         </div>
       </div>

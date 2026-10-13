@@ -224,6 +224,33 @@ export const marketBlobs = pgTable("market_blobs", {
   createdAt: createdAt(),
 });
 
+/**
+ * A desktop that has heartbeated. `id` is generated on the machine
+ * (`~/.cc-switch/fleet-device.json`) and stays with that install.
+ */
+export const devices = pgTable(
+  "devices",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    hostname: text("hostname").notNull().default(""),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reported: jsonb("reported").notNull(),
+    appliedRevision: integer("applied_revision").notNull().default(0),
+    applyError: text("apply_error"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("devices_user_id_idx").on(t.userId),
+    index("devices_last_seen_idx").on(t.lastSeenAt),
+  ],
+);
+
 export const marketItems = pgTable("market_items", {
   id: text("id").primaryKey(),
   kind: text("kind", { enum: ["skill", "plugin"] }).notNull(),

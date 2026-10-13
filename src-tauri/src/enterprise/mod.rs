@@ -12,6 +12,7 @@ mod client;
 mod e2e;
 #[cfg(test)]
 mod e2e_phases;
+pub mod fleet;
 pub mod market;
 pub mod providers;
 mod retention;

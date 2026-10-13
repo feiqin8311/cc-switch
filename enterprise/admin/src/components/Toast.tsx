@@ -34,10 +34,11 @@ const DURATION_MS: Record<ToastKind, number> = {
 
 const KIND_CLASS: Record<ToastKind, string> = {
   success:
-    "border-[#c1e5cb] bg-[#f0f9f3] text-[#137333] dark:border-[#1d4c2b] dark:bg-[#112818] dark:text-[#81c995]",
+    "border-emerald-500/20 bg-card text-emerald-700 dark:text-emerald-400",
   error:
-    "border-[#fad2cf] bg-[#fdf2f2] text-[#c5221f] dark:border-[#4a1f1d] dark:bg-[#2d1615] dark:text-[#f28b82]",
-  info: "border-[#ded9ce] bg-white text-[#24221f] dark:border-[#383630] dark:bg-[#201f1b] dark:text-[#f5f3ed]",
+    "border-destructive/30 bg-card text-destructive",
+  info:
+    "border-border/80 bg-card text-foreground",
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -93,13 +94,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role={t.kind === "error" ? "alert" : "status"}
-            className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm shadow-md ${KIND_CLASS[t.kind]}`}
+            className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs shadow-lg backdrop-blur-xs ${KIND_CLASS[t.kind]}`}
           >
             <span className="min-w-0 flex-1 break-words">{t.message}</span>
             <button
               type="button"
               aria-label="关闭"
-              className="opacity-60 hover:opacity-100"
+              className="text-muted-foreground hover:text-foreground cursor-pointer text-sm leading-none"
               onClick={() => dismiss(t.id)}
             >
               ×

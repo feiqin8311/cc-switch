@@ -15,6 +15,13 @@
       "when": 1791892584073,
       "tag": "0001_classy_ben_urich",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791902870458,
+      "tag": "0002_lyrical_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

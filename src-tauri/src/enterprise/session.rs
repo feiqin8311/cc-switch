@@ -455,7 +455,6 @@ impl EnterpriseSession {
 
     /// Authenticated `GET {server}/api/v1{path}` decoding JSON, with one
     /// refresh-and-retry on 401.
-    #[allow(dead_code)] // public API for later enterprise features
     pub async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, EnterpriseError> {
         self.get_json_with_base(path).await.map(|(_, v)| v)
     }
@@ -685,13 +684,13 @@ fn is_expired(ts: Option<&str>, skew_secs: i64) -> bool {
 }
 
 /// `"<hostname> (CC Switch <version>)"`, at most 100 chars.
-fn device_name() -> String {
+pub(crate) fn device_name() -> String {
     let host = hostname().unwrap_or_else(|| "Unknown device".to_string());
     let name = format!("{host} (CC Switch {})", env!("CARGO_PKG_VERSION"));
     name.chars().take(MAX_DEVICE_NAME_CHARS).collect()
 }
 
-fn hostname() -> Option<String> {
+pub(crate) fn hostname() -> Option<String> {
     let from_env = ["COMPUTERNAME", "HOSTNAME"]
         .iter()
         .filter_map(|k| std::env::var(k).ok())

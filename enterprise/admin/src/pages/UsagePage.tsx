@@ -98,7 +98,7 @@ export function UsagePage() {
         (r) => (
           <>
             <span className="font-mono">{r.model}</span>
-            <span className="ml-1 text-xs text-zinc-500">{r.providerId}</span>
+            <span className="ml-1 text-xs text-muted-foreground">{r.providerId}</span>
           </>
         ),
       ),
@@ -142,9 +142,9 @@ export function UsagePage() {
       <form
         onSubmit={onSubmit}
         noValidate
-        className="rounded-2xl border border-[#ebe7df] bg-white p-4.5 shadow-2xs dark:border-[#2e2c28] dark:bg-[#201f1b]"
+        className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
       >
-        <div className="flex flex-wrap items-end gap-3.5">
+        <div className="flex flex-wrap items-end gap-3">
           <Field label="开始日期（UTC）" htmlFor="usage-from">
             <input
               id="usage-from"
@@ -187,7 +187,7 @@ export function UsagePage() {
       ) : rows.length === 0 ? (
         <Card>
           <EmptyState
-            icon={<BarChart3 className="size-6 stroke-[1.5]" />}
+            icon={<BarChart3 className="size-5 stroke-[1.5]" />}
             title="暂无用量记录"
           >
             {range.from} 至 {range.to} 没有用量记录
@@ -196,22 +196,27 @@ export function UsagePage() {
       ) : (
         <div className="flex flex-col gap-6">
           {grand && (
-            <div className="grid grid-cols-4 gap-4">
-              <Stat label="请求数" value={grand.requests} />
-              <Stat label="输入 tokens" value={grand.inputTokens} />
-              <Stat label="输出 tokens" value={grand.outputTokens} />
-              <Stat
-                label="总 tokens"
-                value={grand.inputTokens + grand.outputTokens}
-              />
-            </div>
+            <Card>
+              <div className="border-b border-border/50 pb-2.5 text-xs font-medium text-foreground">
+                概览指标
+              </div>
+              <div className="mt-4 grid grid-cols-4 gap-4 text-left">
+                <Stat label="请求数" value={grand.requests} />
+                <Stat label="输入 tokens" value={grand.inputTokens} />
+                <Stat label="输出 tokens" value={grand.outputTokens} />
+                <Stat
+                  label="总 tokens"
+                  value={grand.inputTokens + grand.outputTokens}
+                />
+              </div>
+            </Card>
           )}
           <div className="grid grid-cols-2 gap-5">
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
             <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
           </div>
           <Card className="overflow-x-auto">
-            <h2 className="border-b border-zinc-200 px-3 py-2 text-sm font-medium dark:border-zinc-800">
+            <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
               明细
             </h2>
             <table className={tableClass}>
@@ -260,11 +265,11 @@ export function UsagePage() {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <Card className="p-5">
-      <div className="text-xs font-medium text-[#7c776c] dark:text-[#9e9a8f] uppercase tracking-wider">
+    <Card className="p-4">
+      <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
-      <div className="mt-2 text-2xl font-serif font-normal text-[#24221f] tabular-nums dark:text-[#f5f3ed]">
+      <div className="mt-1.5 text-2xl font-serif font-normal text-foreground tabular-nums">
         {formatNumber(value)}
       </div>
     </Card>
@@ -282,7 +287,7 @@ function TotalsTable({
 }) {
   return (
     <Card className="overflow-x-auto">
-      <h2 className="border-b border-[#ebe7df] px-4 py-3 font-serif text-sm font-medium text-[#24221f] dark:border-[#2e2c28] dark:text-[#f5f3ed]">
+      <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
         {title}
       </h2>
       <table className={tableClass}>

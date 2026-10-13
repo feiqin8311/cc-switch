@@ -189,7 +189,7 @@ export function MarketUploadForm({
           type="file"
           accept=".zip,application/zip"
           aria-invalid={!!errors.file}
-          className="text-sm file:mr-3 file:rounded-md file:border file:border-zinc-300 file:bg-white file:px-3 file:py-1 file:text-sm dark:file:border-zinc-700 dark:file:bg-zinc-900 dark:file:text-zinc-100"
+          className="text-xs file:mr-3 file:rounded-lg file:border file:border-border/80 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:text-secondary-foreground file:font-medium hover:file:bg-secondary/80 file:cursor-pointer"
           onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
         />
       </Field>
@@ -201,7 +201,7 @@ export function MarketUploadForm({
             checked={mandatory}
             onChange={setMandatory}
           />
-          <span className="text-sm text-zinc-600 dark:text-zinc-400">
+          <span className="text-xs text-muted-foreground">
             必装项会由客户端自动安装
           </span>
         </div>

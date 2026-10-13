@@ -1244,6 +1244,11 @@ pub fn run() {
                 app.handle(),
                 &app.state::<commands::EnterpriseSessionState>().0,
             );
+            // 企业下发的 Codex 配置：心跳、拉取、套用
+            crate::enterprise::fleet::install(
+                app.handle(),
+                &app.state::<commands::EnterpriseSessionState>().0,
+            );
             // 企业版对话留存：员工确认告知后后台上传 Codex 对话
             {
                 let retention = crate::enterprise::RetentionService::new(

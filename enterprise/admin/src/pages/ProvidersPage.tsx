@@ -120,7 +120,7 @@ export function ProvidersPage() {
                   <td className={`${tdClass} font-mono text-xs`}>
                     <div>{p.id}</div>
                     <div
-                      className="max-w-56 truncate text-zinc-500"
+                      className="max-w-56 truncate text-muted-foreground"
                       title={gatewayUrl(p.id)}
                     >
                       {gatewayUrl(p.id)}
@@ -165,7 +165,7 @@ export function ProvidersPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="text-red-600 dark:text-red-400"
+                        className="text-destructive hover:bg-destructive/10"
                         onClick={() => setDeleting(p)}
                       >
                         删除

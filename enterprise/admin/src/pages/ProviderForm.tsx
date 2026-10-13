@@ -348,8 +348,8 @@ export function ProviderForm({
       </Field>
 
       <fieldset className="col-span-2 flex flex-col gap-1.5">
-        <legend className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-          模型列表<span className="ml-0.5 text-red-500">*</span>
+        <legend className="mb-1 text-xs font-semibold text-foreground">
+          模型列表<span className="ml-0.5 text-destructive">*</span>
         </legend>
         {values.models.map((m, i) => (
           <div key={m.key} className="flex items-start gap-2">
@@ -363,7 +363,7 @@ export function ProviderForm({
                 onChange={(e) => updateModel(m.key, { id: e.target.value })}
               />
               {errors[`models.${i}.id`] && (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p className="text-xs text-destructive">
                   {errors[`models.${i}.id`]}
                 </p>
               )}
@@ -380,13 +380,14 @@ export function ProviderForm({
                 }
               />
               {errors[`models.${i}.displayName`] && (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p className="text-xs text-destructive">
                   {errors[`models.${i}.displayName`]}
                 </p>
               )}
             </div>
             <Button
               variant="ghost"
+              size="sm"
               aria-label={`删除模型 ${i + 1}`}
               onClick={() => removeModel(m.key)}
             >
@@ -400,7 +401,7 @@ export function ProviderForm({
           </Button>
         </div>
         {errors.models && (
-          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          <p role="alert" className="text-xs text-destructive">
             {errors.models}
           </p>
         )}
@@ -444,27 +445,28 @@ export function ProviderForm({
         />
       </Field>
       <fieldset className="flex flex-col gap-1">
-        <legend className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-          允许角色<span className="ml-0.5 text-red-500">*</span>
+        <legend className="mb-1 text-xs font-semibold text-foreground">
+          允许角色<span className="ml-0.5 text-destructive">*</span>
         </legend>
         <div className="flex h-8 items-center gap-4">
           {ROLES.map((r) => (
-            <label key={r} className="flex items-center gap-1.5 text-sm">
+            <label key={r} className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
               <input
                 type="checkbox"
                 checked={values.allowedRoles.includes(r)}
                 onChange={(e) => toggleRole(r, e.target.checked)}
+                className="size-3.5 rounded border-input text-brand focus:ring-brand/20"
               />
               {ROLE_LABELS[r]}
             </label>
           ))}
         </div>
         {errors.allowedRoles ? (
-          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          <p role="alert" className="text-xs text-destructive">
             {errors.allowedRoles}
           </p>
         ) : (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="text-[11px] text-muted-foreground">
             用户还需具备「使用模型」权限
           </p>
         )}

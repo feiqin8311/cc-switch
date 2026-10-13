@@ -23,10 +23,7 @@ async fn enterprise_update_endpoint(app: &AppHandle) -> Result<Option<Url>, Stri
     }
 }
 
-fn updater_for(
-    app: &AppHandle,
-    endpoint: Url,
-) -> Result<tauri_plugin_updater::Updater, String> {
+fn updater_for(app: &AppHandle, endpoint: Url) -> Result<tauri_plugin_updater::Updater, String> {
     app.updater_builder()
         .timeout(Duration::from_secs(30))
         .endpoints(vec![endpoint])
@@ -448,10 +445,7 @@ mod tests {
         let url = update_manifest_url("http://127.0.0.1:4000").unwrap();
         assert_eq!(url.as_str(), "http://127.0.0.1:4000/updates/latest.json");
         let url = update_manifest_url("https://ent.example.com/").unwrap();
-        assert_eq!(
-            url.as_str(),
-            "https://ent.example.com/updates/latest.json"
-        );
+        assert_eq!(url.as_str(), "https://ent.example.com/updates/latest.json");
     }
 
     #[test]

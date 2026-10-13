@@ -6,6 +6,7 @@ import { useAuth, useSession } from "./lib/auth";
 import { describeError } from "./lib/format";
 import { canAccess, NAV_ITEMS, navItemsFor } from "./nav";
 import { ConversationsPage } from "./pages/ConversationsPage";
+import { DevicesPage } from "./pages/DevicesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MarketPage } from "./pages/MarketPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
@@ -58,6 +59,7 @@ function Home() {
 const PAGES: Record<string, () => ReactNode> = {
   "/users": () => <UsersPage />,
   "/providers": () => <ProvidersPage />,
+  "/devices": () => <DevicesPage />,
   "/usage": () => <UsagePage />,
   "/conversations": () => <ConversationsPage />,
   "/retention": () => <RetentionPage />,
