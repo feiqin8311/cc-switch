@@ -207,9 +207,14 @@ fn desired_card(
         managed.name.trim().to_string()
     };
     let base_url = gateway_base_url(gateway.server_url, managed);
+    let catalog: Vec<Value> = models
+        .iter()
+        .map(|m| json!({ "model": m.id, "displayName": m.display_name }))
+        .collect();
     let settings_config = json!({
         "auth": { "OPENAI_API_KEY": gateway.gateway_key },
         "config": build_config_toml(&name, &base_url, &model),
+        "modelCatalog": { "models": catalog },
     });
 
     let mut meta = existing.and_then(|p| p.meta.clone()).unwrap_or_default();
@@ -633,6 +638,13 @@ mod tests {
         let config = card.settings_config["config"].as_str().unwrap();
         assert_eq!(config_model(config).as_deref(), Some("gpt-5-mini"));
         assert!(config.contains("https://ent.example.com/gateway/openai-main/v1"));
+        assert_eq!(
+            card.settings_config["modelCatalog"]["models"],
+            json!([
+                { "model": "gpt-5", "displayName": "GPT-5" },
+                { "model": "gpt-5-mini", "displayName": "GPT-5-MINI" },
+            ])
+        );
         let meta = enterprise_meta(card).unwrap();
         assert_eq!(meta.provider_id, "openai-main");
         assert_eq!(meta.server_url, "https://ent.example.com");
