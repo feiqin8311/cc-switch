@@ -62,7 +62,7 @@ jobs:
       - name: Build MSI
         env:
           VITE_ENTERPRISE_SERVER_URL: http://116.205.229.31:41827
-        run: pnpm tauri build --bundles msi
+        run: pnpm tauri build --bundles msi --ignore-version-mismatches
 
       - name: Stage artifacts
         shell: pwsh
