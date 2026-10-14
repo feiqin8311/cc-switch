@@ -1,8 +1,8 @@
 # Production-style stack: Postgres + CC Switch Enterprise.
 #   cp .env.example .env   # fill in secrets
 #   docker compose up -d --build
-# Put a TLS-terminating reverse proxy (nginx/caddy) in front; the desktop client
-# only accepts https (http is allowed for localhost only).
+# Optional TLS reverse proxy (nginx/caddy) in front. The desktop client accepts
+# http and https server URLs.
 services:
   db:
     image: postgres:17

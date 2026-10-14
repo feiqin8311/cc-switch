@@ -111,9 +111,9 @@ docker compose up -d --build
 ```
 
 This runs Postgres 17 and the server (admin console included) on
-`127.0.0.1:4000`. Put a TLS reverse proxy (nginx / caddy) in front and set
-`TRUST_PROXY=true`: the desktop client only accepts `https://` server URLs
-(plain `http://` is allowed for localhost only). Proxy timeouts must allow long
+`127.0.0.1:4000`. A TLS reverse proxy (nginx / caddy) is optional; the desktop
+client accepts `http://` and `https://` server URLs. Set `TRUST_PROXY=true`
+when behind a proxy. Proxy timeouts must allow long
 streaming responses on `/gateway/` (e.g. `proxy_read_timeout 600s;
 proxy_buffering off;` in nginx) and request bodies up to 32 MB.
 
