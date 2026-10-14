@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   customType,
@@ -5,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -114,6 +116,8 @@ export const gatewayKeys = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: createdAt(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    /** Desktop that requested this key. Null for keys issued before device binding. */
+    deviceId: uuid("device_id"),
   },
   (t) => [uniqueIndex("gateway_keys_session_id_uq").on(t.sessionId)],
 );
@@ -132,6 +136,7 @@ export const usageRecords = pgTable(
     cachedTokens: integer("cached_tokens").notNull().default(0),
     status: integer("status").notNull(),
     latencyMs: integer("latency_ms").notNull(),
+    deviceId: uuid("device_id"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -243,11 +248,82 @@ export const devices = pgTable(
     reported: jsonb("reported").notNull(),
     appliedRevision: integer("applied_revision").notNull().default(0),
     applyError: text("apply_error"),
+    /** Null means "use the default profile". */
+    profileId: uuid("profile_id"),
+    /** Profile the desktop last reported as applied. */
+    appliedProfileId: uuid("applied_profile_id"),
+    note: text("note").notNull().default(""),
+    disabled: boolean("disabled").notNull().default(false),
+    /** SHA-256 of the device secret. Null until the first heartbeat enrolls it. */
+    secretHash: text("secret_hash"),
+    /** Login session of the latest heartbeat, revoked when the device is disabled. */
+    sessionId: uuid("session_id"),
+    previousUserId: uuid("previous_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    userChangedAt: timestamp("user_changed_at", { withTimezone: true }),
+    /** Set by an admin "sync now"; cleared when the desktop reports success. */
+    forceSyncAt: timestamp("force_sync_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
     index("devices_user_id_idx").on(t.userId),
     index("devices_last_seen_idx").on(t.lastSeenAt),
+  ],
+);
+
+export const fleetProfiles = pgTable(
+  "fleet_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    revision: integer("revision").notNull().default(0),
+    mode: text("mode", { enum: ["direct", "route", "stack"] })
+      .notNull()
+      .default("direct"),
+    activeProviderId: text("active_provider_id").notNull().default(""),
+    stackMemberIds: jsonb("stack_member_ids").$type<string[]>().notNull(),
+    providers: jsonb("providers").notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("fleet_profiles_one_default")
+      .on(t.isDefault)
+      .where(sql`${t.isDefault} = true`),
+  ],
+);
+
+/** Daily Codex usage reported by a desktop. One row per device, user, day, provider and model. */
+export const deviceUsageDaily = pgTable(
+  "device_usage_daily",
+  {
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    providerId: text("provider_id").notNull(),
+    model: text("model").notNull(),
+    requests: integer("requests").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /** USD * 1_000_000, so sums stay exact. */
+    costMicroUsd: integer("cost_micro_usd").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [t.deviceId, t.userId, t.date, t.providerId, t.model],
+    }),
+    index("device_usage_daily_date_idx").on(t.date),
   ],
 );
 

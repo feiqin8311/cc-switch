@@ -93,6 +93,7 @@ export async function forwardResponses(
         cachedTokens: usage.cachedTokens,
         status,
         latencyMs: Date.now() - started,
+        deviceId: ctx.deviceId,
       });
     } catch (err) {
       log.error(

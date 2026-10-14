@@ -160,16 +160,22 @@ describe("fleet profile", () => {
       },
     });
     expect(beat.statusCode).toBe(200);
-    expect(DeviceHeartbeatResponseSchema.parse(beat.json())).toMatchObject({
+    const hb = DeviceHeartbeatResponseSchema.parse(beat.json());
+    expect(hb).toMatchObject({
       desiredRevision: 2,
       mode: "stack",
       activeProviderId: "volcengine",
       stackMemberIds: ["yida"],
     });
+    expect(hb.deviceSecret).toMatch(/^ds_/);
+    const deviceHeaders = {
+      ...bearer(member.accessToken),
+      "x-device-secret": hb.deviceSecret ?? "",
+    };
 
     const desired = await ctx.app.inject({
       url: `/api/v1/devices/me/desired?deviceId=${DEVICE}`,
-      headers: bearer(member.accessToken),
+      headers: deviceHeaders,
     });
     expect(desired.statusCode).toBe(200);
     const doc = DesiredFleetSchema.parse(desired.json());
@@ -192,7 +198,13 @@ describe("fleet profile", () => {
       method: "POST",
       url: "/api/v1/devices/me/applied",
       headers: bearer(member.accessToken),
-      payload: { deviceId: DEVICE, revision: 2, error: "codex busy" },
+      payload: {
+        deviceId: DEVICE,
+        deviceSecret: hb.deviceSecret,
+        profileId: hb.profileId,
+        revision: 2,
+        error: "codex busy",
+      },
     });
     expect(failed.statusCode).toBe(204);
 
@@ -216,7 +228,12 @@ describe("fleet profile", () => {
       method: "POST",
       url: "/api/v1/devices/me/applied",
       headers: bearer(member.accessToken),
-      payload: { deviceId: DEVICE, revision: 2 },
+      payload: {
+        deviceId: DEVICE,
+        deviceSecret: hb.deviceSecret,
+        profileId: hb.profileId,
+        revision: 2,
+      },
     });
     expect(ok.statusCode).toBe(204);
     const after = ListDevicesResponseSchema.parse(
@@ -230,6 +247,125 @@ describe("fleet profile", () => {
     expect(after.items[0]).toMatchObject({
       appliedRevision: 2,
       applyError: null,
+      sync: "synced",
     });
+
+    const spoof = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/devices/heartbeat",
+      headers: bearer(member.accessToken),
+      payload: {
+        deviceId: DEVICE,
+        name: "Alice-Mac",
+        hostname: "alice-mac",
+        reported,
+      },
+    });
+    expect(spoof.statusCode).toBe(401);
+
+    const uploaded = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/devices/me/usage",
+      headers: bearer(member.accessToken),
+      payload: {
+        deviceId: DEVICE,
+        deviceSecret: hb.deviceSecret,
+        items: [
+          {
+            date: "2026-10-13",
+            providerId: "codex-official",
+            model: "gpt-5.5",
+            requests: 2,
+            inputTokens: 10,
+            outputTokens: 4,
+            costUsd: 0.5,
+          },
+        ],
+      },
+    });
+    expect(uploaded.statusCode).toBe(204);
+    const again = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/devices/me/usage",
+      headers: bearer(member.accessToken),
+      payload: {
+        deviceId: DEVICE,
+        deviceSecret: hb.deviceSecret,
+        items: [
+          {
+            date: "2026-10-13",
+            providerId: "codex-official",
+            model: "gpt-5.5",
+            requests: 3,
+            inputTokens: 12,
+            outputTokens: 5,
+            costUsd: 0.25,
+          },
+        ],
+      },
+    });
+    expect(again.statusCode).toBe(204);
+
+    const other = "22222222-2222-4222-8222-222222222222";
+    const bob = await createUser("member", "bob");
+    const bobBeat = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/devices/heartbeat",
+      headers: bearer(bob.accessToken),
+      payload: {
+        deviceId: other,
+        name: "Bob-Mini",
+        hostname: "bob",
+        reported,
+      },
+    });
+    const bobHb = DeviceHeartbeatResponseSchema.parse(bobBeat.json());
+    const created = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/admin/profiles",
+      headers: bearer(adminToken),
+      payload: {
+        name: "Bob only",
+        mode: "direct",
+        activeProviderId: "yida",
+        stackMemberIds: [],
+        providers: [fleetBody().providers[1]],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const profileId = created.json().id as string;
+    const assigned = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/devices/${other}`,
+      headers: bearer(adminToken),
+      payload: { profileId },
+    });
+    expect(assigned.statusCode).toBe(200);
+    const bobDesired = await ctx.app.inject({
+      url: `/api/v1/devices/me/desired?deviceId=${other}`,
+      headers: {
+        ...bearer(bob.accessToken),
+        "x-device-secret": bobHb.deviceSecret ?? "",
+      },
+    });
+    const bobDoc = DesiredFleetSchema.parse(bobDesired.json());
+    expect(bobDoc.profileId).toBe(profileId);
+    expect(bobDoc.providers.map((p) => p.id)).toEqual(["yida"]);
+    expect(bobDoc.providers[0]?.apiKey).toBe("sk-yida-secret-9999");
+
+    const usage = await ctx.app.inject({
+      url: "/api/v1/admin/usage/devices?from=2026-10-01&to=2026-10-13",
+      headers: bearer(adminToken),
+    });
+    expect(usage.statusCode).toBe(200);
+    expect(usage.json().items).toEqual([
+      expect.objectContaining({
+        deviceId: DEVICE,
+        username: "alice",
+        requests: 3,
+        inputTokens: 12,
+        costUsd: 0.25,
+      }),
+    ]);
   });
 });

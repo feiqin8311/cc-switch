@@ -59,6 +59,9 @@ struct StoredGatewayKey {
     key: String,
     #[serde(default)]
     created_at: Option<String>,
+    /// Device this key was issued for. A mismatch triggers a new key.
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 /// On-disk session (`enterprise_session.json`). Contains the refresh token:
@@ -195,6 +198,8 @@ pub struct EnterpriseSession {
     auth_lock: Mutex<()>,
     /// Notified (outside all locks) when the session / config changes.
     listener: OnceLock<SessionListener>,
+    /// (device id, device secret) for the next gateway-key request. Not persisted here.
+    device_binding: Mutex<Option<(String, String)>>,
 }
 
 impl EnterpriseSession {
@@ -214,7 +219,13 @@ impl EnterpriseSession {
             }),
             auth_lock: Mutex::new(()),
             listener: OnceLock::new(),
+            device_binding: Mutex::new(None),
         }
+    }
+
+    /// Remember the desktop identity so the next gateway key is attributed to it.
+    pub async fn set_device_binding(&self, device_id: String, device_secret: String) {
+        *self.device_binding.lock().await = Some((device_id, device_secret));
     }
 
     /// Install the session listener (once; later calls are ignored).
@@ -253,7 +264,8 @@ impl EnterpriseSession {
     /// (`POST /client/gateway-key`) the first time. Returns the server URL it
     /// belongs to and the key. Rust-side only: never put it in `EnterpriseState`.
     pub async fn ensure_gateway_key(&self) -> Result<(String, String), EnterpriseError> {
-        let generation = {
+        let (generation, binding) = {
+            let binding = self.device_binding.lock().await.clone();
             let inner = self.inner.lock().await;
             if !inner.stored.is_logged_in() {
                 return Err(EnterpriseError::NotLoggedIn);
@@ -261,18 +273,23 @@ impl EnterpriseSession {
             if let (Some(base), Some(stored)) =
                 (&inner.stored.server_url, &inner.stored.gateway_key)
             {
-                if !stored.key.is_empty() {
+                let bound_id = binding.as_ref().map(|(id, _)| id.as_str());
+                if !stored.key.is_empty() && stored.device_id.as_deref() == bound_id {
                     return Ok((base.clone(), stored.key.clone()));
                 }
             }
-            inner.generation
+            (inner.generation, binding)
         };
 
+        let body = match &binding {
+            Some((id, secret)) => serde_json::json!({ "deviceId": id, "deviceSecret": secret }),
+            None => serde_json::json!({}),
+        };
         let (base, resp) = self
             .send_authenticated(|http, base, token| {
                 http.post(client::endpoint(base, "/client/gateway-key"))
                     .bearer_auth(token)
-                    .json(&serde_json::json!({}))
+                    .json(&body)
             })
             .await?;
         let issued = client::decode_json::<GatewayKeyResponse>(resp).await?;
@@ -293,6 +310,7 @@ impl EnterpriseSession {
         inner.stored.gateway_key = Some(StoredGatewayKey {
             key: issued.key.clone(),
             created_at: issued.created_at,
+            device_id: binding.as_ref().map(|(id, _)| id.clone()),
         });
         let stored = inner.stored.clone();
         if let Err(e) = self.persist(&stored) {
@@ -873,6 +891,7 @@ mod tests {
         inner.stored.gateway_key = Some(StoredGatewayKey {
             key: "gk_SECRET-789".into(),
             created_at: None,
+            device_id: None,
         });
         let state_json = serde_json::to_string(&inner.snapshot()).unwrap();
         assert!(!state_json.contains("gk_SECRET-789"));

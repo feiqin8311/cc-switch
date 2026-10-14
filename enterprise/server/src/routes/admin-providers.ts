@@ -1,6 +1,7 @@
 import {
   type AdminProvider,
   CreateProviderRequestSchema,
+  GatewayKeyRequestSchema,
   type GatewayKeyResponse,
   type ListProvidersResponse,
   ProviderIdSchema,
@@ -13,7 +14,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
 import { authOf, requirePermission } from "../auth/guard.ts";
-import { gatewayKeys, providers, usageRecords, users } from "../db/schema.ts";
+import { devices, gatewayKeys, providers, usageRecords, users } from "../db/schema.ts";
+import { hashDeviceSecret } from "../fleet/store.ts";
 import { AppError, notFound, parseBody } from "../errors.ts";
 import type { ProviderRow } from "../gateway/auth.ts";
 import { generateGatewayKey, hashGatewayKey } from "../gateway/keys.ts";
@@ -254,6 +256,26 @@ export async function adminProviderRoutes(
     { preHandler: [authenticate, requirePermission("models.use")] },
     async (req) => {
       const auth = authOf(req);
+      const body = parseBody(GatewayKeyRequestSchema, req.body ?? {});
+      let deviceId: string | null = null;
+      if (body.deviceId && body.deviceSecret) {
+        const [device] = await db
+          .select()
+          .from(devices)
+          .where(
+            and(eq(devices.id, body.deviceId), eq(devices.userId, auth.user.id)),
+          )
+          .limit(1);
+        if (
+          !device ||
+          device.disabled ||
+          !device.secretHash ||
+          hashDeviceSecret(body.deviceSecret) !== device.secretHash
+        ) {
+          throw new AppError(401, "unauthorized", "Invalid device secret");
+        }
+        deviceId = device.id;
+      }
       const key = generateGatewayKey();
       const now = new Date();
       const values = {
@@ -262,6 +284,7 @@ export async function adminProviderRoutes(
         userId: auth.user.id,
         createdAt: now,
         lastUsedAt: null,
+        deviceId,
       };
       await db
         .insert(gatewayKeys)

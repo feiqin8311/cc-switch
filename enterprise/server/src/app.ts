@@ -39,6 +39,8 @@ export async function buildApp(
               "req.body.refreshToken",
               "req.body.apiKey",
               "req.body.providers[*].apiKey",
+              "req.body.deviceSecret",
+              "req.headers.x-device-secret",
             ],
             ...(config.env === "development"
               ? { transport: { target: "pino-pretty" } }

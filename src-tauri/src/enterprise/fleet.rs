@@ -51,11 +51,18 @@ struct LocalDevice {
     device_id: String,
     #[serde(default)]
     applied_revision: i64,
+    #[serde(default)]
+    applied_profile_id: Option<String>,
+    /// Returned once by the server. Never logged.
+    #[serde(default)]
+    device_secret: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FleetProviderSpec {
+    #[serde(default = "direct_kind")]
+    kind: String,
     id: String,
     #[serde(default)]
     name: String,
@@ -73,6 +80,7 @@ struct FleetProviderSpec {
 #[serde(rename_all = "camelCase")]
 struct DesiredFleet {
     revision: i64,
+    profile_id: String,
     mode: String,
     active_provider_id: String,
     #[serde(default)]
@@ -85,10 +93,33 @@ struct DesiredFleet {
 #[serde(rename_all = "camelCase")]
 struct HeartbeatResponse {
     desired_revision: i64,
+    profile_id: String,
     mode: String,
     active_provider_id: String,
     #[serde(default)]
     stack_member_ids: Vec<String>,
+    #[serde(default)]
+    force_sync: bool,
+    #[serde(default)]
+    device_secret: Option<String>,
+}
+
+fn direct_kind() -> String {
+    "direct".to_string()
+}
+
+fn managed_profile_id(card_id: &str) -> Option<&str> {
+    card_id
+        .strip_prefix(FLEET_ID_PREFIX)
+        .or_else(|| card_id.strip_prefix("ccse-"))
+}
+
+fn card_id_for(spec: &FleetProviderSpec) -> String {
+    if spec.kind == "gateway" {
+        format!("ccse-{}", spec.id)
+    } else {
+        fleet_card_id(&spec.id)
+    }
 }
 
 #[derive(Serialize)]
@@ -110,15 +141,25 @@ struct Reported {
 }
 
 /// `true` when the live machine does not match the summary from the last heartbeat.
-fn needs_apply(applied: i64, live: &Reported, desired: &HeartbeatResponse) -> bool {
-    if desired.desired_revision == 0 {
+fn needs_apply(
+    applied: i64,
+    applied_profile: Option<&str>,
+    live: &Reported,
+    desired: &HeartbeatResponse,
+) -> bool {
+    if desired.force_sync {
+        return true;
+    }
+    // An untouched default profile must not rewrite the machine.
+    if desired.desired_revision == 0 && desired.active_provider_id.is_empty() {
         return false;
     }
-    if applied != desired.desired_revision {
+    if applied_profile != Some(desired.profile_id.as_str()) || applied != desired.desired_revision
+    {
         return true;
     }
     if desired.active_provider_id.is_empty() {
-        return live.providers.iter().any(|p| p.managed);
+        return live.providers.iter().any(|p| p.id.starts_with(FLEET_ID_PREFIX));
     }
     if live.mode != desired.mode {
         return true;
@@ -126,7 +167,7 @@ fn needs_apply(applied: i64, live: &Reported, desired: &HeartbeatResponse) -> bo
     let live_active = live
         .active_provider_id
         .as_deref()
-        .and_then(|id| id.strip_prefix(FLEET_ID_PREFIX));
+        .and_then(managed_profile_id);
     if live_active != Some(desired.active_provider_id.as_str()) {
         return true;
     }
@@ -205,7 +246,7 @@ fn plan_fleet_cards(
     let mut plan = SyncPlan::default();
     let mut wanted = std::collections::HashSet::new();
     for spec in desired {
-        if spec.id.trim().is_empty() {
+        if spec.kind == "gateway" || spec.id.trim().is_empty() {
             continue;
         }
         let id = fleet_card_id(&spec.id);
@@ -240,6 +281,8 @@ fn load_local(dir: &Path) -> Result<LocalDevice, String> {
     let local = LocalDevice {
         device_id: uuid::Uuid::new_v4().to_string(),
         applied_revision: 0,
+        applied_profile_id: None,
+        device_secret: None,
     };
     crate::config::write_json_file_private(&path, &local).map_err(|e| e.to_string())?;
     Ok(local)
@@ -282,13 +325,13 @@ fn collect_report(app: &AppHandle) -> Result<Reported, String> {
             .map(|p| ReportedProvider {
                 id: clip(&p.id, 80),
                 name: clip(&p.name, 100),
-                managed: is_fleet(&p.id),
+                managed: is_fleet(&p.id) || p.id.starts_with("ccse-"),
             })
             .collect(),
         stack_member_ids: stack
             .members
             .iter()
-            .filter_map(|id| id.strip_prefix(FLEET_ID_PREFIX).map(str::to_string))
+            .filter_map(|id| managed_profile_id(id).map(str::to_string))
             .take(50)
             .collect(),
     })
@@ -427,7 +470,7 @@ async fn apply_membership(app: &AppHandle, desired: &DesiredFleet) -> Result<(),
     };
     let state = app.state::<AppState>();
     for spec in &desired.providers {
-        let card_id = fleet_card_id(&spec.id);
+        let card_id = card_id_for(spec);
         let enabled = wanted.contains(spec.id.as_str());
         let current =
             crate::mode::stack::is_member(&AppType::Codex, &card_id).map_err(|e| e.to_string())?;
@@ -447,7 +490,12 @@ async fn apply_membership(app: &AppHandle, desired: &DesiredFleet) -> Result<(),
 }
 
 async fn apply_mode(app: &AppHandle, desired: &DesiredFleet) -> Result<(), String> {
-    let active = fleet_card_id(&desired.active_provider_id);
+    let active = desired
+        .providers
+        .iter()
+        .find(|spec| spec.id == desired.active_provider_id)
+        .map(card_id_for)
+        .unwrap_or_else(|| fleet_card_id(&desired.active_provider_id));
     match desired.mode.as_str() {
         "direct" => {
             let proxy = {
@@ -532,6 +580,8 @@ async fn post_json<B: Serialize, T: DeserializeOwned>(
 async fn post_applied(
     session: &EnterpriseSession,
     device_id: &str,
+    device_secret: &str,
+    profile_id: &str,
     revision: i64,
     error: Option<&str>,
 ) -> Result<(), EnterpriseError> {
@@ -541,6 +591,8 @@ async fn post_applied(
                 .bearer_auth(token)
                 .json(&json!({
                     "deviceId": device_id,
+                    "deviceSecret": device_secret,
+                    "profileId": profile_id,
                     "revision": revision,
                     "error": error,
                 }))
@@ -563,37 +615,78 @@ async fn sync_once(app: &AppHandle, session: &EnterpriseSession, dir: &Path) -> 
             .map_err(|e| e.to_string())??
     };
     let hostname = session::hostname().unwrap_or_default();
-    let summary: HeartbeatResponse = post_json(
-        session,
-        "/devices/heartbeat",
-        &json!({
-            "deviceId": local.device_id,
-            "name": session::device_name(),
-            "hostname": clip(&hostname, 100),
-            "reported": reported,
-        }),
-    )
+    let mut heartbeat = json!({
+        "deviceId": local.device_id,
+        "name": session::device_name(),
+        "hostname": clip(&hostname, 100),
+        "reported": reported,
+    });
+    if let Some(secret) = &local.device_secret {
+        heartbeat["deviceSecret"] = json!(secret);
+    }
+    let summary: HeartbeatResponse = post_json(session, "/devices/heartbeat", &heartbeat)
     .await
     .map_err(|e| e.to_string())?;
+    if let Some(secret) = summary.device_secret.clone() {
+        local.device_secret = Some(secret);
+        save_local(dir, &local)?;
+    }
+    if let Some(secret) = local.device_secret.clone() {
+        session
+            .set_device_binding(local.device_id.clone(), secret)
+            .await;
+        // Re-issue the gateway key for this device and refresh the ccse- cards.
+        providers::run_sync(app, session).await;
+    }
 
     let can_apply = state
         .permissions
         .iter()
         .any(|p| p == session::MODELS_USE_PERMISSION);
-    if !can_apply || !needs_apply(local.applied_revision, &reported, &summary) {
+    if !can_apply
+        || !needs_apply(
+            local.applied_revision,
+            local.applied_profile_id.as_deref(),
+            &reported,
+            &summary,
+        )
+    {
         return Ok(());
     }
+    let Some(secret) = local.device_secret.clone() else {
+        return Err("device secret missing".to_string());
+    };
 
     let path = format!("/devices/me/desired?deviceId={}", local.device_id);
-    let desired: DesiredFleet = session.get_json(&path).await.map_err(|e| e.to_string())?;
+    let (_, resp) = session
+        .send_authenticated(|http, base, token| {
+            http.get(client::endpoint(base, &path))
+                .bearer_auth(token)
+                .header("x-device-secret", &secret)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    let desired: DesiredFleet = client::decode_json(resp).await.map_err(|e| e.to_string())?;
     match apply_desired(app, &desired).await {
         Ok(()) => {
-            post_applied(session, &local.device_id, desired.revision, None)
-                .await
-                .map_err(|e| e.to_string())?;
+            post_applied(
+                session,
+                &local.device_id,
+                &secret,
+                &desired.profile_id,
+                desired.revision,
+                None,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
             local.applied_revision = desired.revision;
+            local.applied_profile_id = Some(desired.profile_id.clone());
             save_local(dir, &local)?;
-            log::info!("[Fleet] applied revision {}", desired.revision);
+            log::info!(
+                "[Fleet] applied profile {} revision {}",
+                desired.profile_id,
+                desired.revision
+            );
             Ok(())
         }
         Err(error) => {
@@ -602,6 +695,8 @@ async fn sync_once(app: &AppHandle, session: &EnterpriseSession, dir: &Path) -> 
             let _ = post_applied(
                 session,
                 &local.device_id,
+                &secret,
+                &desired.profile_id,
                 desired.revision,
                 Some(&error),
             )
@@ -611,15 +706,98 @@ async fn sync_once(app: &AppHandle, session: &EnterpriseSession, dir: &Path) -> 
     }
 }
 
+/// ponytail: usage is uploaded on the same 30s loop, at most every 10 minutes.
+const USAGE_INTERVAL: Duration = Duration::from_secs(600);
+
+async fn upload_usage(
+    session: &EnterpriseSession,
+    dir: &Path,
+    local: &LocalDevice,
+) -> Result<(), String> {
+    let Some(secret) = local.device_secret.clone() else {
+        return Ok(());
+    };
+    let db_path = dir.join("cc-switch.db");
+    let device_id = local.device_id.clone();
+    let items = tauri::async_runtime::spawn_blocking(move || read_rollups(&db_path))
+        .await
+        .map_err(|e| e.to_string())??;
+    if items.is_empty() {
+        return Ok(());
+    }
+    let (_, resp) = session
+        .send_authenticated(|http, base, token| {
+            http.post(client::endpoint(base, "/devices/me/usage"))
+                .bearer_auth(token)
+                .json(&json!({
+                    "deviceId": device_id,
+                    "deviceSecret": secret,
+                    "items": items,
+                }))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = resp.bytes().await;
+    Ok(())
+}
+
+fn read_rollups(db_path: &Path) -> Result<Vec<serde_json::Value>, String> {
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let conn = rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| e.to_string())?;
+    let since = (chrono::Utc::now() - chrono::Duration::days(7))
+        .format("%Y-%m-%d")
+        .to_string();
+    let mut stmt = conn
+        .prepare(
+            "SELECT date, provider_id, model,
+                    SUM(request_count), SUM(input_tokens), SUM(output_tokens),
+                    SUM(CAST(total_cost_usd AS REAL))
+             FROM usage_daily_rollups
+             WHERE app_type = 'codex' AND date >= ?1
+             GROUP BY date, provider_id, model",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([&since], |row| {
+            Ok(json!({
+                "date": row.get::<_, String>(0)?,
+                "providerId": row.get::<_, String>(1)?,
+                "model": row.get::<_, String>(2)?,
+                "requests": row.get::<_, i64>(3)?,
+                "inputTokens": row.get::<_, i64>(4)?,
+                "outputTokens": row.get::<_, i64>(5)?,
+                "costUsd": row.get::<_, f64>(6)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
 pub fn install(app: &AppHandle, session: &Arc<EnterpriseSession>) {
     let app = app.clone();
     let session = session.clone();
     let dir: PathBuf = crate::config::get_app_config_dir();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(START_DELAY).await;
+        let mut last_usage = tokio::time::Instant::now() - USAGE_INTERVAL;
         loop {
             if let Err(e) = sync_once(&app, &session, &dir).await {
                 log::warn!("[Fleet] {e}");
+            }
+            if last_usage.elapsed() >= USAGE_INTERVAL {
+                let local = load_local(&dir);
+                match local {
+                    Ok(local) => {
+                        if let Err(e) = upload_usage(&session, &dir, &local).await {
+                            log::warn!("[Fleet] usage upload failed: {e}");
+                        }
+                    }
+                    Err(e) => log::warn!("[Fleet] {e}"),
+                }
+                last_usage = tokio::time::Instant::now();
             }
             tokio::time::sleep(POLL_INTERVAL).await;
         }
@@ -633,6 +811,7 @@ mod tests {
 
     fn spec(id: &str, key: &str, model: &str) -> FleetProviderSpec {
         FleetProviderSpec {
+            kind: "direct".into(),
             id: id.into(),
             name: format!("Name {id}"),
             base_url: "https://example.com/v1".into(),
@@ -659,9 +838,12 @@ mod tests {
     fn summary(revision: i64, mode: &str, active: &str, members: &[&str]) -> HeartbeatResponse {
         HeartbeatResponse {
             desired_revision: revision,
+            profile_id: "profile".into(),
             mode: mode.into(),
             active_provider_id: active.into(),
             stack_member_ids: members.iter().map(|s| (*s).to_string()).collect(),
+            force_sync: false,
+            device_secret: None,
         }
     }
 
@@ -696,20 +878,29 @@ mod tests {
     #[test]
     fn needs_apply_follows_revision_and_live_drift() {
         let live = reported("direct", Some("fleet-volcengine"), &[], true);
-        assert!(!needs_apply(0, &live, &summary(0, "direct", "", &[])));
+        let profile = Some("profile");
+        assert!(!needs_apply(
+            0,
+            profile,
+            &live,
+            &summary(0, "direct", "", &[])
+        ));
         assert!(needs_apply(
             0,
+            profile,
             &live,
             &summary(2, "stack", "volcengine", &["yida"])
         ));
         assert!(!needs_apply(
             2,
+            profile,
             &live,
             &summary(2, "direct", "volcengine", &[]),
         ));
         let switched = reported("direct", Some("codex-official"), &[], true);
         assert!(needs_apply(
             2,
+            profile,
             &switched,
             &summary(2, "direct", "volcengine", &[]),
         ));
@@ -721,9 +912,21 @@ mod tests {
         );
         assert!(needs_apply(
             2,
+            profile,
             &extra,
             &summary(2, "stack", "volcengine", &[]),
         ));
-        assert!(needs_apply(2, &live, &summary(2, "direct", "", &[])));
+        assert!(needs_apply(
+            2,
+            profile,
+            &live,
+            &summary(2, "direct", "", &[])
+        ));
+        assert!(needs_apply(
+            2,
+            Some("other"),
+            &live,
+            &summary(2, "direct", "volcengine", &[])
+        ));
     }
 }

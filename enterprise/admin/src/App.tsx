@@ -6,9 +6,11 @@ import { useAuth, useSession } from "./lib/auth";
 import { describeError } from "./lib/format";
 import { canAccess, NAV_ITEMS, navItemsFor } from "./nav";
 import { ConversationsPage } from "./pages/ConversationsPage";
+import { DeviceDetailPage } from "./pages/DeviceDetailPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MarketPage } from "./pages/MarketPage";
+import { ProfilesPage } from "./pages/ProfilesPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { RetentionPage } from "./pages/RetentionPage";
 import { UsagePage } from "./pages/UsagePage";
@@ -60,6 +62,7 @@ const PAGES: Record<string, () => ReactNode> = {
   "/users": () => <UsersPage />,
   "/providers": () => <ProvidersPage />,
   "/devices": () => <DevicesPage />,
+  "/profiles": () => <ProfilesPage />,
   "/usage": () => <UsagePage />,
   "/conversations": () => <ConversationsPage />,
   "/retention": () => <RetentionPage />,
@@ -85,6 +88,14 @@ export function App() {
             element={<Guard path={path}>{render()}</Guard>}
           />
         ))}
+        <Route
+          path="/devices/:id"
+          element={
+            <Guard path="/devices">
+              <DeviceDetailPage />
+            </Guard>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

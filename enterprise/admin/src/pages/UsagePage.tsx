@@ -1,4 +1,8 @@
-import { UsageResponseSchema, type UsageRow } from "@ccse/contracts";
+import {
+  DeviceUsageResponseSchema,
+  UsageResponseSchema,
+  type UsageRow,
+} from "@ccse/contracts";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { BarChart3, Search } from "lucide-react";
 import { type FormEvent, type ReactNode, useMemo, useState } from "react";
@@ -75,6 +79,16 @@ export function UsagePage() {
       client.request("/admin/usage", {
         query: range,
         schema: UsageResponseSchema,
+        signal,
+      }),
+    placeholderData: keepPreviousData,
+  });
+  const byDevice = useQuery({
+    queryKey: ["admin", "usage-devices", range.from, range.to],
+    queryFn: ({ signal }) =>
+      client.request("/admin/usage/devices", {
+        query: range,
+        schema: DeviceUsageResponseSchema,
         signal,
       }),
     placeholderData: keepPreviousData,
@@ -175,6 +189,36 @@ export function UsagePage() {
           </div>
         )}
       </form>
+
+      {byDevice.data && byDevice.data.items.length > 0 && (
+        <Card className="overflow-x-auto">
+          <h2 className="px-4 pt-4 text-sm font-medium">按设备（客户端上报）</h2>
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className={thClass}>电脑</th>
+                <th className={thClass}>用户</th>
+                <th className={numTh}>请求</th>
+                <th className={numTh}>输入</th>
+                <th className={numTh}>输出</th>
+                <th className={numTh}>费用</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byDevice.data.items.map((row) => (
+                <tr key={row.deviceId} className={trClass}>
+                  <td className={tdClass}>{row.deviceName}</td>
+                  <td className={tdClass}>{row.username}</td>
+                  <td className={num}>{formatNumber(row.requests)}</td>
+                  <td className={num}>{formatNumber(row.inputTokens)}</td>
+                  <td className={num}>{formatNumber(row.outputTokens)}</td>
+                  <td className={num}>${row.costUsd.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
 
       {usage.isPending ? (
         <Card>
