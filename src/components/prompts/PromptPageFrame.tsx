@@ -67,6 +67,10 @@ interface PromptPageFrameProps {
     width?: number;
   } | null;
   notices?: ReactNode;
+  /** 页头下面的页签行（企业版「已安装 / 企业市场」） */
+  tabs?: ReactNode;
+  /** 有值时显示它，工具行和列表只隐藏不卸载（切回来不用重新加载） */
+  alternate?: ReactNode;
   children: ReactNode;
 }
 
@@ -84,6 +88,8 @@ export function PromptPageFrame({
   target,
   search,
   notices,
+  tabs,
+  alternate,
   children,
 }: PromptPageFrameProps) {
   const { t } = useTranslation();
@@ -151,40 +157,49 @@ export function PromptPageFrame({
         }
       />
 
-      <div className="mt-0.5 flex h-14 shrink-0 items-center gap-3 px-6">
-        <PromptAppPicker
-          app={app}
-          apps={apps}
-          count={count}
-          disabled={appSwitchDisabled}
-          onAppChange={onAppChange}
-        />
-        {segments}
-        {target ? (
-          <span
-            title={`${target.label} ${target.path}${target.meta ?? ""}`}
-            className="min-w-0 shrink truncate text-caption text-fg-2"
-          >
-            {target.label}{" "}
-            <code className="font-mono text-caption text-fg-1">
-              {target.path}
-            </code>
-            {target.meta}
-          </span>
-        ) : null}
-        <div className="flex-1" />
-        {search ? <PromptSearch {...search} /> : null}
-      </div>
-
-      {notices ? (
-        <div role="status" className="flex shrink-0 flex-col gap-2 px-6 pb-3">
-          {notices}
+      {tabs ? <div className="shrink-0 px-6 pt-1">{tabs}</div> : null}
+      {alternate}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          alternate ? "hidden" : null,
+        )}
+      >
+        <div className="mt-0.5 flex h-14 shrink-0 items-center gap-3 px-6">
+          <PromptAppPicker
+            app={app}
+            apps={apps}
+            count={count}
+            disabled={appSwitchDisabled}
+            onAppChange={onAppChange}
+          />
+          {segments}
+          {target ? (
+            <span
+              title={`${target.label} ${target.path}${target.meta ?? ""}`}
+              className="min-w-0 shrink truncate text-caption text-fg-2"
+            >
+              {target.label}{" "}
+              <code className="font-mono text-caption text-fg-1">
+                {target.path}
+              </code>
+              {target.meta}
+            </span>
+          ) : null}
+          <div className="flex-1" />
+          {search ? <PromptSearch {...search} /> : null}
         </div>
-      ) : (
-        <div role="status" className="sr-only" />
-      )}
 
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">{children}</div>
+        {notices ? (
+          <div role="status" className="flex shrink-0 flex-col gap-2 px-6 pb-3">
+            {notices}
+          </div>
+        ) : (
+          <div role="status" className="sr-only" />
+        )}
+
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">{children}</div>
+      </div>
     </>
   );
 }

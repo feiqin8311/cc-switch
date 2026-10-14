@@ -2764,6 +2764,9 @@
     }
   },
   "prompts": {
+    "viewAria": "プロンプトビュー",
+    "viewInstalled": "インストール済み",
+    "viewInstalledCount": "インストール済み {{count}}",
     "add": "プロンプトを追加",
     "addTitle": "プロンプトを追加 · {{appName}}",
     "editTitle": "プロンプトを編集",
@@ -4062,6 +4065,7 @@
     "appsGroup": "アプリ",
     "todayCost": "今日 {{cost}}",
     "usage": "使用量",
+    "upstream": "上流アカウント",
     "auth": "アカウント",
     "authNeedsReauth": "再ログインが必要なアカウントがあります",
     "prompts": "プロンプト",
@@ -4823,6 +4827,7 @@
     "skills": "スキル",
     "plugins": "プラグイン",
     "mcp": "MCP",
+    "prompts": "プロンプト",
     "mandatory": "必須",
     "status": {
       "installed": "インストール済み",
@@ -4830,6 +4835,8 @@
       "notInstalled": "未インストール"
     },
     "install": "インストール",
+    "installSelected": "選択した項目をインストール ({{count}})",
+    "selectAll": "未インストールをすべて選択",
     "update": "更新",
     "uninstall": "アンインストール",
     "loading": "エンタープライズマーケットを読み込み中…",
@@ -4837,10 +4844,17 @@
     "loadFailed": "エンタープライズマーケットの読み込みに失敗しました：{{error}}",
     "toast": {
       "installed": "インストールしました",
+      "installedCount": "{{count}} 件をインストールしました",
+      "installPartial": "{{ok}} 件成功、{{fail}} 件失敗：{{error}}",
       "uninstalled": "アンインストールしました",
       "installFailed": "インストールに失敗しました：{{error}}",
       "uninstallFailed": "アンインストールに失敗しました：{{error}}"
     }
+  },
+  "upstream": {
+    "loading": "上流アカウントを読み込み中…",
+    "unconfigured": "企業サーバーに Sub2API が設定されていません",
+    "empty": "上流アカウントがありません"
   },
   "enterpriseRetention": {
     "statusLabel": "会話保存：{{status}}",

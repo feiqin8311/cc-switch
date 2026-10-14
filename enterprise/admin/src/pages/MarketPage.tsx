@@ -1,11 +1,13 @@
 import {
   ListMarketItemsResponseSchema,
   type MarketItem,
+  type MarketItemKind,
   type MarketItemPatch,
   MarketItemSchema,
+  PromptDefinitionSchema,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Upload } from "lucide-react";
+import { Plug, ScrollText, Sparkles, Upload } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "../components/Toast";
 import {
@@ -35,6 +37,7 @@ import {
   formatDateTime,
 } from "../lib/format";
 import {
+  isJsonKind,
   KIND_LABELS,
   MarketUploadForm,
   type MarketUploadValues,
@@ -44,12 +47,60 @@ const MARKET_KEY = ["market", "items"] as const;
 
 const KIND_BADGES: Record<
   MarketItem["kind"],
-  { tone: "blue" | "purple" | "green"; label: string }
+  { tone: "blue" | "purple" | "green" | "amber"; label: string }
 > = {
   skill: { tone: "blue", label: "skill" },
   plugin: { tone: "purple", label: "plugin" },
   mcp: { tone: "green", label: KIND_LABELS.mcp },
+  prompt: { tone: "amber", label: KIND_LABELS.prompt },
 };
+
+/** Copy and kinds of one market page; all of them share the list query. */
+export interface MarketPageProps {
+  kinds: readonly MarketItemKind[];
+  title: string;
+  description: string;
+  /** Dialog title when uploading a new item. */
+  uploadTitle: string;
+  emptyTitle: string;
+  emptyText: string;
+  icon: "skills" | "mcp" | "prompts";
+}
+
+export const MARKET_PAGES = {
+  skills: {
+    kinds: ["skill", "plugin"],
+    title: "Skills",
+    description:
+      "发布企业内部的 Codex 技能与插件。员工可在客户端安装，标记为必装的会自动安装。",
+    uploadTitle: "上传技能 / 插件",
+    emptyTitle: "还没有技能或插件",
+    emptyText: "点击右上角「上传」发布第一个技能或插件。",
+    icon: "skills",
+  },
+  mcp: {
+    kinds: ["mcp"],
+    title: "MCP",
+    description:
+      "发布 MCP 服务器配置。员工可在客户端安装，标记为必装的会自动安装并为 Codex 启用。",
+    uploadTitle: "上传 MCP 服务器",
+    emptyTitle: "还没有 MCP 服务器",
+    emptyText: "点击右上角「上传」发布第一个 MCP 服务器。",
+    icon: "mcp",
+  },
+  prompts: {
+    kinds: ["prompt"],
+    title: "提示词",
+    description:
+      "发布 Codex 全局提示词（写入员工的 ~/.codex/AGENTS.md）。员工可在客户端安装；标记为必装的会自动安装并启用。",
+    uploadTitle: "上传提示词",
+    emptyTitle: "还没有提示词",
+    emptyText: "点击右上角「上传」发布第一个提示词。",
+    icon: "prompts",
+  },
+} as const satisfies Record<string, MarketPageProps>;
+
+const PAGE_ICONS = { skills: Sparkles, mcp: Plug, prompts: ScrollText };
 
 const METADATA_FIELDS = new Set([
   "id",
@@ -91,7 +142,15 @@ function saveBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function MarketPage() {
+export function MarketPage({
+  kinds,
+  title,
+  description,
+  uploadTitle,
+  emptyTitle,
+  emptyText,
+  icon,
+}: MarketPageProps) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
@@ -150,7 +209,7 @@ export function MarketPage() {
         toast.error("下载的文件校验失败（SHA-256 不匹配），已取消保存");
         return;
       }
-      const ext = item.kind === "mcp" ? "json" : "zip";
+      const ext = isJsonKind(item.kind) ? "json" : "zip";
       saveBlob(blob, `${item.id}-${item.version}.${ext}`);
     } catch (err) {
       toast.error(`下载失败：${describeError(err)}`);
@@ -160,12 +219,14 @@ export function MarketPage() {
   };
 
   const togglingId = patch.isPending ? patch.variables?.id : undefined;
+  const visible = items.data?.items.filter((i) => kinds.includes(i.kind));
+  const Icon = PAGE_ICONS[icon];
 
   return (
     <div>
       <PageHeader
-        title="技能与插件市场"
-        description="发布企业内部的 Codex 技能、插件与 MCP 服务器。员工可在客户端安装，标记为必装的会自动安装。"
+        title={title}
+        description={description}
         actions={
           <Button variant="primary" onClick={() => setUploading("new")}>
             <Upload className="size-4" />
@@ -178,12 +239,12 @@ export function MarketPage() {
           <LoadingState />
         ) : items.isError ? (
           <ErrorState error={items.error} onRetry={() => items.refetch()} />
-        ) : items.data.items.length === 0 ? (
+        ) : !visible || visible.length === 0 ? (
           <EmptyState
-            icon={<Sparkles className="size-6 stroke-[1.5]" />}
-            title="市场暂无内容"
+            icon={<Icon className="size-6 stroke-[1.5]" />}
+            title={emptyTitle}
           >
-            市场还是空的，点击右上角「上传」发布第一个技能或插件。
+            {emptyText}
           </EmptyState>
         ) : (
           <table className={tableClass}>
@@ -200,7 +261,7 @@ export function MarketPage() {
               </tr>
             </thead>
             <tbody>
-              {items.data.items.map((item) => (
+              {visible.map((item) => (
                 <tr key={item.id} className={trClass}>
                   <td className={tdClass}>
                     <Badge tone={KIND_BADGES[item.kind].tone}>
@@ -278,6 +339,10 @@ export function MarketPage() {
       {uploading && (
         <UploadDialog
           key={uploading === "new" ? "new" : uploading.id}
+          kinds={kinds}
+          title={
+            uploading === "new" ? uploadTitle : `发布新版本：${uploading.name}`
+          }
           existing={uploading === "new" ? undefined : uploading}
           onClose={() => setUploading(null)}
         />
@@ -301,10 +366,28 @@ export function MarketPage() {
   );
 }
 
+/** Text the definition field starts with for a new version of a JSON item. */
+function definitionTextOf(kind: MarketItemKind, text: string): string {
+  if (kind !== "prompt") return prettyDefinition(text);
+  try {
+    const parsed = PromptDefinitionSchema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data.content : "";
+  } catch {
+    return "";
+  }
+}
+
+const DEFINITION_LABELS = { mcp: "MCP 配置", prompt: "提示词" } as const;
+const DEFINITION_LIMITS = { mcp: "64 KB", prompt: "256 KB" } as const;
+
 function UploadDialog({
+  kinds,
+  title,
   existing,
   onClose,
 }: {
+  kinds: readonly MarketItemKind[];
+  title: string;
   existing?: MarketItem;
   onClose(): void;
 }) {
@@ -314,19 +397,19 @@ function UploadDialog({
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Prefill a new MCP version with the current definition; on failure the
-  // field just starts empty.
-  const isMcpUpdate = existing?.kind === "mcp";
+  // Prefill a new MCP / prompt version with the current definition; on
+  // failure the field just starts empty.
+  const isJsonUpdate = existing !== undefined && isJsonKind(existing.kind);
   const current = useQuery({
     queryKey: ["market", "package", existing?.id, existing?.sha256],
-    enabled: isMcpUpdate,
+    enabled: isJsonUpdate,
     retry: false,
     queryFn: async ({ signal }) => {
       const { blob } = await client.download(
         `/market/items/${encodeURIComponent(existing?.id ?? "")}/package`,
         signal,
       );
-      return prettyDefinition(await blob.text());
+      return definitionTextOf(existing?.kind ?? "mcp", await blob.text());
     },
   });
 
@@ -341,7 +424,7 @@ function UploadDialog({
           version: v.version,
           mandatory: v.mandatory ? "true" : "false",
         },
-        ...(v.kind === "mcp"
+        ...(v.kind === "mcp" || v.kind === "prompt"
           ? { body: v.definition }
           : { raw: { data: v.file, contentType: "application/zip" } }),
         schema: MarketItemSchema,
@@ -352,22 +435,23 @@ function UploadDialog({
       onClose();
     },
     onError: (err, v) => {
-      if (v.kind === "mcp") {
+      if (isJsonKind(v.kind)) {
+        const label = DEFINITION_LABELS[v.kind];
         if (err instanceof ApiError && err.code === "payload_too_large") {
           setServerErrors({
-            definition: "MCP 配置超过服务器允许的大小（64 KB）",
+            definition: `${label}超过服务器允许的大小（${DEFINITION_LIMITS[v.kind]}）`,
           });
           return;
         }
-        // Definition issues carry paths like "command" or "url"; metadata
-        // issues (query string) fall through to the regular field mapping.
+        // Definition issues carry paths like "command", "url" or "content";
+        // metadata issues (query string) fall through to the regular mapping.
         const issue =
           err instanceof ApiError && err.code === "bad_request"
             ? err.fieldIssues.find((i) => !METADATA_FIELDS.has(i.path))
             : undefined;
         if (issue) {
           setServerErrors({
-            definition: `MCP 配置不符合要求：${issue.path ? `${issue.path} ` : ""}${issue.message}`,
+            definition: `${label}不符合要求：${issue.path ? `${issue.path} ` : ""}${issue.message}`,
           });
           return;
         }
@@ -386,9 +470,7 @@ function UploadDialog({
     <Dialog
       open
       width="max-w-2xl"
-      title={
-        existing ? `发布新版本：${existing.name}` : "上传技能 / 插件 / MCP"
-      }
+      title={title}
       onClose={onClose}
       footer={
         <>
@@ -405,11 +487,14 @@ function UploadDialog({
         </>
       }
     >
-      {isMcpUpdate && current.isPending ? (
-        <LoadingState label="读取当前 MCP 配置…" />
+      {isJsonUpdate && current.isPending ? (
+        <LoadingState
+          label={`读取当前${existing.kind === "prompt" ? "提示词" : " MCP 配置"}…`}
+        />
       ) : (
         <MarketUploadForm
           formId="market-upload-form"
+          kinds={kinds}
           existing={existing}
           initialDefinition={current.data}
           serverErrors={serverErrors}

@@ -1,4 +1,7 @@
-import { MAX_MARKET_PACKAGE_BYTES } from "@ccse/contracts";
+import {
+  MAX_MARKET_PACKAGE_BYTES,
+  MAX_PROMPT_DEFINITION_BYTES,
+} from "@ccse/contracts";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MarketUploadForm } from "./MarketUploadForm";
@@ -162,6 +165,115 @@ describe("MarketUploadForm", () => {
         kind: "mcp",
         version: "1.1.0",
         definition: { type: "sse", url: "https://mcp.example.com/sse" },
+      }),
+    );
+  });
+
+  it("offers only the page's kinds", () => {
+    render(
+      <MarketUploadForm
+        formId="mu"
+        kinds={["skill", "plugin"]}
+        onSubmit={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText(/^类型/) as HTMLSelectElement;
+    expect(Array.from(select.options, (o) => o.value)).toEqual([
+      "skill",
+      "plugin",
+    ]);
+  });
+
+  it("has no kind select on the MCP page", () => {
+    const onSubmit = vi.fn();
+    render(
+      <MarketUploadForm formId="mu" kinds={["mcp"]} onSubmit={onSubmit} />,
+    );
+    expect(screen.queryByLabelText(/^类型/)).toBeNull();
+    expect(screen.queryByLabelText(/^安装包/)).toBeNull();
+    fillMetadata();
+    submit();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "mcp" }),
+    );
+  });
+
+  it("takes a prompt as Markdown", () => {
+    const onSubmit = vi.fn();
+    render(
+      <MarketUploadForm formId="mu" kinds={["prompt"]} onSubmit={onSubmit} />,
+    );
+    expect(screen.queryByLabelText(/^类型/)).toBeNull();
+    expect(screen.queryByLabelText(/^安装包/)).toBeNull();
+    fillMetadata();
+    const textarea = screen.getByLabelText(
+      /^提示词内容/,
+    ) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("");
+    expect(screen.getByText(/覆盖员工当前的 AGENTS\.md/)).toBeTruthy();
+
+    submit();
+    expect(screen.getByText("请填写提示词内容")).toBeTruthy();
+    fireEvent.change(textarea, { target: { value: "  \n\t " } });
+    submit();
+    expect(screen.getByText("请填写提示词内容")).toBeTruthy();
+
+    fireEvent.change(textarea, {
+      target: { value: "x".repeat(MAX_PROMPT_DEFINITION_BYTES) },
+    });
+    submit();
+    expect(screen.getByText(/超过 256\.0 KB 上限/)).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    const content = "# 团队约定\n- 回答使用中文\n";
+    fireEvent.change(textarea, { target: { value: content } });
+    submit();
+    expect(onSubmit).toHaveBeenCalledWith({
+      id: "code-review",
+      kind: "prompt",
+      name: "代码评审",
+      description: "",
+      version: "1.0.0",
+      mandatory: false,
+      definition: { content },
+    });
+  });
+
+  it("prefills the current content when publishing a new prompt version", () => {
+    const onSubmit = vi.fn();
+    render(
+      <MarketUploadForm
+        formId="mu"
+        kinds={["prompt"]}
+        existing={{
+          id: "team-rules",
+          kind: "prompt",
+          name: "团队约定",
+          description: "",
+          version: "1.0.0",
+          mandatory: true,
+          sha256: "x",
+          sizeBytes: 10,
+          updatedAt: new Date(0).toISOString(),
+        }}
+        initialDefinition="# 旧内容"
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(
+      (screen.getByLabelText(/^提示词内容/) as HTMLTextAreaElement).value,
+    ).toBe("# 旧内容");
+    fireEvent.change(screen.getByLabelText(/^版本/), {
+      target: { value: "1.1.0" },
+    });
+    submit();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "team-rules",
+        kind: "prompt",
+        version: "1.1.0",
+        mandatory: true,
+        definition: { content: "# 旧内容" },
       }),
     );
   });

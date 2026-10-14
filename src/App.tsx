@@ -78,6 +78,7 @@ import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { UpstreamAccountsPage } from "@/components/upstream/UpstreamAccountsPage";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import {
@@ -1455,6 +1456,8 @@ function App() {
             onOpenRoutingSettings={() => openSettings("routing")}
           />
         );
+      case "upstream":
+        return <UpstreamAccountsPage />;
       case "auth":
         return (
           <>

@@ -1,18 +1,27 @@
+import type { Permission } from "@ccse/contracts";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout, NoPermission } from "./components/Layout";
+import { TabbedPage } from "./components/TabbedPage";
 import { Button, LoadingState } from "./components/ui";
 import { useAuth, useSession } from "./lib/auth";
 import { describeError } from "./lib/format";
-import { canAccess, NAV_ITEMS, navItemsFor } from "./nav";
+import {
+  CONVERSATION_TABS,
+  canAccess,
+  DEVICE_TABS,
+  NAV_ITEMS,
+  navItemsFor,
+} from "./nav";
 import { ConversationsPage } from "./pages/ConversationsPage";
 import { DeviceDetailPage } from "./pages/DeviceDetailPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { LoginPage } from "./pages/LoginPage";
-import { MarketPage } from "./pages/MarketPage";
+import { MARKET_PAGES, MarketPage } from "./pages/MarketPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { RetentionPage } from "./pages/RetentionPage";
+import { UpstreamPage } from "./pages/UpstreamPage";
 import { UsagePage } from "./pages/UsagePage";
 import { UsersPage } from "./pages/UsersPage";
 
@@ -42,10 +51,21 @@ function RequireAuth({ children }: { children: ReactNode }) {
   }
 }
 
-/** Renders the page only when the session may see it. */
-function Guard({ path, children }: { path: string; children: ReactNode }) {
+/**
+ * Renders the page only when the session may see it: by the nav item of
+ * `path`, or by `anyOf` for routes without one of their own.
+ */
+function Guard({
+  path,
+  anyOf,
+  children,
+}: {
+  path?: string;
+  anyOf?: readonly Permission[];
+  children: ReactNode;
+}) {
   const session = useSession();
-  const item = NAV_ITEMS.find((i) => i.path === path);
+  const item = anyOf ? { anyOf } : NAV_ITEMS.find((i) => i.path === path);
   if (item && !canAccess(session.permissions, item)) {
     return <NoPermission>当前账号无权访问此页面。</NoPermission>;
   }
@@ -60,13 +80,40 @@ function Home() {
 
 const PAGES: Record<string, () => ReactNode> = {
   "/users": () => <UsersPage />,
-  "/providers": () => <ProvidersPage />,
-  "/devices": () => <DevicesPage />,
-  "/profiles": () => <ProfilesPage />,
+  "/devices": () => (
+    <TabbedPage
+      title="设备管理"
+      tabs={DEVICE_TABS}
+      bodies={{
+        devices: () => <DevicesPage embedded />,
+        profiles: () => <ProfilesPage embedded />,
+        providers: () => <ProvidersPage embedded />,
+      }}
+    />
+  ),
   "/usage": () => <UsagePage />,
-  "/conversations": () => <ConversationsPage />,
-  "/retention": () => <RetentionPage />,
-  "/market": () => <MarketPage />,
+  "/upstream": () => <UpstreamPage />,
+  "/mcp": () => <MarketPage key="mcp" {...MARKET_PAGES.mcp} />,
+  "/skills": () => <MarketPage key="skills" {...MARKET_PAGES.skills} />,
+  "/prompts": () => <MarketPage key="prompts" {...MARKET_PAGES.prompts} />,
+  "/conversations": () => (
+    <TabbedPage
+      title="会话"
+      tabs={CONVERSATION_TABS}
+      bodies={{
+        records: () => <ConversationsPage embedded />,
+        retention: () => <RetentionPage embedded />,
+      }}
+    />
+  ),
+};
+
+/** Pages that moved into tabs (or were split); old links keep working. */
+const REDIRECTS: Record<string, string> = {
+  "/providers": "/devices?tab=providers",
+  "/profiles": "/devices?tab=profiles",
+  "/retention": "/conversations?tab=retention",
+  "/market": "/skills",
 };
 
 export function App() {
@@ -88,10 +135,18 @@ export function App() {
             element={<Guard path={path}>{render()}</Guard>}
           />
         ))}
+        {Object.entries(REDIRECTS).map(([from, to]) => (
+          <Route
+            key={from}
+            path={from}
+            element={<Navigate to={to} replace />}
+          />
+        ))}
         <Route
           path="/devices/:id"
           element={
-            <Guard path="/devices">
+            // The device list is the settings.manage tab of 设备管理.
+            <Guard anyOf={["settings.manage"]}>
               <DeviceDetailPage />
             </Guard>
           }

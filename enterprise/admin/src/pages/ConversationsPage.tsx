@@ -5,7 +5,6 @@ import {
   type RetainedMessage,
 } from "@ccse/contracts";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -15,6 +14,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -52,7 +52,7 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { userId: "", q: "", from: "", to: "" };
 
-export function ConversationsPage() {
+export function ConversationsPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const canListUsers = useCan("users.manage");
   const users = useUsers(canListUsers);
@@ -112,7 +112,8 @@ export function ConversationsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="对话审计"
+        embedded={embedded}
+        title="对话记录"
         description="查看员工确认留存告知后上传的 Codex 对话，按最近消息时间倒序。"
       />
 
@@ -144,7 +145,7 @@ export function ConversationsPage() {
           ) : (
             filters.userId && (
               <div className="flex h-9 items-center gap-1.5 text-sm">
-                  <span className="text-xs text-muted-foreground">用户：</span>
+                <span className="text-xs text-muted-foreground">用户：</span>
                 <Badge tone="blue">{filteredUser}</Badge>
                 <Button
                   size="sm"
@@ -172,7 +173,9 @@ export function ConversationsPage() {
               type="date"
               className={`${inputClass} w-40`}
               value={draft.from}
-              onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, from: e.target.value }))
+              }
             />
           </Field>
           <Field label="结束日期（UTC）" htmlFor="conv-to">
@@ -254,7 +257,10 @@ export function ConversationsPage() {
                       </button>
                     </td>
                     <td className={`${tdClass} max-w-72`}>
-                      <div className="truncate font-medium" title={c.title ?? undefined}>
+                      <div
+                        className="truncate font-medium"
+                        title={c.title ?? undefined}
+                      >
                         {c.title ?? (
                           <span className="text-muted-foreground/60 font-normal">
                             （无标题）
@@ -268,7 +274,9 @@ export function ConversationsPage() {
                     >
                       {c.projectDir ?? "—"}
                     </td>
-                    <td className={`${tdClass} font-mono text-xs whitespace-nowrap`}>
+                    <td
+                      className={`${tdClass} font-mono text-xs whitespace-nowrap`}
+                    >
                       {c.model ? (
                         <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground">
                           {c.model}
@@ -277,16 +285,24 @@ export function ConversationsPage() {
                         "—"
                       )}
                     </td>
-                    <td className={`${tdClass} max-w-40 truncate text-xs text-muted-foreground`}>
+                    <td
+                      className={`${tdClass} max-w-40 truncate text-xs text-muted-foreground`}
+                    >
                       {c.deviceName ?? "—"}
                     </td>
-                    <td className={`${tdClass} text-right tabular-nums font-mono text-xs`}>
+                    <td
+                      className={`${tdClass} text-right tabular-nums font-mono text-xs`}
+                    >
                       {formatNumber(c.messageCount)}
                     </td>
-                    <td className={`${tdClass} whitespace-nowrap text-xs text-muted-foreground`}>
+                    <td
+                      className={`${tdClass} whitespace-nowrap text-xs text-muted-foreground`}
+                    >
                       {formatDateTime(c.startedAt)}
                     </td>
-                    <td className={`${tdClass} whitespace-nowrap text-xs text-muted-foreground`}>
+                    <td
+                      className={`${tdClass} whitespace-nowrap text-xs text-muted-foreground`}
+                    >
                       {formatDateTime(c.lastMessageAt)}
                     </td>
                   </tr>
@@ -389,9 +405,13 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose(): void }) {
                 <span>· 开始：{formatDateTime(c.startedAt)}</span>
                 <span>· 消息数：{formatNumber(c.messageCount)}</span>
                 {c.projectDir && (
-                  <span className="font-mono break-all">· 目录：{c.projectDir}</span>
+                  <span className="font-mono break-all">
+                    · 目录：{c.projectDir}
+                  </span>
                 )}
-                <span className="font-mono">· 会话 ID：{c.clientSessionId}</span>
+                <span className="font-mono">
+                  · 会话 ID：{c.clientSessionId}
+                </span>
               </div>
             )}
           </div>
@@ -531,8 +551,9 @@ function MessageItem({ message: m }: { message: RetainedMessage }) {
         )}
         {(m.inputTokens !== null || m.outputTokens !== null) && (
           <span className="tabular-nums text-[10px] opacity-75">
-            输入 {m.inputTokens === null ? "—" : formatNumber(m.inputTokens)} / 输出{" "}
-            {m.outputTokens === null ? "—" : formatNumber(m.outputTokens)} tokens
+            输入 {m.inputTokens === null ? "—" : formatNumber(m.inputTokens)} /
+            输出 {m.outputTokens === null ? "—" : formatNumber(m.outputTokens)}{" "}
+            tokens
           </span>
         )}
       </div>
@@ -559,7 +580,8 @@ function MessageItem({ message: m }: { message: RetainedMessage }) {
             </>
           ) : (
             <>
-              <ChevronDown className="size-3" /> 展开全部（{formatNumber(m.content.length)} 字符）
+              <ChevronDown className="size-3" /> 展开全部（
+              {formatNumber(m.content.length)} 字符）
             </>
           )}
         </button>

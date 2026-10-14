@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
@@ -6,6 +7,9 @@ import { promptsApi, type AppId, type Prompt } from "@/lib/api";
 import { usePromptActions } from "@/hooks/usePromptActions";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
+import { useAuth } from "@/contexts/AuthContext";
+import { PageTabs } from "@/components/ui/page-tabs";
+import { EnterpriseMarketPanel } from "@/components/skills/EnterpriseMarketPanel";
 import PiPromptPanel from "./PiPromptPanel";
 import PromptFormPanel from "./PromptFormPanel";
 import {
@@ -180,6 +184,23 @@ const StandardPromptPanel: React.FC<PromptPanelProps> = ({
   }, [appId, runExternalReload]);
 
   useTauriEvent("profile-applied", runExternalReload);
+
+  // 企业版：Codex 提示词页有「已安装 / 企业市场」页签（要 market.install 权限）。
+  // 企业提示词只装到 Codex，其他应用不显示页签。
+  const { hasPermission } = useAuth();
+  const showEnterprise = appId === "codex" && hasPermission("market.install");
+  const [view, setView] = useState<"installed" | "enterprise">("installed");
+  const [tabsTrailingSlot, setTabsTrailingSlot] =
+    useState<HTMLDivElement | null>(null);
+  const shownView = showEnterprise ? view : "installed";
+  // 在企业市场里装 / 卸过的提示词，切回「已安装」时重读列表
+  const previousViewRef = useRef(shownView);
+  useEffect(() => {
+    if (previousViewRef.current !== shownView && shownView === "installed") {
+      void runExternalReload();
+    }
+    previousViewRef.current = shownView;
+  }, [shownView, runExternalReload]);
 
   const handleAdd = () => {
     if (reloadLockRef.current || writeLockRef.current || interactionBlocked) {
@@ -511,6 +532,44 @@ const StandardPromptPanel: React.FC<PromptPanelProps> = ({
         path: displayPath,
         meta: ` · ${fileMeta}`,
       }}
+      tabs={
+        showEnterprise ? (
+          <PageTabs<"installed" | "enterprise">
+            aria-label={t("prompts.viewAria")}
+            idPrefix="prompts-view"
+            className="h-11"
+            value={shownView}
+            onValueChange={(next) => {
+              if (next !== "installed" && navigationBlocked) return;
+              setView(next);
+            }}
+            items={[
+              {
+                value: "installed",
+                label: loading
+                  ? t("prompts.viewInstalled")
+                  : t("prompts.viewInstalledCount", {
+                      count: promptEntries.length,
+                    }),
+              },
+              { value: "enterprise", label: t("enterpriseMarket.title") },
+            ]}
+            trailing={
+              <div ref={setTabsTrailingSlot} className="flex items-center" />
+            }
+          />
+        ) : null
+      }
+      alternate={
+        shownView === "enterprise" ? (
+          <EnterpriseMarketPanel
+            kinds={["prompt"]}
+            renderTrailing={(trailing) =>
+              tabsTrailingSlot ? createPortal(trailing, tabsTrailingSlot) : null
+            }
+          />
+        ) : null
+      }
       search={
         listEmpty
           ? null

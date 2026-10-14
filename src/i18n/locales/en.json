@@ -2764,6 +2764,9 @@
     }
   },
   "prompts": {
+    "viewAria": "Prompts view",
+    "viewInstalled": "Installed",
+    "viewInstalledCount": "Installed {{count}}",
     "add": "Add Prompt",
     "addTitle": "Add prompt · {{appName}}",
     "editTitle": "Edit prompt",
@@ -4062,6 +4065,7 @@
     "appsGroup": "Apps",
     "todayCost": "Today {{cost}}",
     "usage": "Usage",
+    "upstream": "Upstream accounts",
     "auth": "Accounts",
     "authNeedsReauth": "An account needs to sign in again",
     "prompts": "Prompts",
@@ -4823,6 +4827,7 @@
     "skills": "Skills",
     "plugins": "Plugins",
     "mcp": "MCP",
+    "prompts": "Prompts",
     "mandatory": "Required",
     "status": {
       "installed": "Installed",
@@ -4830,6 +4835,8 @@
       "notInstalled": "Not installed"
     },
     "install": "Install",
+    "installSelected": "Install selected ({{count}})",
+    "selectAll": "Select all uninstalled items",
     "update": "Update",
     "uninstall": "Uninstall",
     "loading": "Loading enterprise marketplace…",
@@ -4837,10 +4844,17 @@
     "loadFailed": "Failed to load the enterprise marketplace: {{error}}",
     "toast": {
       "installed": "Installed",
+      "installedCount": "Installed {{count}} items",
+      "installPartial": "Installed {{ok}}, {{fail}} failed: {{error}}",
       "uninstalled": "Uninstalled",
       "installFailed": "Install failed: {{error}}",
       "uninstallFailed": "Uninstall failed: {{error}}"
     }
+  },
+  "upstream": {
+    "loading": "Loading upstream accounts…",
+    "unconfigured": "Sub2API is not configured on the enterprise server",
+    "empty": "No upstream accounts"
   },
   "enterpriseRetention": {
     "statusLabel": "Conversation retention: {{status}}",

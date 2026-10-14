@@ -464,12 +464,14 @@ fn validate_base_url(base_url: &str) -> Result<(), AppError> {
 
     let is_loopback = is_loopback_host(&parsed_url);
 
-    // 必须是 HTTPS（允许 localhost 用于开发）
-    if parsed_url.scheme() != "https" && !is_loopback {
+    if parsed_url.scheme() != "https"
+        && parsed_url.scheme() != "http"
+        && !is_loopback
+    {
         return Err(AppError::localized(
             "usage_script.base_url_https_required",
-            "base_url 必须使用 HTTPS 协议（localhost 除外）",
-            "base_url must use HTTPS (localhost allowed)",
+            "base_url 必须使用 http 或 https",
+            "base_url must use http or https",
         ));
     }
 
@@ -517,11 +519,15 @@ fn validate_request_url(
 
     // 必须使用 HTTPS（允许 localhost 用于开发）
     // 自定义模板模式下，允许用户自行决定是否使用 HTTP（用户需自行承担安全风险）
-    if !is_custom_template && parsed_request.scheme() != "https" && !is_request_loopback {
+    if !is_custom_template
+        && parsed_request.scheme() != "https"
+        && parsed_request.scheme() != "http"
+        && !is_request_loopback
+    {
         return Err(AppError::localized(
             "usage_script.request_https_required",
-            "请求 URL 必须使用 HTTPS 协议（localhost 除外）",
-            "Request URL must use HTTPS (localhost allowed)",
+            "请求 URL 必须使用 http 或 https",
+            "Request URL must use http or https",
         ));
     }
 

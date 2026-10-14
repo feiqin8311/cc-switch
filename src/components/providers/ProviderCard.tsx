@@ -264,7 +264,10 @@ export function ProviderCard({
   // 脚本用量只在「已启用 + 非官方 + 非官方订阅模板」时才查询；展开判定必须复用同一谓词，
   // 因为禁用的 React Query observer 仍会返回同 key 的旧缓存。
   const scriptUsageActive =
-    usageEnabled && !isOfficial && !isOfficialSubscriptionUsage;
+    usageEnabled &&
+    !isOfficial &&
+    !isOfficialSubscriptionUsage &&
+    !isEnterpriseManaged;
   const { data: usage } = useUsageQuery(provider.id, appId, {
     enabled: scriptUsageActive,
     autoQueryInterval,
@@ -517,7 +520,7 @@ export function ProviderCard({
                   provider={provider}
                   providerId={provider.id}
                   appId={appId}
-                  usageEnabled={usageEnabled}
+                  usageEnabled={scriptUsageActive}
                   isCurrent={isCurrent}
                   isInConfig={isInConfig}
                   inline={true}
@@ -580,7 +583,7 @@ export function ProviderCard({
             provider={provider}
             providerId={provider.id}
             appId={appId}
-            usageEnabled={usageEnabled}
+            usageEnabled={scriptUsageActive}
             isCurrent={isCurrent}
             isInConfig={isInConfig}
             inline={false}

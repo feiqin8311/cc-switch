@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { UpstreamAccountsResponse } from "../../../enterprise/contracts/src/index.ts";
 import type { EnterpriseState } from "@/types/enterprise";
 
 export const enterpriseApi = {
@@ -14,4 +15,7 @@ export const enterpriseApi = {
   logout: () => invoke<EnterpriseState>("enterprise_logout"),
 
   refreshConfig: () => invoke<EnterpriseState>("enterprise_refresh_config"),
+
+  upstreamAccounts: () =>
+    invoke<UpstreamAccountsResponse>("enterprise_upstream_accounts"),
 };

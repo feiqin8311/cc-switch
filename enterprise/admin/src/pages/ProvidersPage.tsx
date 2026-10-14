@@ -39,7 +39,7 @@ import { gatewayUrl, ProviderForm, type ProviderPayload } from "./ProviderForm";
 
 const PROVIDERS_KEY = ["admin", "providers"] as const;
 
-export function ProvidersPage() {
+export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
@@ -68,6 +68,7 @@ export function ProvidersPage() {
   return (
     <div>
       <PageHeader
+        embedded={embedded}
         title="模型与网关"
         description="配置上游模型服务。员工客户端通过企业网关访问，上游 API Key 不会离开服务器。"
         actions={

@@ -30,6 +30,10 @@ const EnvSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
+  /** Sub2API admin panel, used to list ChatGPT/Codex 5h/7d windows. */
+  SUB2API_URL: z.string().optional(),
+  SUB2API_EMAIL: z.string().optional(),
+  SUB2API_PASSWORD: z.string().optional(),
 });
 
 export interface AppConfig {
@@ -46,6 +50,8 @@ export interface AppConfig {
   /** Desktop updater manifest and artifacts (`latest.json` plus signed bundles). */
   updatesDir: string;
   admin: { username: string; password?: string };
+  /** Present when SUB2API_URL + email + password are all set. */
+  sub2api: { url: string; email: string; password: string } | null;
   logLevel: string;
   version: string;
 }
@@ -87,6 +93,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminDistDir: e.ADMIN_DIST_DIR,
     updatesDir: join(e.DATA_DIR, "updates"),
     admin: { username: e.ADMIN_USERNAME, password: e.ADMIN_PASSWORD },
+    sub2api: (() => {
+      const url = e.SUB2API_URL?.trim();
+      const email = e.SUB2API_EMAIL?.trim();
+      const password = e.SUB2API_PASSWORD;
+      if (!url || !email || !password) return null;
+      return { url: url.replace(/\/$/, ""), email, password };
+    })(),
     logLevel: e.LOG_LEVEL,
     version: pkg.version,
   };

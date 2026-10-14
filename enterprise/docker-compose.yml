@@ -33,8 +33,13 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       TRUST_PROXY: ${TRUST_PROXY:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      SUB2API_URL: ${SUB2API_URL:-}
+      SUB2API_EMAIL: ${SUB2API_EMAIL:-}
+      SUB2API_PASSWORD: ${SUB2API_PASSWORD:-}
     ports:
       - "127.0.0.1:4000:4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - server-data:/data
 

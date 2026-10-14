@@ -14,6 +14,7 @@ import { gatewayRoutes } from "./routes/gateway.ts";
 import { marketRoutes } from "./routes/market.ts";
 import { retentionRoutes } from "./routes/retention.ts";
 import { registerUpdates } from "./updates.ts";
+import { upstreamRoutes } from "./routes/upstream.ts";
 
 export interface AppDeps {
   db: Db;
@@ -67,6 +68,7 @@ export async function buildApp(
       await adminConversationRoutes(api, deps);
       await marketRoutes(api, deps);
       await fleetRoutes(api, deps);
+      await upstreamRoutes(api, deps);
     },
     { prefix: API_PREFIX },
   );

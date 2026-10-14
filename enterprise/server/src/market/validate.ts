@@ -86,7 +86,7 @@ export interface ValidatedPackage {
  */
 export function validateMarketPackage(
   buf: Uint8Array,
-  kind: Exclude<MarketItemKind, "mcp">,
+  kind: Exclude<MarketItemKind, "mcp" | "prompt">,
   id: string,
 ): ValidatedPackage {
   const entries = listEntries(buf);

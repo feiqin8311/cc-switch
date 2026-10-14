@@ -530,10 +530,15 @@ export type ConversationDetailResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
-// Phase 4 — skill / plugin / MCP marketplace
+// Phase 4 — skill / plugin / MCP / prompt marketplace
 // ---------------------------------------------------------------------------
 
-export const MarketItemKindSchema = z.enum(["skill", "plugin", "mcp"]);
+export const MarketItemKindSchema = z.enum([
+  "skill",
+  "plugin",
+  "mcp",
+  "prompt",
+]);
 export type MarketItemKind = z.infer<typeof MarketItemKindSchema>;
 
 /** Max package size accepted by the server. */
@@ -541,7 +546,10 @@ export const MAX_MARKET_PACKAGE_BYTES = 20 * 1024 * 1024;
 /** Max size of an MCP definition (JSON). */
 export const MAX_MCP_DEFINITION_BYTES = 64 * 1024;
 
-const StringMapSchema = z.record(z.string().min(1).max(200), z.string().max(4000));
+const StringMapSchema = z.record(
+  z.string().min(1).max(200),
+  z.string().max(4000),
+);
 
 /**
  * The package of an `mcp` item: one MCP server definition, the same shape as
@@ -573,6 +581,24 @@ export const McpDefinitionSchema = z.discriminatedUnion("type", [
 ]);
 export type McpDefinition = z.infer<typeof McpDefinitionSchema>;
 
+/** Max size of a prompt definition (JSON). */
+export const MAX_PROMPT_DEFINITION_BYTES = 256 * 1024;
+
+/**
+ * The package of a `prompt` item: Codex global instructions (Markdown). The
+ * desktop adds it to its Codex prompts; a mandatory prompt is also enabled,
+ * which writes it to ~/.codex/AGENTS.md (the previous content is kept as a
+ * backup prompt on the device).
+ */
+export const PromptDefinitionSchema = z
+  .object({
+    content: z
+      .string()
+      .refine((c) => c.trim().length > 0, "content must not be empty"),
+  })
+  .strict();
+export type PromptDefinition = z.infer<typeof PromptDefinitionSchema>;
+
 /**
  * Package formats:
  * - skill:  zip of a single skill directory (contains SKILL.md), either at the
@@ -580,7 +606,8 @@ export type McpDefinition = z.infer<typeof McpDefinitionSchema>;
  * - plugin: zip of a Codex plugin directory (contains .codex-plugin/plugin.json),
  *           either at the zip root or as the only top-level folder.
  * - mcp:    JSON, an McpDefinitionSchema object (≤ MAX_MCP_DEFINITION_BYTES).
- *           sha256 is over the stored JSON bytes.
+ * - prompt: JSON, a PromptDefinitionSchema object (≤ MAX_PROMPT_DEFINITION_BYTES).
+ * For the JSON kinds sha256 is over the stored (compact) JSON bytes.
  */
 export const MarketItemSchema = z.object({
   /** Slug; for plugins it is also the Codex plugin name. */
@@ -607,13 +634,14 @@ export type ListMarketItemsResponse = z.infer<
 
 /*
  * GET /market/items/:id/package (market.install or market.manage)
- *   → application/zip (skill, plugin) or application/json (mcp),
+ *   → application/zip (skill, plugin) or application/json (mcp, prompt),
  *   header `X-Content-SHA256: <sha256>`; the client must verify it.
  *
  * PUT /admin/market/items/:id (market.manage) — create or replace.
  *   skill / plugin: Content-Type application/zip, body = package bytes
- *   (≤ MAX_MARKET_PACKAGE_BYTES). mcp: Content-Type application/json, body =
- *   McpDefinitionSchema; the server stores it re-serialized (compact JSON).
+ *   (≤ MAX_MARKET_PACKAGE_BYTES). mcp / prompt: Content-Type application/json,
+ *   body = McpDefinitionSchema / PromptDefinitionSchema; the server stores it
+ *   re-serialized (compact JSON).
  *   Metadata in query string: kind, name, description, version, mandatory=true|false
  *   (validated with MarketItemMetadataSchema). The server validates the package
  *   for the kind; a body that does not match the kind is 400. → 200 MarketItem
@@ -709,12 +737,18 @@ const GatewayProviderWriteSchema = z.object({
  * A direct provider omits `kind` (older clients). A gateway provider is only
  * a reference: the desktop uses its existing enterprise gateway card.
  */
-export const FleetProviderWriteSchema = z.preprocess((value) => {
-  if (value && typeof value === "object" && !("kind" in value)) {
-    return { ...value, kind: "direct" };
-  }
-  return value;
-}, z.discriminatedUnion("kind", [DirectProviderWriteSchema, GatewayProviderWriteSchema]));
+export const FleetProviderWriteSchema = z.preprocess(
+  (value) => {
+    if (value && typeof value === "object" && !("kind" in value)) {
+      return { ...value, kind: "direct" };
+    }
+    return value;
+  },
+  z.discriminatedUnion("kind", [
+    DirectProviderWriteSchema,
+    GatewayProviderWriteSchema,
+  ]),
+);
 export type FleetProviderWrite = z.infer<typeof FleetProviderWriteSchema>;
 
 /**
@@ -848,7 +882,9 @@ export const DeviceHeartbeatRequestSchema = z.object({
    */
   deviceSecret: z.string().min(1).max(200).optional(),
 });
-export type DeviceHeartbeatRequest = z.infer<typeof DeviceHeartbeatRequestSchema>;
+export type DeviceHeartbeatRequest = z.infer<
+  typeof DeviceHeartbeatRequestSchema
+>;
 
 /**
  * Summary only: no API keys. The desktop compares this with what it just
@@ -1048,3 +1084,42 @@ export const DeviceUsageResponseSchema = z.object({
   items: z.array(DeviceUsageRowSchema),
 });
 export type DeviceUsageResponse = z.infer<typeof DeviceUsageResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Upstream Sub2API accounts (5h / 7d windows)
+// ---------------------------------------------------------------------------
+
+export const UpstreamWindowSchema = z.object({
+  id: z.enum(["5h", "7d"]),
+  usedPercent: z.number(),
+  remainingSeconds: z.number().int(),
+  resetsAt: z.string().nullable(),
+  requests: z.number().int(),
+  tokens: z.number().int(),
+  accountCost: z.number(),
+  userCost: z.number(),
+});
+export type UpstreamWindow = z.infer<typeof UpstreamWindowSchema>;
+
+export const UpstreamAccountSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  email: z.string().nullable(),
+  platform: z.string(),
+  type: z.string(),
+  status: z.string(),
+  schedulable: z.boolean(),
+  groups: z.array(z.string()),
+  windows: z.array(UpstreamWindowSchema),
+});
+export type UpstreamAccount = z.infer<typeof UpstreamAccountSchema>;
+
+/** GET /admin/upstream/accounts — audit.read. */
+export const UpstreamAccountsResponseSchema = z.object({
+  configured: z.boolean(),
+  error: z.string().nullable(),
+  items: z.array(UpstreamAccountSchema),
+});
+export type UpstreamAccountsResponse = z.infer<
+  typeof UpstreamAccountsResponseSchema
+>;

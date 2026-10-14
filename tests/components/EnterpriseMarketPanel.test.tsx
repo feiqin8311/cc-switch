@@ -153,6 +153,19 @@ describe("EnterpriseMarketPanel", () => {
     );
   });
 
+  it("installs selected uninstalled items in one click", async () => {
+    renderWithQueryClient(<EnterpriseMarketPanel kinds={["mcp"]} />);
+    const row = await screen.findByTestId("enterprise-market-item-github-mcp");
+    fireEvent.click(within(row).getByRole("checkbox", { name: "Name github-mcp" }));
+    fireEvent.click(screen.getByTestId("enterprise-market-install-selected"));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("enterprise_market_install", {
+        id: "github-mcp",
+      }),
+    );
+  });
+
   it("uninstalls a non-mandatory item", async () => {
     renderWithQueryClient(<EnterpriseMarketPanel />);
     const old = await screen.findByTestId("enterprise-market-item-old-skill");

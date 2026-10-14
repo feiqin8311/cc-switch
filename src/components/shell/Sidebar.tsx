@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BookOpen,
   ChartColumn,
+  Gauge,
   ChevronsLeft,
   ChevronsRight,
   Database,
@@ -28,6 +29,7 @@ import { CODEX_ONLY } from "@/config/edition";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
+import { useAuth } from "@/contexts/AuthContext";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
@@ -208,6 +210,7 @@ function MainDirectory({
   appsUpdateAvailable = false,
 }: DirectoryProps) {
   const { t } = useTranslation();
+  const { hasPermission } = useAuth();
   const { hasUpdate } = useUpdate();
   const { appStatus, todayCost, authNeedsAttention } = useSidebarStatus();
   const apps = APP_IDS.filter((app) =>
@@ -247,6 +250,15 @@ function MainDirectory({
       icon: ChartColumn,
       trailing: todayLabel,
     },
+    ...(hasPermission("audit.read")
+      ? [
+          {
+            page: "upstream" as const,
+            label: t("nav.upstream"),
+            icon: Gauge,
+          },
+        ]
+      : []),
   ];
 
   const isGlobalSelected = (page: GlobalPage) =>

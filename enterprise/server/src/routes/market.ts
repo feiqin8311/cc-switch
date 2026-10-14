@@ -3,10 +3,13 @@ import {
   type ListMarketItemsResponse,
   MAX_MARKET_PACKAGE_BYTES,
   MAX_MCP_DEFINITION_BYTES,
+  MAX_PROMPT_DEFINITION_BYTES,
+  type MarketItemKind,
   MarketItemMetadataSchema,
   MarketItemPatchSchema,
   McpDefinitionSchema,
   type Permission,
+  PromptDefinitionSchema,
   ProviderIdSchema,
 } from "@ccse/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -62,15 +65,32 @@ function parseQuery<S extends z.ZodType>(
 /** Keeps Content-Disposition filenames to a safe ASCII subset. */
 const safeFilenamePart = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "_");
 
-/**
- * Raw cap for JSON (mcp) upload bodies. The route's bodyLimit stays at the zip
- * size, so JSON is capped separately before it is buffered and parsed; the
- * slack over MAX_MCP_DEFINITION_BYTES allows pretty-printed input.
- */
-const MAX_MCP_JSON_BODY_BYTES = 4 * MAX_MCP_DEFINITION_BYTES;
+/** Kinds whose package is a JSON definition rather than a zip. */
+type JsonKind = Extract<MarketItemKind, "mcp" | "prompt">;
 
-const mcpBodyTooLarge = () =>
-  new AppError(413, "payload_too_large", "MCP definition too large");
+/** Schema and max stored (compact JSON) size per JSON kind. */
+const JSON_KINDS: Record<JsonKind, { schema: z.ZodType; maxBytes: number }> = {
+  mcp: { schema: McpDefinitionSchema, maxBytes: MAX_MCP_DEFINITION_BYTES },
+  prompt: {
+    schema: PromptDefinitionSchema,
+    maxBytes: MAX_PROMPT_DEFINITION_BYTES,
+  },
+};
+
+const isJsonKind = (kind: MarketItemKind): kind is JsonKind =>
+  Object.hasOwn(JSON_KINDS, kind);
+
+/**
+ * Raw cap for JSON upload bodies. The route's bodyLimit stays at the zip size,
+ * so JSON is capped separately before it is buffered and parsed; the slack
+ * over the largest per-kind limit allows pretty-printed input. The handler
+ * still enforces each kind's serialized limit.
+ */
+const MAX_JSON_BODY_BYTES =
+  4 * Math.max(...Object.values(JSON_KINDS).map((k) => k.maxBytes));
+
+const jsonBodyTooLarge = () =>
+  new AppError(413, "payload_too_large", "Definition too large");
 
 const isJsonRequest = (req: FastifyRequest) =>
   (req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase() ===
@@ -82,7 +102,7 @@ function limitStream(limit: number): Transform {
   return new Transform({
     transform(chunk: Buffer, _enc, cb) {
       seen += chunk.length;
-      if (seen > limit) cb(mcpBodyTooLarge());
+      if (seen > limit) cb(jsonBodyTooLarge());
       else cb(null, chunk);
     },
   });
@@ -121,12 +141,12 @@ export async function marketRoutes(
     const { id } = parseBody(IdParamSchema, req.params);
     const pkg = await getMarketPackage(db, id);
     if (!pkg) throw notFound("Market item not found");
-    const isMcp = pkg.item.kind === "mcp";
-    const ext = isMcp ? "json" : "zip";
+    const isJson = isJsonKind(pkg.item.kind);
+    const ext = isJson ? "json" : "zip";
     const filename = `${pkg.item.id}-${safeFilenamePart(pkg.item.version)}.${ext}`;
     return reply
       .status(200)
-      .header("content-type", isMcp ? "application/json" : "application/zip")
+      .header("content-type", isJson ? "application/json" : "application/zip")
       .header("x-content-sha256", pkg.item.sha256)
       .header("content-disposition", `attachment; filename="${filename}"`)
       .header("cache-control", "no-store")
@@ -141,8 +161,8 @@ export async function marketRoutes(
       preParsing: async (req, _reply, payload) => {
         if (!isJsonRequest(req)) return payload;
         const declared = Number(req.headers["content-length"]);
-        if (declared > MAX_MCP_JSON_BODY_BYTES) throw mcpBodyTooLarge();
-        return payload.pipe(limitStream(MAX_MCP_JSON_BODY_BYTES));
+        if (declared > MAX_JSON_BODY_BYTES) throw jsonBodyTooLarge();
+        return payload.pipe(limitStream(MAX_JSON_BODY_BYTES));
       },
     },
     async (req) => {
@@ -151,17 +171,18 @@ export async function marketRoutes(
       const kind = meta.kind;
       const body = req.body;
       let data: Buffer;
-      if (kind === "mcp") {
+      if (isJsonKind(kind)) {
         if (Buffer.isBuffer(body)) {
           throw new AppError(
             400,
             "bad_request",
-            "kind mcp expects application/json",
+            `kind ${kind} expects application/json`,
           );
         }
-        const definition = parseBody(McpDefinitionSchema, body);
+        const { schema, maxBytes } = JSON_KINDS[kind];
+        const definition = parseBody(schema, body);
         data = Buffer.from(JSON.stringify(definition));
-        if (data.length > MAX_MCP_DEFINITION_BYTES) throw mcpBodyTooLarge();
+        if (data.length > maxBytes) throw jsonBodyTooLarge();
       } else {
         if (!Buffer.isBuffer(body)) {
           throw new AppError(

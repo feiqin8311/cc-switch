@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::app_config::AppType;
 use crate::config::write_text_file;
+use crate::database::Database;
 use crate::error::AppError;
 use crate::prompt::Prompt;
 use crate::prompt_files::{prompt_file_path, validate_prompt_content};
@@ -18,6 +19,17 @@ fn get_unix_timestamp() -> Result<i64, AppError> {
 }
 
 pub struct PromptService;
+
+/// Pi / MCode 的提示词文件有各自的锁和格式，只能走带 `AppState` 的入口。
+fn reject_special_prompt_app(app: &AppType) -> Result<(), AppError> {
+    if matches!(app, AppType::Pi | AppType::Mcode) {
+        return Err(AppError::InvalidInput(format!(
+            "{} prompts must go through PromptService with AppState",
+            app.as_str()
+        )));
+    }
+    Ok(())
+}
 
 fn project_prompt_set_to_path(
     prompts: &IndexMap<String, Prompt>,
@@ -97,9 +109,20 @@ impl PromptService {
         if app == AppType::Mcode {
             return upsert_mcode_prompt(state, id, prompt, &prompt_file_path(&app)?);
         }
+        Self::upsert_prompt_in(&state.db, app, id, prompt)
+    }
 
+    /// 同 [`Self::upsert_prompt`]，只需要数据库（企业市场安装提示词时用）。
+    /// Pi / MCode 的提示词文件另有写法，不走这里。
+    pub fn upsert_prompt_in(
+        db: &Database,
+        app: AppType,
+        id: &str,
+        prompt: Prompt,
+    ) -> Result<(), AppError> {
+        reject_special_prompt_app(&app)?;
         validate_prompt_content(&app, &prompt.content)?;
-        let prompts = state.db.get_prompts(app.as_str())?;
+        let prompts = db.get_prompts(app.as_str())?;
         // 只有停用最后一条启用中的提示词时才清空文件；新建、导入或重存
         // 停用条目时，文件可能是用户自己写的，必须原样保留
         let clear_live = !prompt.enabled
@@ -107,7 +130,7 @@ impl PromptService {
             && !prompts
                 .iter()
                 .any(|(key, prompt)| key != id && prompt.enabled);
-        state.db.save_prompt(app.as_str(), &prompt)?;
+        db.save_prompt(app.as_str(), &prompt)?;
 
         if prompt.enabled {
             let target_path = prompt_file_path(&app)?;
@@ -154,13 +177,18 @@ impl PromptService {
         if app == AppType::Mcode {
             return enable_mcode_prompt(state, id, &prompt_file_path(&app)?);
         }
+        Self::enable_prompt_in(&state.db, app, id)
+    }
 
+    /// 同 [`Self::enable_prompt`]，只需要数据库（企业市场启用必装提示词时用）。
+    pub fn enable_prompt_in(db: &Database, app: AppType, id: &str) -> Result<(), AppError> {
+        reject_special_prompt_app(&app)?;
         // 回填当前 live 文件内容到已启用的提示词，或创建备份
         let target_path = prompt_file_path(&app)?;
         if target_path.exists() {
             if let Ok(live_content) = std::fs::read_to_string(&target_path) {
                 if !live_content.trim().is_empty() {
-                    let mut prompts = state.db.get_prompts(app.as_str())?;
+                    let mut prompts = db.get_prompts(app.as_str())?;
 
                     // 尝试回填到当前已启用的提示词
                     if let Some((enabled_id, enabled_prompt)) = prompts
@@ -172,7 +200,7 @@ impl PromptService {
                         enabled_prompt.content = live_content.clone();
                         enabled_prompt.updated_at = Some(timestamp);
                         log::info!("回填 live 提示词内容到已启用项: {enabled_id}");
-                        state.db.save_prompt(app.as_str(), enabled_prompt)?;
+                        db.save_prompt(app.as_str(), enabled_prompt)?;
                     } else {
                         // 没有已启用的提示词，则创建一次备份（避免重复备份）
                         let content_exists = prompts
@@ -197,7 +225,7 @@ impl PromptService {
                                 updated_at: Some(timestamp),
                             };
                             log::info!("回填 live 提示词内容，创建备份: {backup_id}");
-                            state.db.save_prompt(app.as_str(), &backup_prompt)?;
+                            db.save_prompt(app.as_str(), &backup_prompt)?;
                         }
                     }
                 }
@@ -205,7 +233,7 @@ impl PromptService {
         }
 
         // 启用目标提示词并写入文件
-        let mut prompts = state.db.get_prompts(app.as_str())?;
+        let mut prompts = db.get_prompts(app.as_str())?;
 
         for prompt in prompts.values_mut() {
             prompt.enabled = false;
@@ -215,14 +243,14 @@ impl PromptService {
             validate_prompt_content(&app, &prompt.content)?;
             prompt.enabled = true;
             write_text_file(&target_path, &prompt.content)?; // 原子写入
-            state.db.save_prompt(app.as_str(), prompt)?;
+            db.save_prompt(app.as_str(), prompt)?;
         } else {
             return Err(AppError::InvalidInput(format!("提示词 {id} 不存在")));
         }
 
         // Save all prompts to disable others
         for (_, prompt) in prompts.iter() {
-            state.db.save_prompt(app.as_str(), prompt)?;
+            db.save_prompt(app.as_str(), prompt)?;
         }
 
         Ok(())

@@ -9,6 +9,8 @@
 //!   and are installed with the `codex plugin ...` CLI;
 //! - MCP servers (a JSON definition) go through [`McpService`] under the item
 //!   id and are enabled for Codex;
+//! - prompts (a JSON definition) become Codex prompts `enterprise-<id>` through
+//!   [`PromptService`]; a mandatory prompt is also enabled (AGENTS.md);
 //! - what we installed is recorded in `<app config dir>/enterprise_market.json`
 //!   (0600).
 
@@ -27,8 +29,9 @@ use sha2::{Digest, Sha256};
 use super::{endpoint, EnterpriseSession, EnterpriseState};
 use crate::app_config::{AppType, McpApps, McpServer};
 use crate::database::Database;
+use crate::prompt::Prompt;
 use crate::services::skill::SkillService;
-use crate::services::McpService;
+use crate::services::{McpService, PromptService};
 
 pub const MARKETPLACE_NAME: &str = "ccswitch-enterprise";
 const MARKETPLACE_DISPLAY_NAME: &str = "CC Switch Enterprise";
@@ -49,6 +52,10 @@ const SKILL_MARKER: &str = "SKILL.md";
 const PLUGIN_MARKER: &str = ".codex-plugin/plugin.json";
 /// Same as the contract's `MAX_MCP_DEFINITION_BYTES`.
 const MAX_MCP_DEFINITION_BYTES: u64 = 64 * 1024;
+/// Same as the contract's `MAX_PROMPT_DEFINITION_BYTES`.
+const MAX_PROMPT_DEFINITION_BYTES: u64 = 256 * 1024;
+/// Prompt ids on the device, so they never collide with the user's own.
+const PROMPT_ID_PREFIX: &str = "enterprise-";
 
 // ---------------------------------------------------------------------------
 // Wire / state types
@@ -60,6 +67,7 @@ pub enum MarketItemKind {
     Skill,
     Plugin,
     Mcp,
+    Prompt,
 }
 
 /// `MarketItem` of the contract.
@@ -691,6 +699,95 @@ fn install_mcp_blocking(
 }
 
 // ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
+
+fn prompt_id(item_id: &str) -> String {
+    format!("{PROMPT_ID_PREFIX}{item_id}")
+}
+
+/// Parse a `prompt` package (contract `PromptDefinitionSchema`): its content.
+fn parse_prompt_definition(bytes: &[u8]) -> Result<String, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct PromptDefinition {
+        content: String,
+    }
+    if bytes.len() as u64 > MAX_PROMPT_DEFINITION_BYTES {
+        return Err("Prompt definition is too large".into());
+    }
+    let def: PromptDefinition = serde_json::from_slice(bytes)
+        .map_err(|_| "Prompt definition is not valid JSON with a content string".to_string())?;
+    if def.content.trim().is_empty() {
+        return Err("Prompt content is empty".into());
+    }
+    Ok(def.content)
+}
+
+fn codex_prompts(db: &Database) -> Result<indexmap::IndexMap<String, Prompt>, String> {
+    db.get_prompts(AppType::Codex.as_str())
+        .map_err(|e| e.to_string())
+}
+
+fn install_prompt_blocking(
+    db: &Arc<Database>,
+    item: &MarketItem,
+    package: &Path,
+) -> Result<InstalledItem, String> {
+    let bytes = fs::read(package).map_err(|e| format!("Failed to read the package: {e}"))?;
+    let content = parse_prompt_definition(&bytes)?;
+    let id = prompt_id(&item.id);
+    let existing = codex_prompts(db)?.shift_remove(&id);
+    // An update keeps whether the user enabled it.
+    let enabled = existing.as_ref().is_some_and(|p| p.enabled);
+    let now = chrono::Utc::now().timestamp();
+    let description = item.description.trim();
+    PromptService::upsert_prompt_in(
+        db,
+        AppType::Codex,
+        &id,
+        Prompt {
+            id: id.clone(),
+            name: item.name.clone(),
+            content,
+            description: (!description.is_empty()).then(|| description.to_string()),
+            enabled,
+            created_at: Some(existing.and_then(|p| p.created_at).unwrap_or(now)),
+            updated_at: Some(now),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    // Mandatory: enable it. Enabling backs up the user's current AGENTS.md as a prompt.
+    if item.mandatory && !enabled {
+        PromptService::enable_prompt_in(db, AppType::Codex, &id).map_err(|e| e.to_string())?;
+    }
+
+    Ok(InstalledItem {
+        kind: MarketItemKind::Prompt,
+        version: item.version.clone(),
+        sha256: normalize_sha(&item.sha256),
+        installed_at: now_rfc3339(),
+        skill_dir: None,
+        skill_id: None,
+    })
+}
+
+/// Remove the prompt; when it is the enabled one, AGENTS.md is cleared first.
+fn remove_prompt_blocking(db: &Arc<Database>, item_id: &str) -> Result<(), String> {
+    let id = prompt_id(item_id);
+    let Some(mut prompt) = codex_prompts(db)?.shift_remove(&id) else {
+        return Ok(());
+    };
+    if prompt.enabled {
+        prompt.enabled = false;
+        PromptService::upsert_prompt_in(db, AppType::Codex, &id, prompt)
+            .map_err(|e| e.to_string())?;
+    }
+    db.delete_prompt(AppType::Codex.as_str(), &id)
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Codex plugins
 // ---------------------------------------------------------------------------
 
@@ -1033,6 +1130,7 @@ fn remove_installed_blocking(
         MarketItemKind::Mcp => {
             McpService::delete_server_in(db, id).map_err(|e| e.to_string())?;
         }
+        MarketItemKind::Prompt => remove_prompt_blocking(db, id)?,
     }
     state.items.remove(id);
     save_state(&paths.state_file, state)
@@ -1055,6 +1153,7 @@ fn install_package_blocking(
         MarketItemKind::Skill => install_skill_blocking(db, paths, &mut state, item, package)?,
         MarketItemKind::Plugin => install_plugin_blocking(paths, &state, item, package)?,
         MarketItemKind::Mcp => install_mcp_blocking(db, &state, item, package)?,
+        MarketItemKind::Prompt => install_prompt_blocking(db, item, package)?,
     };
     state.items.insert(item.id.clone(), installed);
     save_state(&paths.state_file, &state)
@@ -1091,6 +1190,7 @@ fn is_present(
             .is_some_and(|sid| matches!(db.get_installed_skill(sid), Ok(Some(_)))),
         MarketItemKind::Plugin => paths.marketplace_dir.join("plugins").join(id).is_dir(),
         MarketItemKind::Mcp => mcp_server_exists(db, id).unwrap_or(false),
+        MarketItemKind::Prompt => codex_prompts(db).is_ok_and(|p| p.contains_key(&prompt_id(id))),
     }
 }
 
@@ -1643,6 +1743,32 @@ mod tests {
             "a".repeat(MAX_MCP_DEFINITION_BYTES as usize)
         );
         assert!(parse_mcp_definition(huge.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn prompt_definition_parsing() {
+        assert_eq!(
+            parse_prompt_definition(br##"{"content":"# Team\n- reply in Chinese"}"##).unwrap(),
+            "# Team\n- reply in Chinese"
+        );
+        for bad in [
+            &br#"{"content":"   "}"#[..],
+            br#"{"content":"x","extra":1}"#,
+            br#"{}"#,
+            br#"{"content":1}"#,
+            b"# not json",
+        ] {
+            assert!(
+                parse_prompt_definition(bad).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        let huge = format!(
+            r#"{{"content":"{}"}}"#,
+            "a".repeat(MAX_PROMPT_DEFINITION_BYTES as usize)
+        );
+        assert!(parse_prompt_definition(huge.as_bytes()).is_err());
     }
 
     #[test]
