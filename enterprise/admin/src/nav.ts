@@ -11,6 +11,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/users", label: "用户管理", anyOf: ["users.manage"] },
   { path: "/providers", label: "模型与网关", anyOf: ["providers.manage"] },
   { path: "/devices", label: "设备配置", anyOf: ["settings.manage"] },
+  { path: "/profiles", label: "配置方案", anyOf: ["settings.manage"] },
   { path: "/usage", label: "用量统计", anyOf: ["audit.read"] },
   { path: "/conversations", label: "对话审计", anyOf: ["audit.read"] },
   // Viewing needs audit.read (server GET); editing additionally settings.manage.

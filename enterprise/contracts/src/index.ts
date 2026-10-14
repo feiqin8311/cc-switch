@@ -345,6 +345,17 @@ export type UpdateProviderRequest = z.infer<typeof UpdateProviderRequestSchema>;
  * One key per login session; requesting again replaces the previous key of
  * this session. The key dies with the session (logout, disable, expiry).
  */
+/** Optional body. Send both fields to attribute later usage to that desktop. */
+export const GatewayKeyRequestSchema = z
+  .object({
+    deviceId: z.string().uuid().optional(),
+    deviceSecret: z.string().min(1).max(200).optional(),
+  })
+  .refine((v) => (v.deviceId == null) === (v.deviceSecret == null), {
+    message: "deviceId and deviceSecret must be sent together",
+  });
+export type GatewayKeyRequest = z.infer<typeof GatewayKeyRequestSchema>;
+
 export const GatewayKeyResponseSchema = z.object({
   /** "gk_…" — send as `Authorization: Bearer <key>` to the gateway. */
   key: z.string(),
@@ -630,7 +641,8 @@ const FleetBaseUrlSchema = z
   .url()
   .refine(isFleetBaseUrl, "http is only allowed for localhost");
 
-const FleetProviderWriteSchema = z.object({
+const DirectProviderWriteSchema = z.object({
+  kind: z.literal("direct"),
   id: ProviderIdSchema,
   name: z.string().trim().min(1).max(64),
   baseUrl: FleetBaseUrlSchema,
@@ -642,6 +654,24 @@ const FleetProviderWriteSchema = z.object({
   model: z.string().trim().min(1).max(128),
   models: z.array(FleetModelSchema).min(1).max(50).optional(),
 });
+
+const GatewayProviderWriteSchema = z.object({
+  kind: z.literal("gateway"),
+  /** Id of a provider on the 模型与网关 page. The upstream key stays on the server. */
+  id: ProviderIdSchema,
+});
+
+/**
+ * A direct provider omits `kind` (older clients). A gateway provider is only
+ * a reference: the desktop uses its existing enterprise gateway card.
+ */
+export const FleetProviderWriteSchema = z.preprocess((value) => {
+  if (value && typeof value === "object" && !("kind" in value)) {
+    return { ...value, kind: "direct" };
+  }
+  return value;
+}, z.discriminatedUnion("kind", [DirectProviderWriteSchema, GatewayProviderWriteSchema]));
+export type FleetProviderWrite = z.infer<typeof FleetProviderWriteSchema>;
 
 /**
  * PUT /admin/fleet. Replaces the profile and bumps `revision`. An empty
@@ -666,13 +696,15 @@ export const PutFleetRequestSchema = z
         });
       }
       seen.add(p.id);
-      const models = p.models ?? [{ id: p.model, displayName: p.model }];
-      if (!models.some((m) => m.id === p.model)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["providers", i, "model"],
-          message: "model must be one of models",
-        });
+      if (p.kind === "direct") {
+        const models = p.models ?? [{ id: p.model, displayName: p.model }];
+        if (!models.some((m) => m.id === p.model)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["providers", i, "model"],
+            message: "model must be one of models",
+          });
+        }
       }
     });
     if (v.providers.length === 0) {
@@ -719,10 +751,11 @@ export const PutFleetRequestSchema = z
 export type PutFleetRequest = z.infer<typeof PutFleetRequestSchema>;
 
 export const AdminFleetProviderSchema = z.object({
+  kind: z.enum(["direct", "gateway"]),
   id: ProviderIdSchema,
   name: z.string(),
   baseUrl: z.string(),
-  /** Masked. The key itself is never returned to the admin console. */
+  /** Masked. Empty for a gateway reference. The key itself is never returned. */
   apiKeyHint: z.string(),
   model: z.string(),
   models: z.array(FleetModelSchema),
@@ -765,6 +798,11 @@ export const DeviceHeartbeatRequestSchema = z.object({
   name: z.string().trim().min(1).max(100),
   hostname: z.string().trim().max(100).default(""),
   reported: DeviceReportedSchema,
+  /**
+   * Required after the first heartbeat. The first response returns
+   * `deviceSecret` once; later heartbeats must send it back.
+   */
+  deviceSecret: z.string().min(1).max(200).optional(),
 });
 export type DeviceHeartbeatRequest = z.infer<typeof DeviceHeartbeatRequestSchema>;
 
@@ -774,27 +812,35 @@ export type DeviceHeartbeatRequest = z.infer<typeof DeviceHeartbeatRequestSchema
  */
 export const DeviceHeartbeatResponseSchema = z.object({
   desiredRevision: z.number().int().nonnegative(),
+  profileId: z.string().uuid(),
   mode: FleetModeSchema,
   activeProviderId: z.string(),
   stackMemberIds: z.array(z.string()),
+  /** Ask the desktop to pull and apply even when the revision matches. */
+  forceSync: z.boolean(),
+  /** Present only on the heartbeat that enrolls the device. */
+  deviceSecret: z.string().optional(),
 });
 export type DeviceHeartbeatResponse = z.infer<
   typeof DeviceHeartbeatResponseSchema
 >;
 
 const DesiredFleetProviderSchema = z.object({
+  kind: z.enum(["direct", "gateway"]),
   id: z.string(),
   name: z.string(),
+  /** Upstream URL for `direct`. Empty for `gateway` (the desktop already has the gateway card). */
   baseUrl: z.string(),
-  /** Plain key. Only returned to a desktop that may use models. */
+  /** Plain key for `direct`. Empty for `gateway`. */
   apiKey: z.string(),
   model: z.string(),
   models: z.array(FleetModelSchema),
 });
 
-/** GET /devices/me/desired?deviceId= — requires models.use. The device row must belong to the caller. */
+/** GET /devices/me/desired?deviceId= — requires models.use, header `x-device-secret`. */
 export const DesiredFleetSchema = z.object({
   revision: z.number().int().nonnegative(),
+  profileId: z.string().uuid(),
   mode: FleetModeSchema,
   activeProviderId: z.string(),
   stackMemberIds: z.array(z.string()),
@@ -805,6 +851,8 @@ export type DesiredFleet = z.infer<typeof DesiredFleetSchema>;
 /** POST /devices/me/applied → 204. `error` set means the revision was not applied. */
 export const DeviceAppliedRequestSchema = z.object({
   deviceId: z.string().uuid(),
+  deviceSecret: z.string().min(1).max(200),
+  profileId: z.string().uuid(),
   revision: z.number().int().nonnegative(),
   error: z.string().max(500).nullable().optional(),
 });
@@ -817,13 +865,23 @@ export const AdminDeviceSchema = z.object({
   displayName: z.string(),
   name: z.string(),
   hostname: z.string(),
+  note: z.string(),
   lastSeenAt: z.string(),
   /** Heartbeat within the last 2 minutes. */
   online: z.boolean(),
+  disabled: z.boolean(),
   reported: DeviceReportedSchema,
+  profileId: z.string().uuid().nullable(),
+  profileName: z.string(),
   appliedRevision: z.number().int(),
   applyError: z.string().nullable(),
   desiredRevision: z.number().int(),
+  /** `synced` when the applied profile and revision match. */
+  sync: z.enum(["synced", "pending", "failed"]),
+  userChangedAt: z.string().nullable(),
+  tokensToday: z.number().int(),
+  tokens7d: z.number().int(),
+  cost7d: z.number(),
 });
 export type AdminDevice = z.infer<typeof AdminDeviceSchema>;
 
@@ -833,3 +891,116 @@ export const ListDevicesResponseSchema = z.object({
   serverTime: z.string(),
 });
 export type ListDevicesResponse = z.infer<typeof ListDevicesResponseSchema>;
+
+export const ProfileSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  isDefault: z.boolean(),
+  revision: z.number().int().nonnegative(),
+  mode: FleetModeSchema,
+  providerCount: z.number().int(),
+  deviceCount: z.number().int(),
+  updatedAt: z.string(),
+});
+export type ProfileSummary = z.infer<typeof ProfileSummarySchema>;
+
+export const ListProfilesResponseSchema = z.object({
+  items: z.array(ProfileSummarySchema),
+});
+
+/** GET/PUT /admin/profiles/:id. Providers never include raw keys. */
+export const AdminProfileSchema = AdminFleetSchema.extend({
+  id: z.string().uuid(),
+  name: z.string(),
+  isDefault: z.boolean(),
+  deviceCount: z.number().int(),
+});
+export type AdminProfile = z.infer<typeof AdminProfileSchema>;
+
+export const CreateProfileRequestSchema = PutFleetRequestSchema.and(
+  z.object({
+    name: z.string().trim().min(1).max(64),
+    isDefault: z.boolean().optional(),
+  }),
+);
+export type CreateProfileRequest = z.infer<typeof CreateProfileRequestSchema>;
+
+export const PatchDeviceRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    note: z.string().max(500).optional(),
+    /** Null clears the assignment and the device follows the default profile. */
+    profileId: z.string().uuid().nullable().optional(),
+    disabled: z.boolean().optional(),
+    /** Ask the desktop to apply on its next heartbeat. */
+    forceSync: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: "At least one field is required",
+  });
+export type PatchDeviceRequest = z.infer<typeof PatchDeviceRequestSchema>;
+
+export const DeviceUsageDaySchema = z.object({
+  date: z.string(),
+  requests: z.number().int(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  costUsd: z.number(),
+});
+
+export const DeviceUsageBreakdownSchema = z.object({
+  providerId: z.string(),
+  model: z.string(),
+  requests: z.number().int(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  costUsd: z.number(),
+});
+
+/** GET /admin/devices/:id */
+export const DeviceDetailResponseSchema = z.object({
+  device: AdminDeviceSchema,
+  days: z.array(DeviceUsageDaySchema),
+  byProvider: z.array(DeviceUsageBreakdownSchema),
+  /** Gateway-metered totals for this device over the same 7 days. */
+  gateway: z.object({
+    requests: z.number().int(),
+    inputTokens: z.number().int(),
+    outputTokens: z.number().int(),
+  }),
+});
+export type DeviceDetailResponse = z.infer<typeof DeviceDetailResponseSchema>;
+
+export const DeviceUsageUploadItemSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  providerId: z.string().min(1).max(80),
+  model: z.string().min(1).max(128),
+  requests: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+});
+
+/** POST /devices/me/usage → 204. Replaces the stored rows for the dates included. */
+export const DeviceUsageUploadRequestSchema = z.object({
+  deviceId: z.string().uuid(),
+  deviceSecret: z.string().min(1).max(200),
+  items: z.array(DeviceUsageUploadItemSchema).max(2000),
+});
+export type DeviceUsageUploadRequest = z.infer<
+  typeof DeviceUsageUploadRequestSchema
+>;
+
+export const DeviceUsageRowSchema = z.object({
+  deviceId: z.string().uuid(),
+  deviceName: z.string(),
+  username: z.string(),
+  requests: z.number().int(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  costUsd: z.number(),
+});
+export const DeviceUsageResponseSchema = z.object({
+  items: z.array(DeviceUsageRowSchema),
+});
+export type DeviceUsageResponse = z.infer<typeof DeviceUsageResponseSchema>;

@@ -38,15 +38,8 @@ export function Layout() {
     <div className="flex h-screen min-w-[1024px] overflow-hidden bg-background text-foreground">
       {/* Sidebar (exact match to claude-front sidebar) */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        {/* Top Header / Traffic Lights & Brand */}
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border/60 px-3">
-          {/* macOS Traffic Lights */}
-          <div className="flex items-center gap-1.5 mr-1.5">
-            <div className="size-3 rounded-full bg-[#ff5f57]" />
-            <div className="size-3 rounded-full bg-[#febc2e]" />
-            <div className="size-3 rounded-full bg-[#28c840]" />
-          </div>
-
+        {/* Top Header / Brand */}
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border/60 px-4">
           <BrandMark className="size-4.5 text-brand" />
           <span className="font-serif text-sm font-medium tracking-tight text-foreground">
             CC Switch
@@ -120,10 +113,8 @@ export function Layout() {
 
       {/* Main Content Area */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-10">
-          <div className="mx-auto max-w-4xl">
-            <Outlet />
-          </div>
+        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-8">
+          <Outlet />
         </main>
       </div>
     </div>

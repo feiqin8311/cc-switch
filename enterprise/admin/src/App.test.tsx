@@ -32,6 +32,7 @@ const FIXTURES: Record<string, unknown> = {
     updatedAt: null,
   },
   "/admin/devices": { items: [], serverTime: "2026-10-13T00:00:00.000Z" },
+  "/admin/profiles": { items: [] },
   "/admin/providers": {
     items: [
       {
@@ -50,6 +51,7 @@ const FIXTURES: Record<string, unknown> = {
       },
     ],
   },
+  "/admin/usage/devices": { items: [] },
   "/admin/usage": {
     items: [
       {
@@ -156,6 +158,7 @@ describe("App", () => {
     ["/users", "用户管理", "管理员甲"],
     ["/providers", "模型与网关", "openai-main"],
     ["/devices", "设备配置", "还没有电脑上报"],
+    ["/profiles", "配置方案", "还没有配置方案"],
     ["/usage", "用量统计", "按用户汇总"],
     ["/conversations", "对话审计", "修复登录问题"],
     ["/retention", "留存策略", "对话将被留存用于审计"],

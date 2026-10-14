@@ -2,6 +2,7 @@ import { permissionsForRole } from "@ccse/contracts";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import {
+  devices,
   gatewayKeys,
   providers,
   sessions,
@@ -17,6 +18,7 @@ export interface GatewayContext {
   user: UserRow;
   sessionId: string;
   provider: ProviderRow;
+  deviceId: string | null;
 }
 
 /** last_used_at is written at most this often per key. */
@@ -44,6 +46,7 @@ export async function authenticateGatewayRequest(
       user: users,
       sessionId: gatewayKeys.sessionId,
       lastUsedAt: gatewayKeys.lastUsedAt,
+      deviceId: gatewayKeys.deviceId,
     })
     .from(gatewayKeys)
     .innerJoin(
@@ -63,6 +66,14 @@ export async function authenticateGatewayRequest(
     )
     .limit(1);
   if (!row || row.user.disabled) throw unauthorized("Invalid gateway key");
+  if (row.deviceId) {
+    const [device] = await db
+      .select({ disabled: devices.disabled })
+      .from(devices)
+      .where(eq(devices.id, row.deviceId))
+      .limit(1);
+    if (device?.disabled) throw unauthorized("Device is disabled");
+  }
 
   if (
     !row.lastUsedAt ||
@@ -88,5 +99,10 @@ export async function authenticateGatewayRequest(
     throw forbidden("Provider is not available to you");
   }
 
-  return { user: row.user, sessionId: row.sessionId, provider };
+  return {
+    user: row.user,
+    sessionId: row.sessionId,
+    provider,
+    deviceId: row.deviceId,
+  };
 }

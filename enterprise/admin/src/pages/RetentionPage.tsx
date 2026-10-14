@@ -34,7 +34,7 @@ export function RetentionPage() {
   });
 
   return (
-    <div className="max-w-3xl">
+    <div>
       <PageHeader
         title="留存策略"
         description="控制客户端是否上传 Codex 对话用于审计，以及服务器保留多久。"
@@ -45,7 +45,7 @@ export function RetentionPage() {
           的会话；确认之前的历史会话永远不会上传。关闭留存后客户端停止上传，已上传的对话仍按保留天数清理。
         </Notice>
       </div>
-      <Card className="p-6 md:p-8">
+      <Card>
         {policy.isPending ? (
           <LoadingState />
         ) : policy.isError ? (

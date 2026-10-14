@@ -22,6 +22,13 @@
       "when": 1791902870458,
       "tag": "0002_lyrical_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791904703224,
+      "tag": "0003_flippant_tenebrous",
+      "breakpoints": true
     }
   ]
 }

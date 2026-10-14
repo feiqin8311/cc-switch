@@ -2,6 +2,7 @@ import {
   type AdminFleet,
   type AdminFleetProvider,
   AdminFleetSchema,
+  AdminProfileSchema,
   type FleetMode,
   ListDevicesResponseSchema,
   type PutFleetRequest,
@@ -21,7 +22,6 @@ import {
   inputClass,
   textareaClass,
   LoadingState,
-  Notice,
   PageHeader,
   Spinner,
   tableClass,
@@ -30,9 +30,9 @@ import {
   trClass,
 } from "../components/ui";
 import { useApi } from "../lib/auth";
-import { describeError, fieldErrorsOf, formatDateTime } from "../lib/format";
+import { Link } from "react-router";
+import { describeError, fieldErrorsOf, formatDateTime, formatNumber } from "../lib/format";
 
-const FLEET_KEY = ["admin", "fleet"] as const;
 const DEVICES_KEY = ["admin", "devices"] as const;
 
 const MODE_LABEL: Record<FleetMode, string> = {
@@ -42,6 +42,7 @@ const MODE_LABEL: Record<FleetMode, string> = {
 };
 
 interface Draft {
+  kind: "direct" | "gateway";
   id: string;
   name: string;
   baseUrl: string;
@@ -53,6 +54,7 @@ interface Draft {
 
 function toDraft(p: AdminFleetProvider): Draft {
   return {
+    kind: p.kind,
     id: p.id,
     name: p.name,
     baseUrl: p.baseUrl,
@@ -85,10 +87,6 @@ function parseModels(text: string, model: string) {
 
 export function DevicesPage() {
   const client = useApi();
-  const fleet = useQuery({
-    queryKey: FLEET_KEY,
-    queryFn: ({ signal }) => client.get("/admin/fleet", AdminFleetSchema, signal),
-  });
   const devices = useQuery({
     queryKey: DEVICES_KEY,
     queryFn: ({ signal }) =>
@@ -100,27 +98,8 @@ export function DevicesPage() {
     <div>
       <PageHeader
         title="设备配置"
-        description="一份 Codex 配置下发到所有已登录的电脑。各台机器上报自己套用到哪一版。"
+        description="每台电脑使用一套配置方案。方案在「配置方案」里编辑。"
       />
-      <div className="mb-4">
-        <Notice>
-          客户端大约每 30 秒拉取一次。路由和聚合只在 CC Switch
-          开着时保持，退出后会写回直连。聚合名单变化后，那台电脑上的 Codex
-          桌面版需要完全退出再打开。下发的供应商在客户端只读。
-        </Notice>
-      </div>
-      <Card className="mb-8 p-6 md:p-8">
-        {fleet.isPending ? (
-          <LoadingState />
-        ) : fleet.isError ? (
-          <ErrorState error={fleet.error} onRetry={() => fleet.refetch()} />
-        ) : (
-          <FleetForm key={fleet.data.revision} initial={fleet.data} />
-        )}
-      </Card>
-      <h2 className="mb-3 font-serif text-sm font-medium text-foreground">
-        电脑
-      </h2>
       <Card className="overflow-x-auto">
         {devices.isPending ? (
           <LoadingState />
@@ -139,7 +118,9 @@ export function DevicesPage() {
               <tr>
                 <th className={thClass}>电脑</th>
                 <th className={thClass}>用户</th>
+                <th className={thClass}>方案</th>
                 <th className={thClass}>当前</th>
+                <th className={thClass}>近 7 天</th>
                 <th className={thClass}>套用</th>
                 <th className={thClass}>状态</th>
                 <th className={thClass}>错误</th>
@@ -149,15 +130,24 @@ export function DevicesPage() {
               {devices.data.items.map((d) => (
                 <tr key={d.id} className={trClass}>
                   <td className={tdClass}>
-                    <div>{d.name}</div>
+                    <Link className="underline" to={`/devices/${d.id}`}>
+                      {d.name}
+                    </Link>
                     <div className="text-xs text-muted-foreground">{d.hostname}</div>
                   </td>
                   <td className={tdClass}>{d.username}</td>
+                  <td className={tdClass}>{d.profileName}</td>
                   <td className={tdClass}>
                     {MODE_LABEL[d.reported.mode]}
                     {d.reported.activeProviderName
                       ? ` · ${d.reported.activeProviderName}`
                       : ""}
+                  </td>
+                  <td className={`${tdClass} tabular-nums`}>
+                    {formatNumber(d.tokens7d)}
+                    <div className="text-xs text-muted-foreground">
+                      ${d.cost7d.toFixed(2)}
+                    </div>
                   </td>
                   <td className={`${tdClass} font-mono`}>
                     {d.appliedRevision}/{d.desiredRevision}
@@ -183,7 +173,13 @@ export function DevicesPage() {
   );
 }
 
-function FleetForm({ initial }: { initial: AdminFleet }) {
+export function FleetForm({
+  initial,
+  profile,
+}: {
+  initial: AdminFleet;
+  profile?: { id: string; name: string; isDefault: boolean };
+}) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
@@ -194,16 +190,24 @@ function FleetForm({ initial }: { initial: AdminFleet }) {
     initial.providers.map(toDraft),
   );
   const [formError, setFormError] = useState<string | null>(null);
+  const [name, setName] = useState(profile?.name ?? "默认方案");
 
   const save = useMutation({
-    mutationFn: (body: PutFleetRequest) =>
-      client.request("/admin/fleet", {
-        method: "PUT",
-        body,
-        schema: AdminFleetSchema,
-      }),
+    mutationFn: (body: PutFleetRequest & { name?: string; isDefault?: boolean }) =>
+      profile
+        ? client.request(`/admin/profiles/${profile.id}`, {
+            method: "PUT",
+            body: { ...body, name, isDefault: profile.isDefault },
+            schema: AdminProfileSchema,
+          })
+        : client.request("/admin/fleet", {
+            method: "PUT",
+            body,
+            schema: AdminFleetSchema,
+          }),
     onSuccess: (saved) => {
-      qc.setQueryData(FLEET_KEY, saved);
+      qc.invalidateQueries({ queryKey: ["admin", "profiles"] });
+      qc.invalidateQueries({ queryKey: ["admin", "profile"] });
       qc.invalidateQueries({ queryKey: DEVICES_KEY });
       toast.success(`已保存，版本 ${saved.revision}`);
       setFormError(null);
@@ -226,14 +230,19 @@ function FleetForm({ initial }: { initial: AdminFleet }) {
       activeProviderId: providers.length === 0 ? "" : active,
       stackMemberIds:
         mode === "stack" ? members.filter((id) => id !== active && ids.includes(id)) : [],
-      providers: providers.map((p) => ({
-        id: p.id.trim(),
-        name: p.name.trim(),
-        baseUrl: p.baseUrl.trim(),
-        model: p.model.trim(),
-        models: parseModels(p.modelsText, p.model.trim()),
-        ...(p.apiKey.trim() ? { apiKey: p.apiKey.trim() } : {}),
-      })),
+      providers: providers.map((p) =>
+        p.kind === "gateway"
+          ? { kind: "gateway" as const, id: p.id.trim() }
+          : {
+              kind: "direct" as const,
+              id: p.id.trim(),
+              name: p.name.trim(),
+              baseUrl: p.baseUrl.trim(),
+              model: p.model.trim(),
+              models: parseModels(p.modelsText, p.model.trim()),
+              ...(p.apiKey.trim() ? { apiKey: p.apiKey.trim() } : {}),
+            },
+      ),
     };
     save.mutate(body);
   };
@@ -247,6 +256,16 @@ function FleetForm({ initial }: { initial: AdminFleet }) {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-5">
       <div className="text-xs text-muted-foreground">当前版本 {initial.revision}</div>
+      {profile && (
+        <Field label="方案名称" htmlFor="profile-name">
+          <input
+            id="profile-name"
+            className={inputClass}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+      )}
       <Field label="模式" htmlFor="fleet-mode">
         <select
           id="fleet-mode"
@@ -264,6 +283,18 @@ function FleetForm({ initial }: { initial: AdminFleet }) {
           key={index}
           className="grid gap-3 rounded-2xl border border-border/80 bg-card p-4 md:grid-cols-2"
         >
+          <Field label="类型">
+            <select
+              className={inputClass}
+              value={p.kind}
+              onChange={(e) =>
+                patch(index, { kind: e.target.value as Draft["kind"] })
+              }
+            >
+              <option value="direct">直连（密钥下发到电脑）</option>
+              <option value="gateway">企业网关（引用已有供应商）</option>
+            </select>
+          </Field>
           <Field label="ID" required>
             <input
               className={inputClass}
@@ -339,6 +370,7 @@ function FleetForm({ initial }: { initial: AdminFleet }) {
             setProviders((rows) => [
               ...rows,
               {
+                kind: "direct",
                 id: "",
                 name: "",
                 baseUrl: "",
