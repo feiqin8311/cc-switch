@@ -4792,6 +4792,7 @@
     "login": "企业登录",
     "loginTitle": "登录企业中心",
     "loginHint": "登录后将同步企业分配的角色、模型与插件。",
+    "loginRequired": "请先登录企业账号，才能使用本应用。登录后将同步企业分配的角色、模型与插件。",
     "serverUrl": "服务器地址",
     "username": "用户名",
     "password": "密码",
@@ -4821,8 +4822,8 @@
     "title": "企业市场",
     "skills": "技能",
     "plugins": "插件",
-    "mandatory": "必装",
     "mcp": "MCP",
+    "mandatory": "必装",
     "status": {
       "installed": "已安装",
       "updateAvailable": "可更新",
@@ -4842,12 +4843,6 @@
     }
   },
   "enterpriseRetention": {
-    "title": "对话留存告知",
-    "noticeFallback": "企业管理员已开启对话留存。",
-    "scopeNote": "确认后，本设备上此后新开始的 Codex 对话会上传到企业服务器留存；确认之前已有的历史对话不会上传。如不同意，可退出企业登录。",
-    "acknowledge": "我已知悉并同意",
-    "logout": "退出企业登录",
-    "actionFailed": "操作失败：{{error}}",
     "statusLabel": "对话留存：{{status}}",
     "statusOn": "已开启",
     "statusOff": "未开启"

@@ -1,15 +1,16 @@
 //! Conversation retention (Phase 3): upload Codex conversations to the
-//! enterprise server once the employee acknowledged the retention notice.
+//! enterprise server while the signed-in account's retention policy is enabled.
 //!
 //! Contract: `POST /api/v1/retention/conversations` in
 //! `enterprise/contracts/src/index.ts` ("Phase 3 — conversation retention").
 //!
 //! Rules implemented here:
-//! - Uploads happen only while signed in, the server policy is enabled and the
-//!   current `(serverUrl, userId)` acknowledged the notice on this device.
-//! - Only Codex sessions whose start time is at or after the acknowledgment are
+//! - Uploads happen only while signed in and the server policy is enabled.
+//!   The first time that is true, this device records a cutoff for the current
+//!   `(serverUrl, userId)`. There is no consent dialog.
+//! - Only Codex sessions whose start time is at or after that cutoff are
 //!   considered; history from before it is never sent (a resumed old session
-//!   stays excluded too, because its start time is before the acknowledgment).
+//!   stays excluded too, because its start time is before the cutoff).
 //! - The rollout files themselves are the offline buffer: a per-file cursor
 //!   (`uploadedSeq` = next seq to send) only advances after a 2xx, so network
 //!   errors are simply retried on the next tick.
@@ -849,7 +850,7 @@ impl RetentionService {
         }
     }
 
-    /// Record the acknowledgment for the current server + user and upload right away.
+    /// Record the upload cutoff for the current server + user and upload right away.
     pub async fn acknowledge(&self) -> Result<RetentionStatus, String> {
         let state = self.session.state().await;
         let ctx = upload_context(&state)
@@ -866,7 +867,7 @@ impl RetentionService {
         if changed {
             let snapshot = self.store().clone();
             save_store(&self.state_path, &snapshot)?;
-            log::info!("[Retention] notice acknowledged");
+            log::info!("[Retention] cutoff recorded");
         }
         self.trigger();
         Ok(self.status().await)
@@ -893,6 +894,16 @@ impl RetentionService {
         let Some(ctx) = upload_context(&state) else {
             return;
         };
+        // Drop the store lock before acknowledge(); that call locks it again.
+        let needs_cutoff = !self.store().acks.contains_key(&ctx.ack_key);
+        if needs_cutoff {
+            // The consent dialog is gone. The cutoff is the first time this
+            // device applies the enabled policy; sessions started earlier stay local.
+            if let Err(e) = self.acknowledge().await {
+                log::warn!("[Retention] failed to record cutoff: {e}");
+                return;
+            }
+        }
         let Some(ack_ms) = self
             .store()
             .acks

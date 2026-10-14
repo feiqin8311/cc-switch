@@ -4792,6 +4792,7 @@
     "login": "Enterprise sign-in",
     "loginTitle": "Sign in to enterprise center",
     "loginHint": "Signing in syncs the role, models and plugins your organization assigned to you.",
+    "loginRequired": "Sign in with your enterprise account to use this app. Signing in syncs the role, models and plugins your organization assigned to you.",
     "serverUrl": "Server URL",
     "username": "Username",
     "password": "Password",
@@ -4821,8 +4822,8 @@
     "title": "Enterprise marketplace",
     "skills": "Skills",
     "plugins": "Plugins",
-    "mandatory": "Required",
     "mcp": "MCP",
+    "mandatory": "Required",
     "status": {
       "installed": "Installed",
       "updateAvailable": "Update available",
@@ -4842,12 +4843,6 @@
     }
   },
   "enterpriseRetention": {
-    "title": "Conversation retention notice",
-    "noticeFallback": "Your enterprise administrator has enabled conversation retention.",
-    "scopeNote": "After you acknowledge, Codex conversations started on this device from now on are uploaded to the enterprise server for retention. Conversations from before your acknowledgment are never uploaded. If you do not agree, sign out of the enterprise account.",
-    "acknowledge": "I understand and agree",
-    "logout": "Sign out of enterprise",
-    "actionFailed": "Action failed: {{error}}",
     "statusLabel": "Conversation retention: {{status}}",
     "statusOn": "On",
     "statusOff": "Off"

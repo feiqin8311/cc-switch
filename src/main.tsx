@@ -4,7 +4,7 @@ import App from "./App";
 import { DatabaseUpgrade } from "./components/DatabaseUpgrade";
 import { UpdateProvider } from "./contexts/UpdateContext";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { EnterpriseOverlays } from "@/components/auth/EnterpriseOverlays";
+import { LoginGate } from "@/components/auth/LoginGate";
 import "./index.css";
 // 导入国际化配置
 import i18n, { syncLanguageFromSettings } from "./i18n";
@@ -142,8 +142,9 @@ async function bootstrap() {
                 {/* 全局悬停提示：移上去立即出现（HoverTip） */}
                 <TooltipProvider delayDuration={0} skipDelayDuration={0}>
                   <AuthProvider>
-                    <App />
-                    <EnterpriseOverlays />
+                    <LoginGate>
+                      <App />
+                    </LoginGate>
                   </AuthProvider>
                 </TooltipProvider>
               </MotionConfig>

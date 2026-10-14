@@ -4793,6 +4793,7 @@
     "login": "企業登入",
     "loginTitle": "登入企業中心",
     "loginHint": "登入後將同步企業分配的角色、模型與外掛。",
+    "loginRequired": "請先登入企業帳號，才能使用本應用。登入後將同步企業分配的角色、模型與外掛。",
     "serverUrl": "伺服器位址",
     "username": "使用者名稱",
     "password": "密碼",
@@ -4822,8 +4823,8 @@
     "title": "企業市集",
     "skills": "技能",
     "plugins": "外掛",
-    "mandatory": "必裝",
     "mcp": "MCP",
+    "mandatory": "必裝",
     "status": {
       "installed": "已安裝",
       "updateAvailable": "可更新",
@@ -4843,12 +4844,6 @@
     }
   },
   "enterpriseRetention": {
-    "title": "對話留存告知",
-    "noticeFallback": "企業管理員已開啟對話留存。",
-    "scopeNote": "確認後，本裝置上此後新開始的 Codex 對話會上傳到企業伺服器留存；確認之前已有的歷史對話不會上傳。如不同意，可登出企業帳號。",
-    "acknowledge": "我已知悉並同意",
-    "logout": "登出企業帳號",
-    "actionFailed": "操作失敗：{{error}}",
     "statusLabel": "對話留存：{{status}}",
     "statusOn": "已開啟",
     "statusOff": "未開啟"

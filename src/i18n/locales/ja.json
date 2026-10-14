@@ -4792,6 +4792,7 @@
     "login": "企業ログイン",
     "loginTitle": "企業センターにログイン",
     "loginHint": "ログインすると、組織が割り当てたロール・モデル・プラグインが同期されます。",
+    "loginRequired": "このアプリを使うには、先に企業アカウントでログインしてください。ログインすると、組織が割り当てたロール・モデル・プラグインが同期されます。",
     "serverUrl": "サーバー URL",
     "username": "ユーザー名",
     "password": "パスワード",
@@ -4821,8 +4822,8 @@
     "title": "エンタープライズマーケット",
     "skills": "スキル",
     "plugins": "プラグイン",
-    "mandatory": "必須",
     "mcp": "MCP",
+    "mandatory": "必須",
     "status": {
       "installed": "インストール済み",
       "updateAvailable": "更新あり",
@@ -4842,12 +4843,6 @@
     }
   },
   "enterpriseRetention": {
-    "title": "会話保存に関するお知らせ",
-    "noticeFallback": "企業の管理者が会話保存を有効にしました。",
-    "scopeNote": "同意すると、このデバイスで今後開始される Codex の会話が企業サーバーに保存のためアップロードされます。同意前の会話はアップロードされません。同意しない場合は、企業アカウントからサインアウトしてください。",
-    "acknowledge": "内容を理解し同意します",
-    "logout": "企業アカウントからサインアウト",
-    "actionFailed": "操作に失敗しました：{{error}}",
     "statusLabel": "会話保存：{{status}}",
     "statusOn": "有効",
     "statusOff": "無効"
