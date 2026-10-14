@@ -76,7 +76,7 @@ import {
 import { WindowControls } from "@/components/shell/WindowControls";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
-import { UserStatusPill } from "@/components/auth/UserStatusPill";
+
 import { useAuth } from "@/contexts/AuthContext";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
@@ -1188,7 +1188,6 @@ function App() {
       }
       actions={
         <>
-          <UserStatusPill />
           {currentView === "providers" &&
             activeApp !== "mcode" &&
             (settingsData?.showProfileSwitcher ?? false) && (
