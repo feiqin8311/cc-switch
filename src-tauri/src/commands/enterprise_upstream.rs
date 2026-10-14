@@ -10,7 +10,7 @@ pub async fn enterprise_upstream_accounts(
 ) -> Result<serde_json::Value, String> {
     session
         .0
-        .get_json("/admin/upstream/accounts")
+        .get_json("/client/upstream/accounts")
         .await
         .map_err(|e| e.to_string())
 }

@@ -4065,7 +4065,7 @@
     "appsGroup": "应用",
     "todayCost": "今日 {{cost}}",
     "usage": "用量统计",
-    "upstream": "上游账号",
+    "upstream": "用量窗口",
     "auth": "授权中心",
     "authNeedsReauth": "有账号需要重新登录",
     "prompts": "提示词",

@@ -210,7 +210,8 @@ function MainDirectory({
   appsUpdateAvailable = false,
 }: DirectoryProps) {
   const { t } = useTranslation();
-  const { hasPermission } = useAuth();
+  const { state } = useAuth();
+  const loggedIn = state.loggedIn;
   const { hasUpdate } = useUpdate();
   const { appStatus, todayCost, authNeedsAttention } = useSidebarStatus();
   const apps = APP_IDS.filter((app) =>
@@ -250,7 +251,7 @@ function MainDirectory({
       icon: ChartColumn,
       trailing: todayLabel,
     },
-    ...(hasPermission("audit.read")
+    ...(loggedIn
       ? [
           {
             page: "upstream" as const,

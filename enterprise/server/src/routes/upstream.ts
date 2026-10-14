@@ -12,11 +12,8 @@ export async function upstreamRoutes(
   deps: AppDeps,
 ): Promise<void> {
   const { authenticate, config } = deps;
-  const guard = {
-    preHandler: [authenticate, requirePermission("audit.read")],
-  };
 
-  app.get("/admin/upstream/accounts", guard, async () => {
+  const list = async () => {
     const cfg = config.sub2api;
     if (!cfg) {
       const empty: UpstreamAccountsResponse = {
@@ -41,5 +38,14 @@ export async function upstreamRoutes(
         items: [],
       });
     }
+  };
+
+  app.get("/admin/upstream/accounts", {
+    preHandler: [authenticate, requirePermission("audit.read")],
+    handler: list,
+  });
+  app.get("/client/upstream/accounts", {
+    preHandler: [authenticate],
+    handler: list,
   });
 }
