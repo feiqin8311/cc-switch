@@ -20,8 +20,8 @@ pub async fn enterprise_retention_status(
     Ok(state.0.status().await)
 }
 
-/// Record that the signed-in user acknowledged the retention notice on this
-/// device and start uploading conversations started from now on.
+/// Record the retention cutoff for the signed-in user on this device.
+/// Conversations started from now on become eligible for upload.
 #[tauri::command]
 pub async fn enterprise_retention_acknowledge(
     state: State<'_, EnterpriseRetentionState>,

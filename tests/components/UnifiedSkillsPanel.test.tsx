@@ -33,6 +33,17 @@ const m = vi.hoisted(() => ({
   repoFailures: [] as SkillRepoFailure[],
   checking: false,
   visibleApps: ["claude", "codex", "pi"] as string[],
+  canInstallMarket: false,
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({
+    hasPermission: (p: string) => p === "market.install" && m.canInstallMarket,
+  }),
+}));
+
+vi.mock("@/components/skills/EnterpriseMarketPanel", () => ({
+  EnterpriseMarketPanel: () => <div data-testid="enterprise-market" />,
 }));
 
 vi.mock("sonner", () => ({
@@ -169,6 +180,7 @@ describe("UnifiedSkillsPanel", () => {
     m.repoFailures = [];
     m.checking = false;
     m.visibleApps = ["claude", "codex", "pi"];
+    m.canInstallMarket = false;
     m.scanUnmanaged.mockReset().mockResolvedValue({
       data: [
         {
@@ -203,6 +215,25 @@ describe("UnifiedSkillsPanel", () => {
     ]) {
       fn.mockReset();
     }
+  });
+
+  it("hides the enterprise market tab without market.install", () => {
+    renderPanel();
+    expect(
+      screen.queryByRole("tab", { name: "enterpriseMarket.title" }),
+    ).toBeNull();
+  });
+
+  it("opens the enterprise market tab", async () => {
+    m.canInstallMarket = true;
+    renderPanel();
+    expect(screen.queryByTestId("enterprise-market")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "enterpriseMarket.title" }),
+    );
+
+    expect(screen.getByTestId("enterprise-market")).toBeInTheDocument();
   });
 
   it("always shows the Pi column and toggles it like the other apps", async () => {

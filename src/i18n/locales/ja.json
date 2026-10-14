@@ -922,10 +922,11 @@
     "aboutHint": "バージョン情報と更新状況を表示します。",
     "portableMode": "ポータブルモード: 更新は手動ダウンロードが必要です。",
     "updateAvailable": "新しいバージョンがあります: {{version}}",
-    "updateDialogTitle": "新しいバージョンがあります",
-    "updateDialogBody": "v{{version}} を公開しました。「更新して再起動」でダウンロード、署名の確認、再起動まで行います。",
+    "updateDialogTitle": "アップデートの準備ができました",
+    "updateDialogBody": "v{{version}} のダウンロードと署名の確認が完了しました。再起動すると更新が完了します。",
+    "updateDialogInstallOnQuit": "アプリを終了したときにも自動でインストールされます。",
     "updateLater": "後で",
-    "updateNow": "更新して再起動",
+    "updateNow": "今すぐ再起動",
     "updateBadge": "更新あり",
     "updateFailed": "更新のインストールに失敗しました。ダウンロードページを開こうとしました。",
     "checkUpdateFailed": "更新の確認に失敗しました。時間をおいて再試行してください。",
@@ -4385,6 +4386,9 @@
     }
   },
   "mcpPage": {
+    "viewAria": "MCP ビュー",
+    "viewInstalled": "インストール済み",
+    "viewInstalledCount": "インストール済み {{count}}",
     "noun": "MCP",
     "listSeparator": "、",
     "helpTitle": "MCP の同期のしくみ",
@@ -4788,6 +4792,7 @@
     "login": "企業ログイン",
     "loginTitle": "企業センターにログイン",
     "loginHint": "ログインすると、組織が割り当てたロール・モデル・プラグインが同期されます。",
+    "loginRequired": "このアプリを使うには、先に企業アカウントでログインしてください。ログインすると、組織が割り当てたロール・モデル・プラグインが同期されます。",
     "serverUrl": "サーバー URL",
     "username": "ユーザー名",
     "password": "パスワード",
@@ -4817,6 +4822,7 @@
     "title": "エンタープライズマーケット",
     "skills": "スキル",
     "plugins": "プラグイン",
+    "mcp": "MCP",
     "mandatory": "必須",
     "status": {
       "installed": "インストール済み",
@@ -4837,12 +4843,6 @@
     }
   },
   "enterpriseRetention": {
-    "title": "会話保存に関するお知らせ",
-    "noticeFallback": "企業の管理者が会話保存を有効にしました。",
-    "scopeNote": "同意すると、このデバイスで今後開始される Codex の会話が企業サーバーに保存のためアップロードされます。同意前の会話はアップロードされません。同意しない場合は、企業アカウントからサインアウトしてください。",
-    "acknowledge": "内容を理解し同意します",
-    "logout": "企業アカウントからサインアウト",
-    "actionFailed": "操作に失敗しました：{{error}}",
     "statusLabel": "会話保存：{{status}}",
     "statusOn": "有効",
     "statusOff": "無効"

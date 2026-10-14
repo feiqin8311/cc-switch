@@ -34,9 +34,40 @@ import {
   formatBytes,
   formatDateTime,
 } from "../lib/format";
-import { MarketUploadForm, type MarketUploadValues } from "./MarketUploadForm";
+import {
+  KIND_LABELS,
+  MarketUploadForm,
+  type MarketUploadValues,
+} from "./MarketUploadForm";
 
 const MARKET_KEY = ["market", "items"] as const;
+
+const KIND_BADGES: Record<
+  MarketItem["kind"],
+  { tone: "blue" | "purple" | "green"; label: string }
+> = {
+  skill: { tone: "blue", label: "skill" },
+  plugin: { tone: "purple", label: "plugin" },
+  mcp: { tone: "green", label: KIND_LABELS.mcp },
+};
+
+const METADATA_FIELDS = new Set([
+  "id",
+  "kind",
+  "name",
+  "description",
+  "version",
+  "mandatory",
+]);
+
+/** Pretty-printed definition of an MCP item, as served by the package endpoint. */
+function prettyDefinition(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
 
 async function sha256Hex(blob: Blob): Promise<string | null> {
   if (!globalThis.crypto?.subtle) return null;
@@ -119,7 +150,8 @@ export function MarketPage() {
         toast.error("下载的文件校验失败（SHA-256 不匹配），已取消保存");
         return;
       }
-      saveBlob(blob, `${item.id}-${item.version}.zip`);
+      const ext = item.kind === "mcp" ? "json" : "zip";
+      saveBlob(blob, `${item.id}-${item.version}.${ext}`);
     } catch (err) {
       toast.error(`下载失败：${describeError(err)}`);
     } finally {
@@ -133,7 +165,7 @@ export function MarketPage() {
     <div>
       <PageHeader
         title="技能与插件市场"
-        description="发布企业内部的 Codex 技能与插件。员工可在客户端安装，标记为必装的会自动安装。"
+        description="发布企业内部的 Codex 技能、插件与 MCP 服务器。员工可在客户端安装，标记为必装的会自动安装。"
         actions={
           <Button variant="primary" onClick={() => setUploading("new")}>
             <Upload className="size-4" />
@@ -171,11 +203,9 @@ export function MarketPage() {
               {items.data.items.map((item) => (
                 <tr key={item.id} className={trClass}>
                   <td className={tdClass}>
-                    {item.kind === "skill" ? (
-                      <Badge tone="blue">skill</Badge>
-                    ) : (
-                      <Badge tone="purple">plugin</Badge>
-                    )}
+                    <Badge tone={KIND_BADGES[item.kind].tone}>
+                      {KIND_BADGES[item.kind].label}
+                    </Badge>
                   </td>
                   <td className={`${tdClass} font-mono text-xs`}>{item.id}</td>
                   <td className={`${tdClass} max-w-72`}>
@@ -284,6 +314,22 @@ function UploadDialog({
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Prefill a new MCP version with the current definition; on failure the
+  // field just starts empty.
+  const isMcpUpdate = existing?.kind === "mcp";
+  const current = useQuery({
+    queryKey: ["market", "package", existing?.id, existing?.sha256],
+    enabled: isMcpUpdate,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const { blob } = await client.download(
+        `/market/items/${encodeURIComponent(existing?.id ?? "")}/package`,
+        signal,
+      );
+      return prettyDefinition(await blob.text());
+    },
+  });
+
   const upload = useMutation({
     mutationFn: (v: MarketUploadValues) =>
       client.request(`/admin/market/items/${encodeURIComponent(v.id)}`, {
@@ -295,7 +341,9 @@ function UploadDialog({
           version: v.version,
           mandatory: v.mandatory ? "true" : "false",
         },
-        raw: { data: v.file, contentType: "application/zip" },
+        ...(v.kind === "mcp"
+          ? { body: v.definition }
+          : { raw: { data: v.file, contentType: "application/zip" } }),
         schema: MarketItemSchema,
       }),
     onSuccess: (item) => {
@@ -303,8 +351,27 @@ function UploadDialog({
       toast.success(`已发布 ${item.name} ${item.version}`);
       onClose();
     },
-    onError: (err) => {
-      if (err instanceof ApiError && err.code === "payload_too_large") {
+    onError: (err, v) => {
+      if (v.kind === "mcp") {
+        if (err instanceof ApiError && err.code === "payload_too_large") {
+          setServerErrors({
+            definition: "MCP 配置超过服务器允许的大小（64 KB）",
+          });
+          return;
+        }
+        // Definition issues carry paths like "command" or "url"; metadata
+        // issues (query string) fall through to the regular field mapping.
+        const issue =
+          err instanceof ApiError && err.code === "bad_request"
+            ? err.fieldIssues.find((i) => !METADATA_FIELDS.has(i.path))
+            : undefined;
+        if (issue) {
+          setServerErrors({
+            definition: `MCP 配置不符合要求：${issue.path ? `${issue.path} ` : ""}${issue.message}`,
+          });
+          return;
+        }
+      } else if (err instanceof ApiError && err.code === "payload_too_large") {
         setServerErrors({ file: "文件超过服务器允许的大小（20 MB）" });
         return;
       }
@@ -319,7 +386,9 @@ function UploadDialog({
     <Dialog
       open
       width="max-w-2xl"
-      title={existing ? `发布新版本：${existing.name}` : "上传技能 / 插件"}
+      title={
+        existing ? `发布新版本：${existing.name}` : "上传技能 / 插件 / MCP"
+      }
       onClose={onClose}
       footer={
         <>
@@ -336,16 +405,21 @@ function UploadDialog({
         </>
       }
     >
-      <MarketUploadForm
-        formId="market-upload-form"
-        existing={existing}
-        serverErrors={serverErrors}
-        onSubmit={(v) => {
-          setServerErrors({});
-          setFormError(null);
-          upload.mutate(v);
-        }}
-      />
+      {isMcpUpdate && current.isPending ? (
+        <LoadingState label="读取当前 MCP 配置…" />
+      ) : (
+        <MarketUploadForm
+          formId="market-upload-form"
+          existing={existing}
+          initialDefinition={current.data}
+          serverErrors={serverErrors}
+          onSubmit={(v) => {
+            setServerErrors({});
+            setFormError(null);
+            upload.mutate(v);
+          }}
+        />
+      )}
       {formError && (
         <div className="mt-3">
           <InlineError>{formError}</InlineError>

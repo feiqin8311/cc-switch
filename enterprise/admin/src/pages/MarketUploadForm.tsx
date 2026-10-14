@@ -1,7 +1,10 @@
 import {
   MAX_MARKET_PACKAGE_BYTES,
+  MAX_MCP_DEFINITION_BYTES,
   type MarketItem,
   type MarketItemKind,
+  type McpDefinition,
+  McpDefinitionSchema,
 } from "@ccse/contracts";
 import { type FormEvent, useState } from "react";
 import { Field, inputClass, Switch, textareaClass } from "../components/ui";
@@ -9,20 +12,62 @@ import { formatBytes } from "../lib/format";
 
 const ITEM_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
-export interface MarketUploadValues {
+interface MarketUploadMetadata {
   id: string;
-  kind: MarketItemKind;
   name: string;
   description: string;
   version: string;
   mandatory: boolean;
-  file: File;
 }
+
+/** skill / plugin upload a zip; mcp uploads a JSON definition. */
+export type MarketUploadValues = MarketUploadMetadata &
+  (
+    | { kind: Exclude<MarketItemKind, "mcp">; file: File }
+    | { kind: "mcp"; definition: McpDefinition }
+  );
 
 export const KIND_LABELS: Record<MarketItemKind, string> = {
   skill: "技能 (Skill)",
   plugin: "插件 (Plugin)",
+  mcp: "MCP",
 };
+
+export const DEFAULT_MCP_DEFINITION = `{
+  "type": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+}`;
+
+const MCP_HINT =
+  "stdio 填 command/args/env，http/sse 填 url/headers。env 和 headers 会下发给所有有安装权限的员工，不要放个人密钥。";
+
+/** Parses and validates the MCP JSON text; returns the definition or a message. */
+export function parseMcpDefinition(
+  text: string,
+): { definition: McpDefinition } | { error: string } {
+  if (!text.trim()) return { error: "请填写 MCP 配置" };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { error: "JSON 格式不正确" };
+  }
+  const parsed = McpDefinitionSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".") ?? "";
+    return {
+      error: `MCP 配置不符合要求：${path ? `${path} ` : ""}${issue?.message ?? ""}`,
+    };
+  }
+  const size = new TextEncoder().encode(JSON.stringify(parsed.data)).length;
+  if (size > MAX_MCP_DEFINITION_BYTES)
+    return {
+      error: `MCP 配置 ${formatBytes(size)}，超过 ${formatBytes(MAX_MCP_DEFINITION_BYTES)} 上限`,
+    };
+  return { definition: parsed.data };
+}
 
 export function validatePackageFile(file: File | null): string | null {
   if (!file) return "请选择 .zip 文件";
@@ -34,17 +79,20 @@ export function validatePackageFile(file: File | null): string | null {
 }
 
 /**
- * Metadata + package picker. `existing` switches to "publish a new version":
- * the id and kind are fixed and the other fields are prefilled.
+ * Metadata + package picker (zip, or MCP JSON). `existing` switches to
+ * "publish a new version": the id and kind are fixed and the other fields are
+ * prefilled; `initialDefinition` prefills the MCP JSON of an existing item.
  */
 export function MarketUploadForm({
   formId,
   existing,
+  initialDefinition,
   serverErrors,
   onSubmit,
 }: {
   formId: string;
   existing?: MarketItem;
+  initialDefinition?: string;
   serverErrors?: Record<string, string>;
   onSubmit(values: MarketUploadValues): void;
 }) {
@@ -55,6 +103,9 @@ export function MarketUploadForm({
   const [version, setVersion] = useState("");
   const [mandatory, setMandatory] = useState(existing?.mandatory ?? false);
   const [file, setFile] = useState<File | null>(null);
+  const [definitionText, setDefinitionText] = useState(
+    existing ? (initialDefinition ?? "") : DEFAULT_MCP_DEFINITION,
+  );
   const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
   const errors = { ...serverErrors, ...localErrors };
 
@@ -64,6 +115,13 @@ export function MarketUploadForm({
     setLocalErrors(({ file: _old, ...rest }) =>
       problem ? { ...rest, file: problem } : rest,
     );
+  };
+
+  // The zip picker and the JSON field swap; drop what the other one held.
+  const changeKind = (next: MarketItemKind) => {
+    setKind(next);
+    setFile(null);
+    setLocalErrors(({ file: _f, definition: _d, ...rest }) => rest);
   };
 
   const handleSubmit = (e: FormEvent) => {
@@ -76,19 +134,29 @@ export function MarketUploadForm({
     if (description.length > 1000) next.description = "描述最多 1000 个字符";
     if (!version.trim()) next.version = "请输入版本号";
     else if (version.trim().length > 50) next.version = "版本号最多 50 个字符";
-    const fileProblem = validatePackageFile(file);
-    if (fileProblem) next.file = fileProblem;
+    let definition: McpDefinition | null = null;
+    if (kind === "mcp") {
+      const result = parseMcpDefinition(definitionText);
+      if ("error" in result) next.definition = result.error;
+      else definition = result.definition;
+    } else {
+      const fileProblem = validatePackageFile(file);
+      if (fileProblem) next.file = fileProblem;
+    }
     setLocalErrors(next);
-    if (Object.keys(next).length > 0 || !file) return;
-    onSubmit({
+    if (Object.keys(next).length > 0) return;
+    const meta = {
       id: id.trim(),
-      kind,
       name: name.trim(),
       description,
       version: version.trim(),
       mandatory,
-      file,
-    });
+    };
+    if (kind === "mcp") {
+      if (definition) onSubmit({ ...meta, kind, definition });
+    } else if (file) {
+      onSubmit({ ...meta, kind, file });
+    }
   };
 
   return (
@@ -106,7 +174,9 @@ export function MarketUploadForm({
         hint={
           kind === "plugin"
             ? "插件 ID 同时作为 Codex 插件名"
-            : "唯一标识，发布后不可修改"
+            : kind === "mcp"
+              ? "ID 同时作为客户端中的 MCP 服务器名"
+              : "唯一标识，发布后不可修改"
         }
       >
         <input
@@ -124,10 +194,11 @@ export function MarketUploadForm({
           className={inputClass}
           disabled={!!existing}
           value={kind}
-          onChange={(e) => setKind(e.target.value as MarketItemKind)}
+          onChange={(e) => changeKind(e.target.value as MarketItemKind)}
         >
           <option value="skill">{KIND_LABELS.skill}</option>
           <option value="plugin">{KIND_LABELS.plugin}</option>
+          <option value="mcp">{KIND_LABELS.mcp}</option>
         </select>
       </Field>
       <Field label="名称" htmlFor="mu-name" required error={errors.name}>
@@ -170,29 +241,50 @@ export function MarketUploadForm({
           onChange={(e) => setDescription(e.target.value)}
         />
       </Field>
-      <Field
-        label="安装包（.zip）"
-        htmlFor="mu-file"
-        required
-        error={errors.file}
-        hint={
-          file
-            ? `${file.name}（${formatBytes(file.size)}）`
-            : kind === "skill"
-              ? "包含 SKILL.md 的技能目录（zip 根目录或唯一顶层文件夹），不超过 20 MB"
-              : "包含 .codex-plugin/plugin.json 的插件目录（zip 根目录或唯一顶层文件夹），不超过 20 MB"
-        }
-        className="col-span-2"
-      >
-        <input
-          id="mu-file"
-          type="file"
-          accept=".zip,application/zip"
-          aria-invalid={!!errors.file}
-          className="text-xs file:mr-3 file:rounded-lg file:border file:border-border/80 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:text-secondary-foreground file:font-medium hover:file:bg-secondary/80 file:cursor-pointer"
-          onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-        />
-      </Field>
+      {kind === "mcp" ? (
+        <Field
+          label="MCP 配置（JSON）"
+          htmlFor="mu-definition"
+          required
+          error={errors.definition}
+          hint={MCP_HINT}
+          className="col-span-2"
+        >
+          <textarea
+            id="mu-definition"
+            rows={10}
+            spellCheck={false}
+            className={`${textareaClass} font-mono`}
+            aria-invalid={!!errors.definition}
+            value={definitionText}
+            onChange={(e) => setDefinitionText(e.target.value)}
+          />
+        </Field>
+      ) : (
+        <Field
+          label="安装包（.zip）"
+          htmlFor="mu-file"
+          required
+          error={errors.file}
+          hint={
+            file
+              ? `${file.name}（${formatBytes(file.size)}）`
+              : kind === "skill"
+                ? "包含 SKILL.md 的技能目录（zip 根目录或唯一顶层文件夹），不超过 20 MB"
+                : "包含 .codex-plugin/plugin.json 的插件目录（zip 根目录或唯一顶层文件夹），不超过 20 MB"
+          }
+          className="col-span-2"
+        >
+          <input
+            id="mu-file"
+            type="file"
+            accept=".zip,application/zip"
+            aria-invalid={!!errors.file}
+            className="text-xs file:mr-3 file:rounded-lg file:border file:border-border/80 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:text-secondary-foreground file:font-medium hover:file:bg-secondary/80 file:cursor-pointer"
+            onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+          />
+        </Field>
+      )}
       <Field label="必装" htmlFor="mu-mandatory" className="col-span-2">
         <div className="flex h-8 items-center gap-2">
           <Switch

@@ -24,6 +24,20 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastWarning: vi.fn(),
   visibleApps: ["claude", "codex", "gemini"] as string[],
+  canInstallMarket: false,
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({
+    hasPermission: (p: string) =>
+      p === "market.install" && mocks.canInstallMarket,
+  }),
+}));
+
+vi.mock("@/components/skills/EnterpriseMarketPanel", () => ({
+  EnterpriseMarketPanel: ({ kinds }: { kinds?: string[] }) => (
+    <div data-testid="enterprise-market">{kinds?.join(",")}</div>
+  ),
 }));
 
 vi.mock("@/hooks/useMcp", () => ({
@@ -134,6 +148,7 @@ describe("UnifiedMcpPanel", () => {
     mocks.isLoading = false;
     mocks.isError = false;
     mocks.visibleApps = ["claude", "codex", "gemini"];
+    mocks.canInstallMarket = false;
     mocks.toggle.mockReset().mockResolvedValue(true);
     mocks.bulkToggle.mockReset().mockImplementation(async ({ serverIds }) => ({
       succeeded: serverIds,
@@ -151,6 +166,33 @@ describe("UnifiedMcpPanel", () => {
     mocks.refetch.mockReset().mockResolvedValue({ data: mocks.serversMap });
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
+  });
+
+  it("has no tabs without market.install", () => {
+    renderPanel();
+    expect(screen.queryByRole("tab")).toBeNull();
+  });
+
+  it("switches between installed MCP and the enterprise market", async () => {
+    mocks.canInstallMarket = true;
+    mocks.serversMap = { alpha: makeServer("alpha") };
+    renderPanel();
+
+    expect(
+      screen.getByRole("tab", { name: "mcpPage.viewInstalledCount" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("enterprise-market")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "enterpriseMarket.title" }),
+    );
+    expect(screen.getByTestId("enterprise-market")).toHaveTextContent("mcp");
+    // 已安装段只是隐藏（hidden），不卸载
+    expect(
+      screen
+        .getByRole("list", { name: "mcpPage.listLabel" })
+        .closest(".hidden"),
+    ).not.toBeNull();
   });
 
   it("searches the allow-listed fields but never env or header values", async () => {

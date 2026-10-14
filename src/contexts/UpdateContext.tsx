@@ -7,7 +7,7 @@ import React, {
   useRef,
 } from "react";
 import type { UpdateInfo } from "../lib/updater";
-import { checkForUpdate } from "../lib/updater";
+import { checkForUpdate, downloadUpdate } from "../lib/updater";
 import { extractErrorMessage } from "../utils/errorUtils";
 
 interface UpdateContextValue {
@@ -16,6 +16,8 @@ interface UpdateContextValue {
   updateInfo: UpdateInfo | null;
   isChecking: boolean;
   error: string | null;
+  /** 已在后台下载并验过签名、可以直接安装的版本 */
+  readyVersion: string | null;
 
   // 提示状态
   isDismissed: boolean;
@@ -28,34 +30,71 @@ interface UpdateContextValue {
 
 const UpdateContext = createContext<UpdateContextValue | undefined>(undefined);
 
-export function UpdateProvider({ children }: { children: React.ReactNode }) {
-  const DISMISSED_VERSION_KEY = "ccswitch:update:dismissedVersion";
-  const LEGACY_DISMISSED_KEY = "dismissedUpdateVersion"; // 兼容旧键
+/** 托盘应用常驻不重启，所以除了启动时，还要定期查一次。 */
+const POLL_INTERVAL_MS = 60 * 60 * 1000;
+/** 点“稍后”后，同一版本隔这么久再提醒。 */
+const SNOOZE_MS = 4 * 60 * 60 * 1000;
+const SNOOZE_KEY = "ccswitch:update:snooze";
+// 旧版本“稍后”会永久跳过这个版本，升级后清掉，免得一直不提醒。
+const LEGACY_DISMISSED_KEYS = [
+  "ccswitch:update:dismissedVersion",
+  "dismissedUpdateVersion",
+];
 
+interface Snooze {
+  version: string;
+  until: number;
+}
+
+function readSnooze(): Snooze | null {
+  try {
+    const raw = localStorage.getItem(SNOOZE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Snooze>;
+    if (typeof parsed.version !== "string" || typeof parsed.until !== "number")
+      return null;
+    return { version: parsed.version, until: parsed.until };
+  } catch {
+    return null;
+  }
+}
+
+function isSnoozed(version: string): boolean {
+  const snooze = readSnooze();
+  return snooze?.version === version && Date.now() < snooze.until;
+}
+
+export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
+  const [readyVersion, setReadyVersion] = useState<string | null>(null);
 
-  // 从 localStorage 读取已关闭的版本
   useEffect(() => {
-    const current = updateInfo?.availableVersion;
-    if (!current) return;
-
-    // 读取新键；若不存在，尝试迁移旧键
-    let dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
-    if (!dismissedVersion) {
-      const legacy = localStorage.getItem(LEGACY_DISMISSED_KEY);
-      if (legacy) {
-        localStorage.setItem(DISMISSED_VERSION_KEY, legacy);
-        localStorage.removeItem(LEGACY_DISMISSED_KEY);
-        dismissedVersion = legacy;
-      }
+    try {
+      for (const key of LEGACY_DISMISSED_KEYS) localStorage.removeItem(key);
+    } catch {
+      // 存储不可用时忽略
     }
+  }, []);
 
-    setIsDismissed(dismissedVersion === current);
-  }, [updateInfo?.availableVersion]);
+  const isDownloadingRef = useRef(false);
+
+  // 静默下载；失败不打扰用户，下次检查再试。
+  const downloadInBackground = useCallback(async () => {
+    if (isDownloadingRef.current) return;
+    isDownloadingRef.current = true;
+    try {
+      const ready = await downloadUpdate();
+      setReadyVersion(ready?.availableVersion ?? null);
+    } catch (err) {
+      console.error("后台下载更新失败:", err);
+    } finally {
+      isDownloadingRef.current = false;
+    }
+  }, []);
 
   const isCheckingRef = useRef(false);
 
@@ -71,22 +110,13 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       if (result.status === "available") {
         setHasUpdate(true);
         setUpdateInfo(result.info);
-
-        // 检查是否已经关闭过这个版本的提醒
-        let dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
-        if (!dismissedVersion) {
-          const legacy = localStorage.getItem(LEGACY_DISMISSED_KEY);
-          if (legacy) {
-            localStorage.setItem(DISMISSED_VERSION_KEY, legacy);
-            localStorage.removeItem(LEGACY_DISMISSED_KEY);
-            dismissedVersion = legacy;
-          }
-        }
-        setIsDismissed(dismissedVersion === result.info.availableVersion);
+        setIsDismissed(isSnoozed(result.info.availableVersion));
+        void downloadInBackground();
         return true; // 有更新
       } else {
         setHasUpdate(false);
         setUpdateInfo(null);
+        setReadyVersion(null);
         setIsDismissed(false);
         return false; // 已是最新
       }
@@ -99,31 +129,43 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       setIsChecking(false);
       isCheckingRef.current = false;
     }
-  }, []);
+  }, [downloadInBackground]);
 
   const dismissUpdate = useCallback(() => {
     setIsDismissed(true);
-    if (updateInfo?.availableVersion) {
-      localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.availableVersion);
-      // 清理旧键
-      localStorage.removeItem(LEGACY_DISMISSED_KEY);
+    const version = updateInfo?.availableVersion;
+    if (!version) return;
+    try {
+      localStorage.setItem(
+        SNOOZE_KEY,
+        JSON.stringify({ version, until: Date.now() + SNOOZE_MS }),
+      );
+    } catch {
+      // 存不下就只在本次运行里推迟
     }
   }, [updateInfo?.availableVersion]);
 
   const resetDismiss = useCallback(() => {
     setIsDismissed(false);
-    localStorage.removeItem(DISMISSED_VERSION_KEY);
-    localStorage.removeItem(LEGACY_DISMISSED_KEY);
+    try {
+      localStorage.removeItem(SNOOZE_KEY);
+    } catch {
+      // 忽略
+    }
   }, []);
 
-  // 应用启动时自动检查更新
+  // 启动 1 秒后检查一次（避免影响启动体验），之后每小时检查一次。
   useEffect(() => {
-    // 延迟1秒后检查，避免影响启动体验
-    const timer = setTimeout(() => {
+    const run = () => {
       checkUpdate().catch(console.error);
-    }, 1000);
+    };
+    const timer = setTimeout(run, 1000);
+    const interval = setInterval(run, POLL_INTERVAL_MS);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [checkUpdate]);
 
   const value: UpdateContextValue = {
@@ -131,6 +173,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     updateInfo,
     isChecking,
     error,
+    readyVersion,
     isDismissed,
     dismissUpdate,
     checkUpdate,

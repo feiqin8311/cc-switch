@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { MarketItem } from "../../../enterprise/contracts/src/index.ts";
+import type {
+  MarketItem,
+  MarketItemKind,
+} from "../../../enterprise/contracts/src/index.ts";
 
-export type { MarketItem };
+export type { MarketItem, MarketItemKind };
 
 /** One marketplace row with local install state (Rust `MarketListEntry`). */
 export interface EnterpriseMarketEntry {

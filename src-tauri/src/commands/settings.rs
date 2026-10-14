@@ -40,23 +40,91 @@ pub struct AppUpdatePayload {
     pub pub_date: Option<String>,
 }
 
-async fn find_app_update(app: &AppHandle) -> Result<Option<AppUpdatePayload>, String> {
+impl AppUpdatePayload {
+    fn of(update: &tauri_plugin_updater::Update) -> Self {
+        Self {
+            available_version: update.version.clone(),
+            notes: update.body.clone(),
+            pub_date: update.date.map(|date| date.to_string()),
+        }
+    }
+}
+
+/// 后台已下载并验过签名、等用户点“立即重启”（macOS 上或等退出）再装的更新。
+#[derive(Default)]
+pub struct PendingAppUpdate(std::sync::Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>);
+
+impl PendingAppUpdate {
+    fn version(&self) -> Option<String> {
+        let guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().map(|(update, _)| update.version.clone())
+    }
+
+    fn set(&self, value: Option<(tauri_plugin_updater::Update, Vec<u8>)>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = value;
+    }
+
+    fn take(&self) -> Option<(tauri_plugin_updater::Update, Vec<u8>)> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+}
+
+async fn check_enterprise_update(
+    app: &AppHandle,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
     let Some(endpoint) = enterprise_update_endpoint(app).await? else {
         return Ok(None);
     };
-    let updater = updater_for(app, endpoint)?;
-    let Some(update) = updater
+    updater_for(app, endpoint)?
         .check()
         .await
-        .map_err(|e| format!("检查更新失败: {e}"))?
-    else {
+        .map_err(|e| format!("检查更新失败: {e}"))
+}
+
+async fn find_app_update(app: &AppHandle) -> Result<Option<AppUpdatePayload>, String> {
+    Ok(check_enterprise_update(app)
+        .await?
+        .map(|update| AppUpdatePayload::of(&update)))
+}
+
+/// 后台静默下载新版本（download 内部会校验 minisign 签名），下完放进
+/// `PendingAppUpdate`。同一版本已下载过就直接返回；服务器上没有更新时清掉旧的。
+#[tauri::command]
+pub async fn download_app_update(app: AppHandle) -> Result<Option<AppUpdatePayload>, String> {
+    let pending = app.state::<PendingAppUpdate>();
+    let Some(update) = check_enterprise_update(&app).await? else {
+        pending.set(None);
         return Ok(None);
     };
-    Ok(Some(AppUpdatePayload {
-        available_version: update.version,
-        notes: update.body,
-        pub_date: update.date.map(|date| date.to_string()),
-    }))
+    let payload = AppUpdatePayload::of(&update);
+    if pending.version().as_deref() == Some(update.version.as_str()) {
+        return Ok(Some(payload));
+    }
+
+    log::info!("后台下载应用更新: {}", update.version);
+    let bytes = update
+        .download(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("下载更新失败: {e}"))?;
+    log::info!("应用更新 {} 已下载，等待安装", update.version);
+    pending.set(Some((update, bytes)));
+    Ok(Some(payload))
+}
+
+/// macOS 退出时装上后台已下载的更新，下次打开就是新版本。只替换 `.app`，不重启。
+/// Windows 不在退出时装：安装器会把应用重新拉起来，等于退出不了。
+#[cfg(target_os = "macos")]
+pub fn install_pending_update_on_exit(app: &AppHandle) {
+    let Some(pending) = app.try_state::<PendingAppUpdate>() else {
+        return;
+    };
+    let Some((update, bytes)) = pending.take() else {
+        return;
+    };
+    match update.install(bytes) {
+        Ok(()) => log::info!("退出时已安装应用更新 {}", update.version),
+        Err(e) => log::warn!("退出时安装应用更新 {} 失败: {e}", update.version),
+    }
 }
 
 /// 应用更新下载进度（通过 `update-download-progress` 事件发给前端）。
@@ -315,38 +383,45 @@ pub async fn restart_app(app: AppHandle) -> Result<bool, String> {
 /// 这里把退出清理、安装和重启串在同一个后端流程中，避免依赖旧前端继续执行。
 #[tauri::command]
 pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> {
-    let Some(endpoint) = enterprise_update_endpoint(&app).await? else {
-        return Err("还没配置企业服务器，无法更新".to_string());
-    };
-    let updater = updater_for(&app, endpoint)?;
+    // 后台已下载好的直接装，不再下一遍。
+    let (update, bytes) = match app.state::<PendingAppUpdate>().take() {
+        Some(pending) => pending,
+        None => {
+            let Some(endpoint) = enterprise_update_endpoint(&app).await? else {
+                return Err("还没配置企业服务器，无法更新".to_string());
+            };
+            let updater = updater_for(&app, endpoint)?;
 
-    let Some(update) = updater
-        .check()
-        .await
-        .map_err(|e| format!("检查更新失败: {e}"))?
-    else {
-        return Ok(false);
-    };
+            let Some(update) = updater
+                .check()
+                .await
+                .map_err(|e| format!("检查更新失败: {e}"))?
+            else {
+                return Ok(false);
+            };
 
-    log::info!("开始下载应用更新: {}", update.version);
-    let progress_handle = app.clone();
-    let mut downloaded: u64 = 0;
-    let bytes = update
-        .download(
-            move |chunk_len, content_len| {
-                downloaded = downloaded.saturating_add(chunk_len as u64);
-                let _ = progress_handle.emit(
-                    "update-download-progress",
-                    UpdateDownloadProgress {
-                        downloaded,
-                        total: content_len,
+            log::info!("开始下载应用更新: {}", update.version);
+            let progress_handle = app.clone();
+            let mut downloaded: u64 = 0;
+            let bytes = update
+                .download(
+                    move |chunk_len, content_len| {
+                        downloaded = downloaded.saturating_add(chunk_len as u64);
+                        let _ = progress_handle.emit(
+                            "update-download-progress",
+                            UpdateDownloadProgress {
+                                downloaded,
+                                total: content_len,
+                            },
+                        );
                     },
-                );
-            },
-            || {},
-        )
-        .await
-        .map_err(|e| format!("下载更新失败: {e}"))?;
+                    || {},
+                )
+                .await
+                .map_err(|e| format!("下载更新失败: {e}"))?;
+            (update, bytes)
+        }
+    };
 
     log::info!("开始安装应用更新: {}", update.version);
 

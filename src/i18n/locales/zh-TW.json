@@ -922,10 +922,11 @@
     "aboutHint": "檢視版本資訊與更新狀態。",
     "portableMode": "目前為可攜版，更新需手動下載。",
     "updateAvailable": "檢測到新版本：{{version}}",
-    "updateDialogTitle": "有新版本可以更新",
-    "updateDialogBody": "v{{version}} 已發布。點「更新並重新啟動」會下載、驗證並自動重新啟動。",
+    "updateDialogTitle": "新版本已就緒",
+    "updateDialogBody": "v{{version}} 已在背景下載並驗證完成，重新啟動即可完成更新。",
+    "updateDialogInstallOnQuit": "結束應用程式時也會自動安裝。",
     "updateLater": "稍後",
-    "updateNow": "更新並重新啟動",
+    "updateNow": "立即重新啟動",
     "updateBadge": "有更新可用",
     "updateFailed": "更新安裝失敗，已嘗試開啟下載頁面。",
     "checkUpdateFailed": "檢查更新失敗，請稍後重試。",
@@ -4386,6 +4387,9 @@
     }
   },
   "mcpPage": {
+    "viewAria": "MCP 檢視",
+    "viewInstalled": "已安裝",
+    "viewInstalledCount": "已安裝 {{count}}",
     "noun": "MCP",
     "listSeparator": "、",
     "helpTitle": "MCP 怎麼同步",
@@ -4789,6 +4793,7 @@
     "login": "企業登入",
     "loginTitle": "登入企業中心",
     "loginHint": "登入後將同步企業分配的角色、模型與外掛。",
+    "loginRequired": "請先登入企業帳號，才能使用本應用。登入後將同步企業分配的角色、模型與外掛。",
     "serverUrl": "伺服器位址",
     "username": "使用者名稱",
     "password": "密碼",
@@ -4818,6 +4823,7 @@
     "title": "企業市集",
     "skills": "技能",
     "plugins": "外掛",
+    "mcp": "MCP",
     "mandatory": "必裝",
     "status": {
       "installed": "已安裝",
@@ -4838,12 +4844,6 @@
     }
   },
   "enterpriseRetention": {
-    "title": "對話留存告知",
-    "noticeFallback": "企業管理員已開啟對話留存。",
-    "scopeNote": "確認後，本裝置上此後新開始的 Codex 對話會上傳到企業伺服器留存；確認之前已有的歷史對話不會上傳。如不同意，可登出企業帳號。",
-    "acknowledge": "我已知悉並同意",
-    "logout": "登出企業帳號",
-    "actionFailed": "操作失敗：{{error}}",
     "statusLabel": "對話留存：{{status}}",
     "statusOn": "已開啟",
     "statusOff": "未開啟"

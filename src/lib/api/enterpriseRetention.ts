@@ -7,7 +7,7 @@ export interface RetentionStatus {
   /** Signed in and the server policy is enabled. */
   enabled: boolean;
   noticeText: string;
-  /** The current server + user acknowledged the notice on this device. */
+  /** This device has a retention cutoff for the current server + user. */
   acknowledged: boolean;
   acknowledgedAt: string | null;
   lastUploadAt: string | null;

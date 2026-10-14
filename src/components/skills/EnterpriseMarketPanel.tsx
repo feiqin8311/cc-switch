@@ -1,33 +1,55 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   enterpriseMarketApi,
   type EnterpriseMarketEntry,
+  type MarketItemKind,
 } from "@/lib/api/enterpriseMarket";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 export const enterpriseMarketQueryKey = ["enterpriseMarket", "list"] as const;
 
 type Action = "install" | "uninstall";
 
+interface EnterpriseMarketPanelProps {
+  /** Which kinds this page lists; one section per kind, in this order. */
+  kinds?: MarketItemKind[];
+  /** Puts the refresh button into the page's tab row (portal slot). */
+  renderTrailing?: (trailing: ReactNode) => ReactNode;
+}
+
+const DEFAULT_KINDS: MarketItemKind[] = ["skill", "plugin"];
+
+const KIND_TITLE_KEYS: Record<MarketItemKind, string> = {
+  skill: "enterpriseMarket.skills",
+  plugin: "enterpriseMarket.plugins",
+  mcp: "enterpriseMarket.mcp",
+};
+
 /**
- * Enterprise marketplace on top of the Skills page: skills and Codex plugins
- * published by the enterprise server. Only shown with `market.install`.
+ * The "企业市场" tab of the Skills page (skills, Codex plugins) and of the MCP
+ * page (MCP servers), published by the enterprise server. Only shown with
+ * `market.install`.
  */
-export function EnterpriseMarketPanel() {
+export function EnterpriseMarketPanel(props: EnterpriseMarketPanelProps) {
   const { hasPermission } = useAuth();
   const canInstall = hasPermission("market.install");
   if (!canInstall) return null;
-  return <EnterpriseMarketList />;
+  return <EnterpriseMarketList {...props} />;
 }
 
-function EnterpriseMarketList() {
+function EnterpriseMarketList({
+  kinds = DEFAULT_KINDS,
+  renderTrailing,
+}: EnterpriseMarketPanelProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<{ id: string; action: Action }>();
@@ -42,6 +64,7 @@ function EnterpriseMarketList() {
       queryClient.invalidateQueries({ queryKey: enterpriseMarketQueryKey }),
       queryClient.invalidateQueries({ queryKey: ["skills", "installed"] }),
       queryClient.invalidateQueries({ queryKey: ["skills", "unmanaged"] }),
+      queryClient.invalidateQueries({ queryKey: ["mcp", "all"] }),
     ]);
 
   const mutation = useMutation({
@@ -75,57 +98,76 @@ function EnterpriseMarketList() {
     },
   });
 
-  const entries = query.data ?? [];
-  const skills = entries.filter((e) => e.item.kind === "skill");
-  const plugins = entries.filter((e) => e.item.kind === "plugin");
+  const entries = (query.data ?? []).filter((e) => kinds.includes(e.item.kind));
+
+  const notice = (text: string, danger = false) => (
+    <div
+      className={cn(
+        "flex items-center justify-center gap-2 px-4 py-16 text-body",
+        danger ? "text-danger" : "text-fg-2",
+      )}
+    >
+      {text}
+    </div>
+  );
 
   return (
     <section
-      className="mx-6 mt-2 max-h-[40vh] shrink-0 overflow-y-auto rounded-lg border border-border bg-surface p-3"
+      className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-3"
       aria-label={t("enterpriseMarket.title")}
     >
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-fg-1">
-          {t("enterpriseMarket.title")}
-        </h2>
-        {query.isFetching && (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-fg-3" />
+      {renderTrailing?.(
+        <HoverTip content={t("common.refresh")}>
+          <Button
+            type="button"
+            variant="quiet"
+            size="icon-compact"
+            aria-label={t("common.refresh")}
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw
+              className={cn("h-4 w-4", query.isFetching && "animate-spin")}
+              strokeWidth={1.5}
+            />
+          </Button>
+        </HoverTip>,
+      )}
+      <div className="min-h-0 overflow-auto scroll-stable rounded-panel border border-border bg-surface">
+        {query.isError ? (
+          notice(
+            t("enterpriseMarket.loadFailed", {
+              error: extractErrorMessage(query.error),
+            }),
+            true,
+          )
+        ) : query.isLoading ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-body text-fg-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("enterpriseMarket.loading")}
+          </div>
+        ) : entries.length === 0 ? (
+          notice(t("enterpriseMarket.empty"))
+        ) : (
+          kinds.map((kind) => (
+            <MarketSection
+              key={kind}
+              // 只列一种时不用分组标题
+              title={kinds.length > 1 ? t(KIND_TITLE_KEYS[kind]) : undefined}
+              entries={entries.filter((e) => e.item.kind === kind)}
+              pending={pending}
+              busy={mutation.isPending}
+              onAction={(id, action) => mutation.mutate({ id, action })}
+            />
+          ))
         )}
       </div>
-      {query.isError ? (
-        <p className="text-xs text-danger">
-          {t("enterpriseMarket.loadFailed", {
-            error: extractErrorMessage(query.error),
-          })}
-        </p>
-      ) : query.isLoading ? (
-        <p className="text-xs text-fg-3">{t("enterpriseMarket.loading")}</p>
-      ) : entries.length === 0 ? (
-        <p className="text-xs text-fg-3">{t("enterpriseMarket.empty")}</p>
-      ) : (
-        <div className="space-y-3">
-          <MarketSection
-            title={t("enterpriseMarket.skills")}
-            entries={skills}
-            pending={pending}
-            busy={mutation.isPending}
-            onAction={(id, action) => mutation.mutate({ id, action })}
-          />
-          <MarketSection
-            title={t("enterpriseMarket.plugins")}
-            entries={plugins}
-            pending={pending}
-            busy={mutation.isPending}
-            onAction={(id, action) => mutation.mutate({ id, action })}
-          />
-        </div>
-      )}
     </section>
   );
 }
 
 interface MarketSectionProps {
-  title: string;
+  title?: string;
   entries: EnterpriseMarketEntry[];
   pending?: { id: string; action: Action };
   busy: boolean;
@@ -142,9 +184,13 @@ function MarketSection({
   const { t } = useTranslation();
   if (entries.length === 0) return null;
   return (
-    <div>
-      <h3 className="mb-1 text-xs font-medium text-fg-2">{title}</h3>
-      <ul className="divide-y divide-border">
+    <div className="[&+&]:border-t [&+&]:border-border">
+      {title && (
+        <h3 className="border-b border-border bg-subtle px-4 py-1.5 text-caption font-medium text-fg-3">
+          {title}
+        </h3>
+      )}
+      <ul className="m-0 list-none divide-y divide-border p-0">
         {entries.map(({ item, installedVersion, updateAvailable }) => {
           const installed = installedVersion != null;
           const status = !installed
@@ -157,15 +203,17 @@ function MarketSection({
           return (
             <li
               key={item.id}
-              className="flex items-center gap-3 py-2"
+              className="flex min-h-14 items-center gap-3 py-2 pe-3 ps-4"
               data-testid={`enterprise-market-item-${item.id}`}
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-sm font-medium text-fg-1">
+                  <span className="truncate text-body font-medium text-fg-1">
                     {item.name}
                   </span>
-                  <span className="text-xs text-fg-3">v{item.version}</span>
+                  <span className="font-mono text-caption text-fg-3">
+                    v{item.version}
+                  </span>
                   {item.mandatory && (
                     <Badge variant="secondary">
                       {t("enterpriseMarket.mandatory")}
@@ -176,7 +224,7 @@ function MarketSection({
                   </Badge>
                 </div>
                 {item.description && (
-                  <p className="mt-0.5 line-clamp-2 text-xs text-fg-3">
+                  <p className="mt-0.5 truncate text-caption text-fg-3">
                     {item.description}
                   </p>
                 )}
