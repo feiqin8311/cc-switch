@@ -1236,6 +1236,7 @@ pub fn run() {
             }
 
             // 初始化企业版会话（token 只保存在 Rust 侧）
+            app.manage(commands::PendingAppUpdate::default());
             app.manage(commands::EnterpriseSessionState(Arc::new(
                 crate::enterprise::EnterpriseSession::new(crate::config::get_app_config_dir()),
             )));
@@ -1510,6 +1511,7 @@ pub fn run() {
             commands::install_update_and_restart,
             commands::check_app_update_available,
             commands::check_app_update,
+            commands::download_app_update,
             commands::check_for_updates,
             commands::is_portable_mode,
             commands::copy_text_to_clipboard,
@@ -1903,6 +1905,8 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 save_window_state_before_exit(&app_handle);
                 cleanup_before_exit(&app_handle).await;
+                #[cfg(target_os = "macos")]
+                commands::install_pending_update_on_exit(&app_handle);
                 // 先于 std::process::exit 显式移除托盘图标。
                 // 进程直接退出时 Tauri 运行时不走正常 Drop 流程，
                 // 不会向 Windows Shell 发送 NIM_DELETE，导致已退出的进程
@@ -1925,6 +1929,8 @@ pub fn run() {
         if matches!(event, RunEvent::Exit) {
             if !RESTART_REQUESTED.load(Ordering::SeqCst) {
                 cleanup_before_system_exit(app_handle);
+                #[cfg(target_os = "macos")]
+                commands::install_pending_update_on_exit(app_handle);
             }
             return;
         }

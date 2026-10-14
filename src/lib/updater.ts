@@ -22,7 +22,7 @@ export async function getCurrentVersion(): Promise<string> {
   }
 }
 
-interface AppUpdatePayload {
+export interface AppUpdatePayload {
   availableVersion: string;
   notes?: string | null;
   pubDate?: string | null;
@@ -50,4 +50,13 @@ export async function checkForUpdate(
   };
 
   return { status: "available", info };
+}
+
+/**
+ * 后台静默下载新版本（Rust 侧会校验签名）。下好返回该版本信息，
+ * 之后点“立即重启”直接安装，不再下载。没有更新时返回 null。
+ */
+export async function downloadUpdate(): Promise<AppUpdatePayload | null> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<AppUpdatePayload | null>("download_app_update");
 }

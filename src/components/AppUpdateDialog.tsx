@@ -5,6 +5,7 @@ import { toast } from "@/lib/toast";
 import { settingsApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUpdate } from "@/contexts/UpdateContext";
+import { isMac } from "@/lib/platform";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,14 +18,21 @@ import {
 } from "@/components/ui/dialog";
 
 /**
- * 启动后（以及登录企业服务器后）发现新版本就弹出。
- * 点更新走已有的下载、校验签名、安装、重启。
+ * 启动、登录后以及每小时检查一次；发现新版本先在后台下载并校验签名，
+ * 下好再弹出。点“立即重启”直接安装已下载的包并重启；“稍后”过几小时再提醒，
+ * macOS 上退出应用时也会自动装上。
  */
 export function AppUpdateDialog() {
   const { t } = useTranslation();
   const { state } = useAuth();
-  const { hasUpdate, updateInfo, isDismissed, dismissUpdate, checkUpdate } =
-    useUpdate();
+  const {
+    hasUpdate,
+    updateInfo,
+    readyVersion,
+    isDismissed,
+    dismissUpdate,
+    checkUpdate,
+  } = useUpdate();
   const [installing, setInstalling] = useState(false);
 
   // 启动时的检查可能发生在登录之前。登录成功后再查一次。
@@ -32,7 +40,11 @@ export function AppUpdateDialog() {
     if (!state.loggedIn) return;
     void checkUpdate().catch(() => {});
   }, [state.loggedIn, state.serverUrl, checkUpdate]);
-  const open = hasUpdate && !isDismissed && updateInfo != null;
+  const open =
+    hasUpdate &&
+    !isDismissed &&
+    updateInfo != null &&
+    readyVersion === updateInfo.availableVersion;
 
   const install = async () => {
     if (installing) return;
@@ -66,6 +78,7 @@ export function AppUpdateDialog() {
             {t("settings.updateDialogBody", {
               version: updateInfo?.availableVersion ?? "",
             })}
+            {isMac() ? ` ${t("settings.updateDialogInstallOnQuit")}` : null}
           </DialogDescription>
         </DialogHeader>
         {updateInfo?.notes ? (
