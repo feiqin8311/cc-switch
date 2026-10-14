@@ -15,6 +15,7 @@ import {
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   Dialog,
   EmptyState,
   ErrorState,
@@ -57,14 +58,29 @@ export function useUsers(enabled = true) {
 export function UsersPage() {
   const session = useSession();
   const users = useUsers();
+  const client = useApi();
+  const qc = useQueryClient();
+  const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState<User | null>(null);
+
+  const remove = useMutation({
+    mutationFn: (user: User) =>
+      client.request(`/admin/users/${user.id}`, { method: "DELETE" }),
+    onSuccess: (_data, user) => {
+      qc.invalidateQueries({ queryKey: USERS_KEY });
+      toast.success(`已删除用户 ${user.username}`);
+      setDeleting(null);
+    },
+    onError: (err) => toast.error(`删除失败：${describeError(err)}`),
+  });
 
   return (
     <div>
       <PageHeader
         title="用户管理"
-        description="创建员工账号、分配角色、重置密码或禁用账号。禁用、改角色或重置密码会立即注销该用户的所有会话。"
+        description="创建员工账号、分配角色、重置密码、禁用或删除账号。禁用、改角色、重置密码或删除会立即注销该用户的所有会话。"
         actions={
           <Button variant="primary" onClick={() => setCreating(true)}>
             <Plus className="size-4" />
@@ -127,10 +143,22 @@ export function UsersPage() {
                   <td className={`${tdClass} whitespace-nowrap`}>
                     {formatDateTime(u.lastLoginAt)}
                   </td>
-                  <td className={`${tdClass} text-right`}>
-                    <Button size="sm" onClick={() => setEditing(u)}>
-                      编辑
-                    </Button>
+                  <td className={`${tdClass} text-right whitespace-nowrap`}>
+                    <div className="inline-flex gap-1">
+                      <Button size="sm" onClick={() => setEditing(u)}>
+                        编辑
+                      </Button>
+                      {u.id !== session.user.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={() => setDeleting(u)}
+                        >
+                          删除
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -147,6 +175,21 @@ export function UsersPage() {
           onClose={() => setEditing(null)}
         />
       )}
+      <ConfirmDialog
+        open={deleting !== null}
+        title="删除用户"
+        danger
+        confirmLabel="删除"
+        pending={remove.isPending}
+        message={
+          <>
+            确定删除 <b>{deleting?.username}</b>（{deleting?.displayName}
+            ）吗？该账号会立即退出登录，其设备、用量和已留存的对话一并删除，此操作不可撤销。
+          </>
+        }
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting)}
+      />
     </div>
   );
 }

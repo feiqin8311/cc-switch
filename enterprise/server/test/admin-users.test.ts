@@ -127,6 +127,52 @@ describe("admin users", () => {
     expect(again.permissions).toContain("users.manage");
   });
 
+  it("deletes a user, ends their session, and refuses self-deletion", async () => {
+    const created = UserSchema.parse((await createUser("member")).json());
+    const member = await login(ctx.app, "alice", "alice-password-1");
+
+    const self = await ctx.app.inject({
+      method: "DELETE",
+      url: `/api/v1/admin/users/${adminId}`,
+      headers: bearer(adminToken),
+    });
+    expect(self.statusCode).toBe(403);
+
+    const del = await ctx.app.inject({
+      method: "DELETE",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+    });
+    expect(del.statusCode).toBe(204);
+
+    const me = await ctx.app.inject({
+      url: "/api/v1/me",
+      headers: bearer(member.accessToken),
+    });
+    expect(me.statusCode).toBe(401);
+    const relog = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: { username: "alice", password: "alice-password-1" },
+    });
+    expect(relog.statusCode).toBe(401);
+
+    const list = await ctx.app.inject({
+      url: "/api/v1/admin/users",
+      headers: bearer(adminToken),
+    });
+    expect(
+      list.json().items.map((u: { username: string }) => u.username),
+    ).toEqual(["admin"]);
+
+    const missing = await ctx.app.inject({
+      method: "DELETE",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it("prevents admins from disabling or demoting themselves", async () => {
     for (const payload of [{ disabled: true }, { role: "member" }]) {
       const res = await ctx.app.inject({

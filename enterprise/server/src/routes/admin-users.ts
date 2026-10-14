@@ -125,4 +125,19 @@ export async function adminUserRoutes(
     );
     return toUserDto(row);
   });
+
+  app.delete("/admin/users/:id", guard, async (req, reply) => {
+    const { id } = parseBody(IdParamSchema, req.params);
+    const actor = authOf(req).user;
+    if (id === actor.id) throw forbidden("You cannot delete yourself");
+
+    const deleted = await db
+      .delete(users)
+      .where(eq(users.id, id))
+      .returning({ id: users.id });
+    if (deleted.length === 0) throw notFound("User not found");
+
+    req.log.info({ actor: actor.id, userId: id }, "user deleted");
+    return reply.status(204).send();
+  });
 }
