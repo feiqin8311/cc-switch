@@ -178,6 +178,10 @@ export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
  * PATCH /admin/users/:id → 200 User
  * Disabling a user or changing their password/role revokes all their sessions.
  * An admin cannot disable or demote themselves.
+ *
+ * DELETE /admin/users/:id → 204
+ * Removes the account. Sessions, devices, usage and retained conversations
+ * cascade. An admin cannot delete themselves.
  */
 export const UpdateUserRequestSchema = z
   .object({
@@ -400,8 +404,9 @@ export type UsageResponse = z.infer<typeof UsageResponseSchema>;
 
 /**
  * GET /admin/retention-policy (audit.read), PUT (settings.manage) → policy.
- * The client only uploads Codex sessions that START after the user
- * acknowledged `noticeText` on that device; history before that is never sent.
+ * The desktop records a per-device cutoff the first time this policy is
+ * enabled for the signed-in user, then uploads only Codex sessions that
+ * start after that cutoff. History before the cutoff is never sent.
  */
 export const AdminRetentionPolicySchema = z.object({
   enabled: z.boolean(),
@@ -525,21 +530,57 @@ export type ConversationDetailResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
-// Phase 4 — skill / plugin marketplace
+// Phase 4 — skill / plugin / MCP marketplace
 // ---------------------------------------------------------------------------
 
-export const MarketItemKindSchema = z.enum(["skill", "plugin"]);
+export const MarketItemKindSchema = z.enum(["skill", "plugin", "mcp"]);
 export type MarketItemKind = z.infer<typeof MarketItemKindSchema>;
 
 /** Max package size accepted by the server. */
 export const MAX_MARKET_PACKAGE_BYTES = 20 * 1024 * 1024;
+/** Max size of an MCP definition (JSON). */
+export const MAX_MCP_DEFINITION_BYTES = 64 * 1024;
+
+const StringMapSchema = z.record(z.string().min(1).max(200), z.string().max(4000));
 
 /**
- * Package formats (zip):
- * - skill:  a single skill directory (contains SKILL.md), either at the zip root
- *           or as the only top-level folder.
- * - plugin: a Codex plugin directory (contains .codex-plugin/plugin.json),
+ * The package of an `mcp` item: one MCP server definition, the same shape as
+ * an entry of `.mcp.json` / Codex `[mcp_servers.<id>]`. The desktop installs it
+ * under the item id and enables it for Codex. `env` / `headers` reach every
+ * user with `market.install` — do not put personal secrets in them.
+ */
+export const McpDefinitionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("stdio"),
+      command: z.string().trim().min(1).max(1000),
+      args: z.array(z.string().max(4000)).max(100).optional(),
+      env: StringMapSchema.optional(),
+      cwd: z.string().max(1000).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.enum(["http", "sse"]),
+      url: z
+        .string()
+        .trim()
+        .url()
+        .refine((u) => /^https?:\/\//i.test(u), "url must be http(s)"),
+      headers: StringMapSchema.optional(),
+    })
+    .strict(),
+]);
+export type McpDefinition = z.infer<typeof McpDefinitionSchema>;
+
+/**
+ * Package formats:
+ * - skill:  zip of a single skill directory (contains SKILL.md), either at the
+ *           zip root or as the only top-level folder.
+ * - plugin: zip of a Codex plugin directory (contains .codex-plugin/plugin.json),
  *           either at the zip root or as the only top-level folder.
+ * - mcp:    JSON, an McpDefinitionSchema object (≤ MAX_MCP_DEFINITION_BYTES).
+ *           sha256 is over the stored JSON bytes.
  */
 export const MarketItemSchema = z.object({
   /** Slug; for plugins it is also the Codex plugin name. */
@@ -566,13 +607,16 @@ export type ListMarketItemsResponse = z.infer<
 
 /*
  * GET /market/items/:id/package (market.install or market.manage)
- *   → application/zip, header `X-Content-SHA256: <sha256>`; the client must verify it.
+ *   → application/zip (skill, plugin) or application/json (mcp),
+ *   header `X-Content-SHA256: <sha256>`; the client must verify it.
  *
  * PUT /admin/market/items/:id (market.manage) — create or replace.
- *   Content-Type: application/zip, body = package bytes (≤ MAX_MARKET_PACKAGE_BYTES).
+ *   skill / plugin: Content-Type application/zip, body = package bytes
+ *   (≤ MAX_MARKET_PACKAGE_BYTES). mcp: Content-Type application/json, body =
+ *   McpDefinitionSchema; the server stores it re-serialized (compact JSON).
  *   Metadata in query string: kind, name, description, version, mandatory=true|false
- *   (validated with MarketItemMetadataSchema). The server validates the zip
- *   layout for the kind. → 200 MarketItem
+ *   (validated with MarketItemMetadataSchema). The server validates the package
+ *   for the kind; a body that does not match the kind is 400. → 200 MarketItem
  * PATCH /admin/market/items/:id (market.manage) body MarketItemPatchSchema → 200 MarketItem
  * DELETE /admin/market/items/:id (market.manage) → 204
  */

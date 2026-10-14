@@ -20,7 +20,7 @@ vi.mock("@/lib/toast", () => ({
 
 const item = (
   id: string,
-  kind: "skill" | "plugin",
+  kind: "skill" | "plugin" | "mcp",
   extra: Partial<{ mandatory: boolean; version: string }> = {},
 ) => ({
   id,
@@ -48,6 +48,11 @@ const entries = [
   {
     item: item("must-plugin", "plugin", { mandatory: true }),
     installedVersion: "1.0.0",
+    updateAvailable: false,
+  },
+  {
+    item: item("github-mcp", "mcp"),
+    installedVersion: null,
     updateAvailable: false,
   },
 ];
@@ -107,6 +112,23 @@ describe("EnterpriseMarketPanel", () => {
 
     expect(screen.getByText("enterpriseMarket.skills")).toBeInTheDocument();
     expect(screen.getByText("enterpriseMarket.plugins")).toBeInTheDocument();
+  });
+
+  it("keeps MCP items out of the Skills page", async () => {
+    renderWithQueryClient(<EnterpriseMarketPanel />);
+    await screen.findByTestId("enterprise-market-item-fresh-skill");
+    expect(
+      screen.queryByTestId("enterprise-market-item-github-mcp"),
+    ).toBeNull();
+  });
+
+  it("lists only MCP items on the MCP page, without section titles", async () => {
+    renderWithQueryClient(<EnterpriseMarketPanel kinds={["mcp"]} />);
+    await screen.findByTestId("enterprise-market-item-github-mcp");
+    expect(
+      screen.queryByTestId("enterprise-market-item-fresh-skill"),
+    ).toBeNull();
+    expect(screen.queryByText("enterpriseMarket.mcp")).toBeNull();
   });
 
   it("installs an item and refreshes the list", async () => {

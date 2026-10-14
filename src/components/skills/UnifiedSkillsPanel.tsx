@@ -29,6 +29,7 @@ import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { AppGlyph, APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { SkillsIcon } from "@/components/BrandIcons";
 import { EnterpriseMarketPanel } from "@/components/skills/EnterpriseMarketPanel";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   type ImportSkillSelection,
   type InstalledSkill,
@@ -77,7 +78,7 @@ import type { ZipSkippedSkill } from "@/lib/api/skills";
 
 const BACKUP_DIR = "~/.cc-switch/skill-backups";
 
-type SkillsView = "installed" | "discover";
+type SkillsView = "installed" | "discover" | "enterprise";
 type StatusFilter = "all" | "updates" | "none" | `app:${AppId}`;
 
 interface WriteFailure {
@@ -127,6 +128,12 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   const { targets, setTargets, installTo } = useSkillInstallTargets(appIds);
 
   const [view, setView] = useState<SkillsView>(initialView);
+  // 「企业市场」页签只给有 market.install 权限的账号；权限没了就退回「已安装」
+  const { hasPermission } = useAuth();
+  const showEnterprise = hasPermission("market.install");
+  useEffect(() => {
+    if (view === "enterprise" && !showEnterprise) setView("installed");
+  }, [view, showEnterprise]);
   // 「发现」段第一次打开后就一直挂着（隐藏而不卸载），来回切不再重新加载仓库列表
   const [discoverMounted, setDiscoverMounted] = useState(
     initialView === "discover",
@@ -1017,7 +1024,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
       className="h-11"
       value={view}
       onValueChange={(next) => {
-        if (next === "discover" && navigationBlocked) return;
+        if (next !== "installed" && navigationBlocked) return;
         setView(next);
       }}
       items={[
@@ -1031,6 +1038,14 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
           value: "discover",
           label: t("skillsPage.viewDiscover"),
         },
+        ...(showEnterprise
+          ? [
+              {
+                value: "enterprise" as const,
+                label: t("enterpriseMarket.title"),
+              },
+            ]
+          : []),
       ]}
       trailing={<div ref={setTabsTrailingSlot} className="flex items-center" />}
     />
@@ -1436,8 +1451,14 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     <>
       {header}
       <div id="main-content" className="flex min-h-0 flex-1 flex-col">
-        <EnterpriseMarketPanel />
         <div className="shrink-0 px-6 pt-1">{viewTabs}</div>
+        {view === "enterprise" && showEnterprise && (
+          <EnterpriseMarketPanel
+            renderTrailing={(trailing) =>
+              viewTabsTrailing("enterprise", trailing)
+            }
+          />
+        )}
         {/* 两段打开过就一直挂着，切回来不重新加载；不在看的那段只是隐藏 */}
         {discoverMounted && (
           <div

@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 
 use crate::app_config::{AppType, McpServer};
+use crate::database::Database;
 use crate::error::AppError;
 use crate::mcp;
 use crate::store::AppState;
@@ -27,9 +28,13 @@ impl McpService {
 
     /// 添加或更新 MCP 服务器
     pub fn upsert_server(state: &AppState, server: McpServer) -> Result<(), AppError> {
+        Self::upsert_server_in(&state.db, server)
+    }
+
+    /// 同 [`Self::upsert_server`]，只需要数据库（企业市场安装 MCP 时用）
+    pub fn upsert_server_in(db: &Database, server: McpServer) -> Result<(), AppError> {
         // 读取旧状态：用于处理“编辑时取消勾选某个应用”的场景（需要从对应 live 配置中移除）
-        let prev_apps = state
-            .db
+        let prev_apps = db
             .get_all_mcp_servers()?
             .get(&server.id)
             .map(|s| s.apps.clone())
@@ -41,10 +46,10 @@ impl McpService {
                 mcp::pi::sync_and_commit(
                     &server.id,
                     mcp::pi::PiChange::from_enabled(server.apps.pi.then_some(&server.server)),
-                    || state.db.save_mcp_server(&server),
+                    || db.save_mcp_server(&server),
                 )
             } else {
-                state.db.save_mcp_server(&server)
+                db.save_mcp_server(&server)
             }
         };
         if server.apps.mcode || prev_apps.mcode {
@@ -59,42 +64,47 @@ impl McpService {
 
         // 处理禁用：若旧版本启用但新版本取消，则需要从该应用的 live 配置移除
         if prev_apps.claude && !server.apps.claude {
-            Self::remove_server_from_app(state, &server.id, &AppType::Claude)?;
+            Self::remove_server_from_app(&server.id, &AppType::Claude)?;
         }
         if prev_apps.codex && !server.apps.codex {
-            Self::remove_server_from_app(state, &server.id, &AppType::Codex)?;
+            Self::remove_server_from_app(&server.id, &AppType::Codex)?;
         }
         if prev_apps.gemini && !server.apps.gemini {
-            Self::remove_server_from_app(state, &server.id, &AppType::Gemini)?;
+            Self::remove_server_from_app(&server.id, &AppType::Gemini)?;
         }
         if prev_apps.grokbuild && !server.apps.grokbuild {
-            Self::remove_server_from_app(state, &server.id, &AppType::GrokBuild)?;
+            Self::remove_server_from_app(&server.id, &AppType::GrokBuild)?;
         }
         if prev_apps.opencode && !server.apps.opencode {
-            Self::remove_server_from_app(state, &server.id, &AppType::OpenCode)?;
+            Self::remove_server_from_app(&server.id, &AppType::OpenCode)?;
         }
         if prev_apps.hermes && !server.apps.hermes {
-            Self::remove_server_from_app(state, &server.id, &AppType::Hermes)?;
+            Self::remove_server_from_app(&server.id, &AppType::Hermes)?;
         }
 
         // 同步到各个启用的应用
-        Self::sync_server_to_apps(state, &server)?;
+        Self::sync_server_to_apps(&server)?;
 
         Ok(())
     }
 
     /// 删除 MCP 服务器
     pub fn delete_server(state: &AppState, id: &str) -> Result<bool, AppError> {
-        let server = state.db.get_all_mcp_servers()?.shift_remove(id);
+        Self::delete_server_in(&state.db, id)
+    }
+
+    /// 同 [`Self::delete_server`]，只需要数据库（企业市场卸载 MCP 时用）
+    pub fn delete_server_in(db: &Database, id: &str) -> Result<bool, AppError> {
+        let server = db.get_all_mcp_servers()?.shift_remove(id);
 
         if let Some(server) = server {
             let delete_with_pi = || {
                 if server.apps.pi {
                     mcp::pi::sync_and_commit(id, mcp::pi::PiChange::Remove, || {
-                        state.db.delete_mcp_server(id)
+                        db.delete_mcp_server(id)
                     })
                 } else {
-                    state.db.delete_mcp_server(id)
+                    db.delete_mcp_server(id)
                 }
             };
             if server.apps.mcode {
@@ -110,7 +120,7 @@ impl McpService {
             }
 
             // 从所有应用的 live 配置中移除
-            Self::remove_server_from_all_apps(state, id, &server)?;
+            Self::remove_server_from_all_apps(id, &server)?;
             Ok(true)
         } else {
             Ok(false)
@@ -152,7 +162,7 @@ impl McpService {
             if enabled {
                 Self::sync_server_to_app(state, &server, &app)?;
             } else {
-                Self::remove_server_from_app(state, server_id, &app)?;
+                Self::remove_server_from_app(server_id, &app)?;
             }
         }
 
@@ -160,7 +170,7 @@ impl McpService {
     }
 
     /// 将 MCP 服务器同步到所有启用的应用
-    fn sync_server_to_apps(_state: &AppState, server: &McpServer) -> Result<(), AppError> {
+    fn sync_server_to_apps(server: &McpServer) -> Result<(), AppError> {
         for app in server.apps.enabled_apps() {
             if matches!(app, AppType::Mcode | AppType::Pi) {
                 continue; // Already written before saving the managed state.
@@ -224,22 +234,18 @@ impl McpService {
     }
 
     /// 从所有曾启用过该服务器的应用中移除
-    fn remove_server_from_all_apps(
-        state: &AppState,
-        id: &str,
-        server: &McpServer,
-    ) -> Result<(), AppError> {
+    fn remove_server_from_all_apps(id: &str, server: &McpServer) -> Result<(), AppError> {
         // 从所有曾启用的应用中移除
         for app in server.apps.enabled_apps() {
             if matches!(app, AppType::Mcode | AppType::Pi) {
                 continue; // Already removed before deleting the managed record.
             }
-            Self::remove_server_from_app(state, id, &app)?;
+            Self::remove_server_from_app(id, &app)?;
         }
         Ok(())
     }
 
-    fn remove_server_from_app(_state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
+    fn remove_server_from_app(id: &str, app: &AppType) -> Result<(), AppError> {
         match app {
             AppType::Claude => mcp::remove_server_from_claude(id)?,
             AppType::ClaudeDesktop => {
@@ -366,7 +372,7 @@ impl McpService {
             let result = if server.apps.is_enabled_for(app) {
                 Self::sync_server_to_app(state, server, app)
             } else if !matches!(app, AppType::Mcode | AppType::Pi) {
-                Self::remove_server_from_app(state, &server.id, app)
+                Self::remove_server_from_app(&server.id, app)
             } else {
                 // MCode / Pi's false flag also covers pre-existing, unmanaged servers.
                 // Only explicit disable/delete operations may remove those entries.

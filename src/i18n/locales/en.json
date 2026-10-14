@@ -4386,6 +4386,9 @@
     }
   },
   "mcpPage": {
+    "viewAria": "MCP view",
+    "viewInstalled": "Installed",
+    "viewInstalledCount": "Installed {{count}}",
     "noun": "MCP servers",
     "listSeparator": ", ",
     "helpTitle": "How MCP syncs",
@@ -4819,6 +4822,7 @@
     "skills": "Skills",
     "plugins": "Plugins",
     "mandatory": "Required",
+    "mcp": "MCP",
     "status": {
       "installed": "Installed",
       "updateAvailable": "Update available",

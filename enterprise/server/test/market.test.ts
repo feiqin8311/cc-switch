@@ -356,3 +356,132 @@ describe("market listing, download and lifecycle", () => {
     expect(again.statusCode).toBe(404);
   });
 });
+
+describe("mcp market items", () => {
+  const STDIO = {
+    type: "stdio",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+    env: { LOG_LEVEL: "info" },
+  };
+
+  const uploadJson = (id: string, def: unknown, opts = {}) =>
+    upload(id, JSON.stringify(def, null, 2), {
+      kind: "mcp",
+      contentType: "application/json",
+      ...opts,
+    });
+
+  it("publishes a stdio definition and serves it back as compact JSON", async () => {
+    const res = await uploadJson("fs-mcp", STDIO, { version: "1.2 rc" });
+    expect(res.statusCode).toBe(200);
+    const compact = Buffer.from(JSON.stringify(STDIO));
+    expect(MarketItemSchema.parse(res.json())).toMatchObject({
+      id: "fs-mcp",
+      kind: "mcp",
+      version: "1.2 rc",
+      sha256: sha256(compact),
+      sizeBytes: compact.length,
+    });
+
+    const list = await ctx.app.inject({
+      url: "/api/v1/market/items",
+      headers: bearer(memberToken),
+    });
+    const items = ListMarketItemsResponseSchema.parse(list.json()).items;
+    expect(items.find((i) => i.id === "fs-mcp")?.kind).toBe("mcp");
+
+    const dl = await ctx.app.inject({
+      url: "/api/v1/market/items/fs-mcp/package",
+      headers: bearer(memberToken),
+    });
+    expect(dl.statusCode).toBe(200);
+    expect(dl.headers["content-type"]).toBe("application/json");
+    expect(dl.headers["content-disposition"]).toBe(
+      'attachment; filename="fs-mcp-1.2_rc.json"',
+    );
+    expect(dl.rawPayload.toString("utf8")).toBe(compact.toString("utf8"));
+    expect(dl.headers["x-content-sha256"]).toBe(sha256(dl.rawPayload));
+  });
+
+  it("accepts http and sse definitions", async () => {
+    const http = await uploadJson("remote", {
+      type: "http",
+      url: "https://mcp.example.com/mcp",
+      headers: { "X-Team": "core" },
+    });
+    expect(http.statusCode).toBe(200);
+    const sse = await uploadJson("remote-sse", {
+      type: "sse",
+      url: "http://10.0.0.5:8080/sse",
+    });
+    expect(sse.statusCode).toBe(200);
+  });
+
+  it("rejects invalid definitions with 400 details", async () => {
+    const bad: unknown[] = [
+      { type: "stdio", args: ["x"] },
+      { type: "stdio", command: "npx", extra: true },
+      { type: "http", url: "ftp://example.com/mcp" },
+      { type: "websocket", url: "https://example.com" },
+      ["not", "an", "object"],
+    ];
+    for (const def of bad) {
+      const res = await uploadJson("demo", def);
+      expect(res.statusCode, JSON.stringify(def)).toBe(400);
+      expect(res.json().error.code).toBe("bad_request");
+      expect(Array.isArray(res.json().error.details)).toBe(true);
+    }
+    const malformed = await upload("demo", "{not json", {
+      kind: "mcp",
+      contentType: "application/json",
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(await blobCount()).toBe(0);
+  });
+
+  it("rejects a body that does not match the kind", async () => {
+    const zipped = await upload("demo", zip({ "SKILL.md": SKILL_MD }), {
+      kind: "mcp",
+    });
+    expect(zipped.statusCode).toBe(400);
+    expect(zipped.json().error.message).toContain("application/json");
+
+    const asSkill = await uploadJson("demo", STDIO, { kind: "skill" });
+    expect([400, 415]).toContain(asSkill.statusCode);
+    expect(await blobCount()).toBe(0);
+  });
+
+  it("rejects oversized definitions with 413", async () => {
+    const big = {
+      type: "stdio",
+      command: "node",
+      args: Array.from({ length: 20 }, () => "x".repeat(4000)),
+    };
+    const res = await uploadJson("demo", big);
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe("payload_too_large");
+
+    const huge = await upload("demo", `"${"x".repeat(300 * 1024)}"`, {
+      kind: "mcp",
+      contentType: "application/json",
+    });
+    expect(huge.statusCode).toBe(413);
+    expect(await blobCount()).toBe(0);
+  });
+
+  it("can be made mandatory via PATCH", async () => {
+    await uploadJson("fs-mcp", STDIO);
+    const res = await ctx.app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/market/items/fs-mcp",
+      headers: bearer(adminToken),
+      payload: { mandatory: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(MarketItemSchema.parse(res.json())).toMatchObject({
+      kind: "mcp",
+      mandatory: true,
+    });
+  });
+});

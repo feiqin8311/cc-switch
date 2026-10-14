@@ -7,6 +7,8 @@
 //! - plugins live in a local Codex marketplace
 //!   `<app config dir>/enterprise-marketplace/` named `ccswitch-enterprise`
 //!   and are installed with the `codex plugin ...` CLI;
+//! - MCP servers (a JSON definition) go through [`McpService`] under the item
+//!   id and are enabled for Codex;
 //! - what we installed is recorded in `<app config dir>/enterprise_market.json`
 //!   (0600).
 
@@ -23,9 +25,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{endpoint, EnterpriseSession, EnterpriseState};
-use crate::app_config::AppType;
+use crate::app_config::{AppType, McpApps, McpServer};
 use crate::database::Database;
 use crate::services::skill::SkillService;
+use crate::services::McpService;
 
 pub const MARKETPLACE_NAME: &str = "ccswitch-enterprise";
 const MARKETPLACE_DISPLAY_NAME: &str = "CC Switch Enterprise";
@@ -44,6 +47,8 @@ const AUTO_INSTALL_FIRST_DELAY: Duration = Duration::from_secs(45);
 const AUTO_INSTALL_INTERVAL: Duration = Duration::from_secs(600);
 const SKILL_MARKER: &str = "SKILL.md";
 const PLUGIN_MARKER: &str = ".codex-plugin/plugin.json";
+/// Same as the contract's `MAX_MCP_DEFINITION_BYTES`.
+const MAX_MCP_DEFINITION_BYTES: u64 = 64 * 1024;
 
 // ---------------------------------------------------------------------------
 // Wire / state types
@@ -54,6 +59,7 @@ const PLUGIN_MARKER: &str = ".codex-plugin/plugin.json";
 pub enum MarketItemKind {
     Skill,
     Plugin,
+    Mcp,
 }
 
 /// `MarketItem` of the contract.
@@ -591,6 +597,100 @@ fn install_skill_blocking(
 }
 
 // ---------------------------------------------------------------------------
+// MCP servers
+// ---------------------------------------------------------------------------
+
+/// Parse an `mcp` package (contract `McpDefinitionSchema`). The server already
+/// validated it; this only checks what the MCP sync relies on.
+fn parse_mcp_definition(bytes: &[u8]) -> Result<serde_json::Value, String> {
+    if bytes.len() as u64 > MAX_MCP_DEFINITION_BYTES {
+        return Err("MCP definition is too large".into());
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|_| "MCP definition is not valid JSON".to_string())?;
+    let obj = value
+        .as_object()
+        .ok_or_else(|| "MCP definition must be a JSON object".to_string())?;
+    let non_empty = |key: &str| {
+        obj.get(key)
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| !v.trim().is_empty())
+    };
+    match obj.get("type").and_then(|v| v.as_str()) {
+        Some("stdio") if non_empty("command") => Ok(value),
+        Some("stdio") => Err("stdio MCP definition needs a command".into()),
+        Some("http" | "sse")
+            if obj
+                .get("url")
+                .and_then(|v| v.as_str())
+                .is_some_and(|u| u.starts_with("https://") || u.starts_with("http://")) =>
+        {
+            Ok(value)
+        }
+        Some("http" | "sse") => Err("http/sse MCP definition needs an http(s) url".into()),
+        _ => Err("MCP definition type must be stdio, http or sse".into()),
+    }
+}
+
+fn mcp_server_exists(db: &Database, id: &str) -> Result<bool, String> {
+    db.get_all_mcp_servers()
+        .map(|servers| servers.contains_key(id))
+        .map_err(|e| e.to_string())
+}
+
+fn install_mcp_blocking(
+    db: &Arc<Database>,
+    state: &MarketState,
+    item: &MarketItem,
+    package: &Path,
+) -> Result<InstalledItem, String> {
+    let bytes = fs::read(package).map_err(|e| format!("Failed to read the package: {e}"))?;
+    let definition = parse_mcp_definition(&bytes)?;
+
+    let ours = state
+        .items
+        .get(&item.id)
+        .is_some_and(|inst| inst.kind == MarketItemKind::Mcp);
+    let existing = db
+        .get_all_mcp_servers()
+        .map_err(|e| e.to_string())?
+        .shift_remove(&item.id);
+    if existing.is_some() && !ours {
+        return Err(format!(
+            "An MCP server named '{}' already exists on this computer; remove or rename it first",
+            item.id
+        ));
+    }
+    // Updates keep the apps the user turned on; Codex is always on.
+    let mut apps = existing.map(|s| s.apps).unwrap_or_else(McpApps::default);
+    apps.codex = true;
+    let description = item.description.trim();
+    McpService::upsert_server_in(
+        db,
+        McpServer {
+            id: item.id.clone(),
+            name: item.name.clone(),
+            server: definition,
+            apps,
+            description: (!description.is_empty()).then(|| description.to_string()),
+            homepage: None,
+            docs: None,
+            tags: Vec::new(),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(InstalledItem {
+        kind: MarketItemKind::Mcp,
+        version: item.version.clone(),
+        sha256: normalize_sha(&item.sha256),
+        installed_at: now_rfc3339(),
+        skill_dir: None,
+        skill_id: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Codex plugins
 // ---------------------------------------------------------------------------
 
@@ -930,6 +1030,9 @@ fn remove_installed_blocking(
                 &installed_plugin_ids(paths, &remaining),
             )?;
         }
+        MarketItemKind::Mcp => {
+            McpService::delete_server_in(db, id).map_err(|e| e.to_string())?;
+        }
     }
     state.items.remove(id);
     save_state(&paths.state_file, state)
@@ -951,6 +1054,7 @@ fn install_package_blocking(
     let installed = match item.kind {
         MarketItemKind::Skill => install_skill_blocking(db, paths, &mut state, item, package)?,
         MarketItemKind::Plugin => install_plugin_blocking(paths, &state, item, package)?,
+        MarketItemKind::Mcp => install_mcp_blocking(db, &state, item, package)?,
     };
     state.items.insert(item.id.clone(), installed);
     save_state(&paths.state_file, &state)
@@ -986,6 +1090,7 @@ fn is_present(
             .as_deref()
             .is_some_and(|sid| matches!(db.get_installed_skill(sid), Ok(Some(_)))),
         MarketItemKind::Plugin => paths.marketplace_dir.join("plugins").join(id).is_dir(),
+        MarketItemKind::Mcp => mcp_server_exists(db, id).unwrap_or(false),
     }
 }
 
@@ -1511,6 +1616,33 @@ mod tests {
                 ("gone", None, false),
             ]
         );
+    }
+
+    #[test]
+    fn mcp_definition_parsing() {
+        let stdio = br#"{"type":"stdio","command":"npx","args":["-y","x"]}"#;
+        assert_eq!(parse_mcp_definition(stdio).unwrap()["command"], "npx");
+        let http = br#"{"type":"http","url":"https://mcp.example.com/mcp"}"#;
+        assert!(parse_mcp_definition(http).is_ok());
+
+        for bad in [
+            &br#"{"type":"stdio","command":"  "}"#[..],
+            br#"{"type":"sse","url":"ftp://x"}"#,
+            br#"{"command":"npx"}"#,
+            br#"["stdio"]"#,
+            b"not json",
+        ] {
+            assert!(
+                parse_mcp_definition(bad).is_err(),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        let huge = format!(
+            r#"{{"type":"stdio","command":"{}"}}"#,
+            "a".repeat(MAX_MCP_DEFINITION_BYTES as usize)
+        );
+        assert!(parse_mcp_definition(huge.as_bytes()).is_err());
     }
 
     #[test]

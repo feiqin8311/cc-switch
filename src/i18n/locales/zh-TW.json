@@ -4387,6 +4387,9 @@
     }
   },
   "mcpPage": {
+    "viewAria": "MCP 檢視",
+    "viewInstalled": "已安裝",
+    "viewInstalledCount": "已安裝 {{count}}",
     "noun": "MCP",
     "listSeparator": "、",
     "helpTitle": "MCP 怎麼同步",
@@ -4820,6 +4823,7 @@
     "skills": "技能",
     "plugins": "外掛",
     "mandatory": "必裝",
+    "mcp": "MCP",
     "status": {
       "installed": "已安裝",
       "updateAvailable": "可更新",

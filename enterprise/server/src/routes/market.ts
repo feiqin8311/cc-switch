@@ -1,8 +1,11 @@
+import { Transform } from "node:stream";
 import {
   type ListMarketItemsResponse,
   MAX_MARKET_PACKAGE_BYTES,
+  MAX_MCP_DEFINITION_BYTES,
   MarketItemMetadataSchema,
   MarketItemPatchSchema,
+  McpDefinitionSchema,
   type Permission,
   ProviderIdSchema,
 } from "@ccse/contracts";
@@ -59,6 +62,32 @@ function parseQuery<S extends z.ZodType>(
 /** Keeps Content-Disposition filenames to a safe ASCII subset. */
 const safeFilenamePart = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "_");
 
+/**
+ * Raw cap for JSON (mcp) upload bodies. The route's bodyLimit stays at the zip
+ * size, so JSON is capped separately before it is buffered and parsed; the
+ * slack over MAX_MCP_DEFINITION_BYTES allows pretty-printed input.
+ */
+const MAX_MCP_JSON_BODY_BYTES = 4 * MAX_MCP_DEFINITION_BYTES;
+
+const mcpBodyTooLarge = () =>
+  new AppError(413, "payload_too_large", "MCP definition too large");
+
+const isJsonRequest = (req: FastifyRequest) =>
+  (req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase() ===
+  "application/json";
+
+/** Fails the stream once more than `limit` bytes have passed through. */
+function limitStream(limit: number): Transform {
+  let seen = 0;
+  return new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      seen += chunk.length;
+      if (seen > limit) cb(mcpBodyTooLarge());
+      else cb(null, chunk);
+    },
+  });
+}
+
 export async function marketRoutes(
   app: FastifyInstance,
   deps: AppDeps,
@@ -92,10 +121,12 @@ export async function marketRoutes(
     const { id } = parseBody(IdParamSchema, req.params);
     const pkg = await getMarketPackage(db, id);
     if (!pkg) throw notFound("Market item not found");
-    const filename = `${pkg.item.id}-${safeFilenamePart(pkg.item.version)}.zip`;
+    const isMcp = pkg.item.kind === "mcp";
+    const ext = isMcp ? "json" : "zip";
+    const filename = `${pkg.item.id}-${safeFilenamePart(pkg.item.version)}.${ext}`;
     return reply
       .status(200)
-      .header("content-type", "application/zip")
+      .header("content-type", isMcp ? "application/json" : "application/zip")
       .header("x-content-sha256", pkg.item.sha256)
       .header("content-disposition", `attachment; filename="${filename}"`)
       .header("cache-control", "no-store")
@@ -104,32 +135,57 @@ export async function marketRoutes(
 
   app.put(
     "/admin/market/items/:id",
-    { ...manageGuard, bodyLimit: MAX_MARKET_PACKAGE_BYTES },
+    {
+      ...manageGuard,
+      bodyLimit: MAX_MARKET_PACKAGE_BYTES,
+      preParsing: async (req, _reply, payload) => {
+        if (!isJsonRequest(req)) return payload;
+        const declared = Number(req.headers["content-length"]);
+        if (declared > MAX_MCP_JSON_BODY_BYTES) throw mcpBodyTooLarge();
+        return payload.pipe(limitStream(MAX_MCP_JSON_BODY_BYTES));
+      },
+    },
     async (req) => {
       const { id } = parseBody(IdParamSchema, req.params);
       const meta = parseQuery(MarketItemMetadataSchema, req.query);
+      const kind = meta.kind;
       const body = req.body;
-      if (!Buffer.isBuffer(body)) {
-        throw new AppError(
-          415,
-          "bad_request",
-          "Content-Type must be application/zip",
-        );
+      let data: Buffer;
+      if (kind === "mcp") {
+        if (Buffer.isBuffer(body)) {
+          throw new AppError(
+            400,
+            "bad_request",
+            "kind mcp expects application/json",
+          );
+        }
+        const definition = parseBody(McpDefinitionSchema, body);
+        data = Buffer.from(JSON.stringify(definition));
+        if (data.length > MAX_MCP_DEFINITION_BYTES) throw mcpBodyTooLarge();
+      } else {
+        if (!Buffer.isBuffer(body)) {
+          throw new AppError(
+            415,
+            "bad_request",
+            "Content-Type must be application/zip",
+          );
+        }
+        if (body.length === 0) {
+          throw new AppError(400, "bad_request", "Package body is empty");
+        }
+        validateMarketPackage(body, kind, id);
+        data = body;
       }
-      if (body.length === 0) {
-        throw new AppError(400, "bad_request", "Package body is empty");
-      }
-      validateMarketPackage(body, meta.kind, id);
 
       const actor = authOf(req).user;
       const row = await publishMarketItem(db, {
         id,
-        kind: meta.kind,
+        kind,
         name: meta.name,
         description: meta.description,
         version: meta.version,
         mandatory: meta.mandatory,
-        data: body,
+        data,
         publishedBy: actor.id,
       });
       req.log.info(

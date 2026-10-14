@@ -4386,6 +4386,9 @@
     }
   },
   "mcpPage": {
+    "viewAria": "MCP ビュー",
+    "viewInstalled": "インストール済み",
+    "viewInstalledCount": "インストール済み {{count}}",
     "noun": "MCP",
     "listSeparator": "、",
     "helpTitle": "MCP の同期のしくみ",
@@ -4819,6 +4822,7 @@
     "skills": "スキル",
     "plugins": "プラグイン",
     "mandatory": "必須",
+    "mcp": "MCP",
     "status": {
       "installed": "インストール済み",
       "updateAvailable": "更新あり",
