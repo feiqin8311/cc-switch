@@ -12,6 +12,7 @@ const user = {
   disabled: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
+  upstreamAccountIds: [] as number[],
 };
 
 function session(n: number): SessionResponse {

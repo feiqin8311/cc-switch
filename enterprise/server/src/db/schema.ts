@@ -33,6 +33,11 @@ export const users = pgTable("users", {
     .notNull()
     .defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  /** Sub2API account ids visible in 用量窗口. Empty = none for members; admins see all. */
+  upstreamAccountIds: integer("upstream_account_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::integer[]`),
 });
 
 /** One row per login (device). Revoking it invalidates its access and refresh tokens. */
@@ -329,7 +334,7 @@ export const deviceUsageDaily = pgTable(
 
 export const marketItems = pgTable("market_items", {
   id: text("id").primaryKey(),
-  kind: text("kind", { enum: ["skill", "plugin", "mcp"] }).notNull(),
+  kind: text("kind", { enum: ["skill", "plugin", "mcp", "prompt"] }).notNull(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   version: text("version").notNull(),

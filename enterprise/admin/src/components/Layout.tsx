@@ -1,13 +1,14 @@
-import type { ReactNode } from "react";
 import {
   BarChart3,
-  Cpu,
   LogOut,
   MessageSquareText,
-  ShieldCheck,
+  Monitor,
+  Plug,
+  ScrollText,
   Sparkles,
   Users,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { useAuth, useSession } from "../lib/auth";
 import { ROLE_LABELS } from "../lib/format";
@@ -16,11 +17,12 @@ import { BrandMark } from "./BrandMark";
 
 const NAV_ICONS: Record<string, typeof Users> = {
   "/users": Users,
-  "/providers": Cpu,
+  "/devices": Monitor,
   "/usage": BarChart3,
+  "/mcp": Plug,
+  "/skills": Sparkles,
+  "/prompts": ScrollText,
   "/conversations": MessageSquareText,
-  "/retention": ShieldCheck,
-  "/market": Sparkles,
 };
 
 export function Layout() {
@@ -81,7 +83,7 @@ export function Layout() {
         <div className="flex h-12 shrink-0 items-center gap-2 border-t border-sidebar-border px-3">
           <div
             className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left"
-            aria-label={`Account menu for ${session.user.displayName}`}
+            title={`${session.user.displayName} · ${ROLE_LABELS[session.user.role]}`}
           >
             <span
               aria-hidden="true"

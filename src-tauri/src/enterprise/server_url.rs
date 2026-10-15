@@ -1,11 +1,11 @@
 //! Enterprise server URL validation / normalization.
 
-use url::{Host, Url};
+use url::Url;
 
 /// Normalize and validate a user-entered enterprise server URL.
 ///
 /// - trims whitespace and trailing `/`
-/// - scheme must be `https`, or `http` only for `localhost`, `127.0.0.1` or `::1`
+/// - scheme must be `http` or `https`
 /// - userinfo, query and fragment are rejected
 ///
 /// Returns the normalized URL without a trailing slash, e.g. `https://ent.example.com`.
@@ -17,25 +17,13 @@ pub fn normalize_server_url(input: &str) -> Result<String, String> {
 
     let parsed = Url::parse(trimmed).map_err(|_| "Invalid server URL".to_string())?;
 
-    let host = parsed
+    parsed
         .host()
         .ok_or_else(|| "Server URL must include a host".to_string())?;
 
     match parsed.scheme() {
-        "https" => {}
-        "http" => {
-            let is_loopback = match &host {
-                Host::Domain(d) => d.eq_ignore_ascii_case("localhost"),
-                Host::Ipv4(ip) => ip.octets() == [127, 0, 0, 1],
-                Host::Ipv6(ip) => ip.is_loopback(),
-            };
-            if !is_loopback {
-                return Err(
-                    "Server URL must use https (http is only allowed for localhost)".to_string(),
-                );
-            }
-        }
-        _ => return Err("Server URL must use https".to_string()),
+        "http" | "https" => {}
+        _ => return Err("Server URL must use http or https".to_string()),
     }
 
     if !parsed.username().is_empty() || parsed.password().is_some() {
@@ -77,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn http_only_for_loopback() {
+    fn accepts_http() {
         assert_eq!(
             normalize_server_url("http://localhost:8787/").unwrap(),
             "http://localhost:8787"
@@ -90,10 +78,18 @@ mod tests {
             normalize_server_url("http://[::1]:8787").unwrap(),
             "http://[::1]:8787"
         );
-        assert!(normalize_server_url("http://ent.example.com").is_err());
-        assert!(normalize_server_url("http://127.0.0.2").is_err());
-        assert!(normalize_server_url("http://localhost.evil.com").is_err());
-        assert!(normalize_server_url("http://192.168.1.10").is_err());
+        assert_eq!(
+            normalize_server_url("http://ent.example.com").unwrap(),
+            "http://ent.example.com"
+        );
+        assert_eq!(
+            normalize_server_url("  http://116.205.229.31:41827/  ").unwrap(),
+            "http://116.205.229.31:41827"
+        );
+        assert_eq!(
+            normalize_server_url("http://192.168.1.10").unwrap(),
+            "http://192.168.1.10"
+        );
     }
 
     #[test]

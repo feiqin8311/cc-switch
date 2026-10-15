@@ -201,4 +201,17 @@ describe("admin users", () => {
     });
     expect(malformed.statusCode).toBe(400);
   });
+
+  it("stores unique upstream account ids on a member", async () => {
+    const created = UserSchema.parse((await createUser("member")).json());
+    expect(created.upstreamAccountIds).toEqual([]);
+    const patch = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+      payload: { upstreamAccountIds: [39, 39, 12] },
+    });
+    expect(patch.statusCode).toBe(200);
+    expect(UserSchema.parse(patch.json()).upstreamAccountIds).toEqual([39, 12]);
+  });
 });

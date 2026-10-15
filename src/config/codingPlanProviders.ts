@@ -138,11 +138,12 @@ export function extractBaseUrlForUsageDetection(
  * `meta.usage_script` 标记为 token_plan 并启用。
  *
  * - 仅在 `meta.usage_script` 完全缺失时注入，不覆盖用户/UsageScriptModal 已有配置
- * - Claude app 保持既有行为：命中任意 Coding Plan 供应商都注入；
- *   其余 app 仅对已验证预设注入：Codex 支持 Command Code，其他非 Claude
- *   Coding Plan 保持既有行为——
- *   五个 app 各有一份 OpenCode Go 预设、凭据形态后端全部支持，而智谱/Kimi
- *   等在其他 app 的自动注入未逐一验证过，不随手扩大
+ * - Claude app 保持既有行为：命中任意 Coding Plan 供应商都注入
+ * - Codex app：opencode_go（5 app 共享同一份预设） + command_code + volcengine
+ *   三个白名单；其余 Coding Plan（智谱 / Kimi / MiniMax / ZenMux 等）在 Codex
+ *   app 的自动注入未逐一验证，刻意不注入。后端 `coding_plan::detect_provider`
+ *   认 volces.com/api/{plan,coding}，query_volcengine 完整实现双 plan 自动
+ *   探测（GetAFPUsage → GetCodingPlanUsage），因此 Codex 加火山无需另开分支。
  * - code 置空：Rust 端走专用 `coding_plan::get_coding_plan_quota`，不执行 JS 脚本
  */
 export function injectCodingPlanUsageScript<
@@ -159,15 +160,13 @@ export function injectCodingPlanUsageScript<
   );
   const codingPlanProvider = detectCodingPlanProvider(baseUrl);
   if (!codingPlanProvider) return provider;
-  const isCommandCodeForCodex =
-    appId === "codex" && codingPlanProvider === "command_code";
-  if (
-    appId !== "claude" &&
-    codingPlanProvider !== "opencode_go" &&
-    !isCommandCodeForCodex
-  ) {
-    return provider;
-  }
+  const autoInject =
+    appId === "claude" ||
+    codingPlanProvider === "opencode_go" ||
+    (appId === "codex" &&
+      (codingPlanProvider === "command_code" ||
+        codingPlanProvider === "volcengine"));
+  if (!autoInject) return provider;
 
   return {
     ...provider,

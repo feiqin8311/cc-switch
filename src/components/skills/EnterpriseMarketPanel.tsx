@@ -1,9 +1,11 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
+import { MatrixSearch } from "@/components/mcp/AppMatrix";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -32,12 +34,13 @@ const KIND_TITLE_KEYS: Record<MarketItemKind, string> = {
   skill: "enterpriseMarket.skills",
   plugin: "enterpriseMarket.plugins",
   mcp: "enterpriseMarket.mcp",
+  prompt: "enterpriseMarket.prompts",
 };
 
 /**
- * The "企业市场" tab of the Skills page (skills, Codex plugins) and of the MCP
- * page (MCP servers), published by the enterprise server. Only shown with
- * `market.install`.
+ * The "企业市场" tab of the Skills page (skills, Codex plugins), the MCP page
+ * and the Codex prompts page, published by the enterprise server. Only shown
+ * with `market.install`.
  */
 export function EnterpriseMarketPanel(props: EnterpriseMarketPanelProps) {
   const { hasPermission } = useAuth();
@@ -53,6 +56,9 @@ function EnterpriseMarketList({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<{ id: string; action: Action }>();
+  const [selected, setSelected] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const bulkRef = useRef(false);
 
   const query = useQuery({
     queryKey: enterpriseMarketQueryKey,
@@ -65,6 +71,7 @@ function EnterpriseMarketList({
       queryClient.invalidateQueries({ queryKey: ["skills", "installed"] }),
       queryClient.invalidateQueries({ queryKey: ["skills", "unmanaged"] }),
       queryClient.invalidateQueries({ queryKey: ["mcp", "all"] }),
+      queryClient.invalidateQueries({ queryKey: ["prompts"] }),
     ]);
 
   const mutation = useMutation({
@@ -99,6 +106,73 @@ function EnterpriseMarketList({
   });
 
   const entries = (query.data ?? []).filter((e) => kinds.includes(e.item.kind));
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const filtered = useMemo(() => {
+    if (!normalizedQuery) return entries;
+    return entries.filter((e) => {
+      const hay = [
+        e.item.name,
+        e.item.description,
+        e.item.id,
+        e.item.publishedByName ?? "",
+      ]
+        .join("\n")
+        .toLocaleLowerCase();
+      return hay.includes(normalizedQuery);
+    });
+  }, [entries, normalizedQuery]);
+  const installableIds = useMemo(
+    () =>
+      filtered
+        .filter((e) => e.installedVersion == null)
+        .map((e) => e.item.id),
+    [filtered],
+  );
+  const selectedInstallable = selected.filter((id) =>
+    installableIds.includes(id),
+  );
+  const allSelected =
+    installableIds.length > 0 &&
+    installableIds.every((id) => selectedInstallable.includes(id));
+  const busy = mutation.isPending || pending != null;
+
+  const installSelected = async () => {
+    const ids = selectedInstallable;
+    if (ids.length === 0 || busy || bulkRef.current) return;
+    bulkRef.current = true;
+    let ok = 0;
+    let lastError = "";
+    try {
+      for (const id of ids) {
+        try {
+          setPending({ id, action: "install" });
+          await enterpriseMarketApi.install(id);
+          ok += 1;
+        } catch (error) {
+          lastError = extractErrorMessage(error);
+        }
+      }
+    } finally {
+      bulkRef.current = false;
+      setPending(undefined);
+    }
+    setSelected([]);
+    await afterChange();
+    if (ok > 0) {
+      toast.success(
+        t("enterpriseMarket.toast.installedCount", { count: ok }),
+      );
+    }
+    if (ok < ids.length) {
+      toast.error(
+        t("enterpriseMarket.toast.installPartial", {
+          ok,
+          fail: ids.length - ok,
+          error: lastError,
+        }),
+      );
+    }
+  };
 
   const notice = (text: string, danger = false) => (
     <div
@@ -111,27 +185,49 @@ function EnterpriseMarketList({
     </div>
   );
 
+  const trailing = (
+    <div className="flex items-center gap-2">
+      {entries.length > 0 && (
+        <MatrixSearch
+          className="w-[280px] min-w-[160px] shrink"
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+          placeholder={t("enterpriseMarket.searchPlaceholder")}
+          ariaLabel={t("enterpriseMarket.searchAriaLabel")}
+          status={
+            normalizedQuery
+              ? t("appMatrix.found", { count: filtered.length })
+              : ""
+          }
+        />
+      )}
+      <HoverTip content={t("common.refresh")}>
+        <Button
+          type="button"
+          variant="quiet"
+          size="icon-compact"
+          aria-label={t("common.refresh")}
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", query.isFetching && "animate-spin")}
+            strokeWidth={1.5}
+          />
+        </Button>
+      </HoverTip>
+    </div>
+  );
+
   return (
     <section
       className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-3"
       aria-label={t("enterpriseMarket.title")}
     >
-      {renderTrailing?.(
-        <HoverTip content={t("common.refresh")}>
-          <Button
-            type="button"
-            variant="quiet"
-            size="icon-compact"
-            aria-label={t("common.refresh")}
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", query.isFetching && "animate-spin")}
-              strokeWidth={1.5}
-            />
-          </Button>
-        </HoverTip>,
+      {renderTrailing ? (
+        renderTrailing(trailing)
+      ) : (
+        <div className="mb-3 flex justify-end">{trailing}</div>
       )}
       <div className="min-h-0 overflow-auto scroll-stable rounded-panel border border-border bg-surface">
         {query.isError ? (
@@ -148,18 +244,65 @@ function EnterpriseMarketList({
           </div>
         ) : entries.length === 0 ? (
           notice(t("enterpriseMarket.empty"))
+        ) : filtered.length === 0 ? (
+          notice(
+            t("enterpriseMarket.noMatch", { query: searchQuery.trim() }),
+          )
         ) : (
-          kinds.map((kind) => (
-            <MarketSection
-              key={kind}
-              // 只列一种时不用分组标题
-              title={kinds.length > 1 ? t(KIND_TITLE_KEYS[kind]) : undefined}
-              entries={entries.filter((e) => e.item.kind === kind)}
-              pending={pending}
-              busy={mutation.isPending}
-              onAction={(id, action) => mutation.mutate({ id, action })}
-            />
-          ))
+          <>
+            {installableIds.length > 0 && (
+              <div className="flex h-11 items-center gap-3 border-b border-border bg-subtle px-4">
+                <Checkbox
+                  aria-label={t("enterpriseMarket.selectAll")}
+                  disabled={busy}
+                  checked={
+                    allSelected
+                      ? true
+                      : selectedInstallable.length > 0
+                        ? "indeterminate"
+                        : false
+                  }
+                  onCheckedChange={(on) =>
+                    setSelected(on ? installableIds : [])
+                  }
+                />
+                <Button
+                  type="button"
+                  size="compact"
+                  variant="neutral"
+                  disabled={busy || selectedInstallable.length === 0}
+                  data-testid="enterprise-market-install-selected"
+                  onClick={() => void installSelected()}
+                >
+                  {pending?.action === "install" &&
+                    selectedInstallable.includes(pending.id) && (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    )}
+                  {t("enterpriseMarket.installSelected", {
+                    count: selectedInstallable.length,
+                  })}
+                </Button>
+              </div>
+            )}
+            {kinds.map((kind) => (
+              <MarketSection
+                key={kind}
+                // 只列一种时不用分组标题
+                title={kinds.length > 1 ? t(KIND_TITLE_KEYS[kind]) : undefined}
+                entries={filtered.filter((e) => e.item.kind === kind)}
+                selected={selectedInstallable}
+                pending={pending}
+                busy={busy}
+                onToggle={(id, on) =>
+                  setSelected((prev) => {
+                    if (on) return prev.includes(id) ? prev : [...prev, id];
+                    return prev.filter((x) => x !== id);
+                  })
+                }
+                onAction={(id, action) => mutation.mutate({ id, action })}
+              />
+            ))}
+          </>
         )}
       </div>
     </section>
@@ -169,16 +312,20 @@ function EnterpriseMarketList({
 interface MarketSectionProps {
   title?: string;
   entries: EnterpriseMarketEntry[];
+  selected: string[];
   pending?: { id: string; action: Action };
   busy: boolean;
+  onToggle: (id: string, on: boolean) => void;
   onAction: (id: string, action: Action) => void;
 }
 
 function MarketSection({
   title,
   entries,
+  selected,
   pending,
   busy,
+  onToggle,
   onAction,
 }: MarketSectionProps) {
   const { t } = useTranslation();
@@ -206,6 +353,14 @@ function MarketSection({
               className="flex min-h-14 items-center gap-3 py-2 pe-3 ps-4"
               data-testid={`enterprise-market-item-${item.id}`}
             >
+              {!installed && (
+                <Checkbox
+                  aria-label={item.name}
+                  disabled={busy}
+                  checked={selected.includes(item.id)}
+                  onCheckedChange={(on) => onToggle(item.id, on)}
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-body font-medium text-fg-1">
@@ -230,6 +385,16 @@ function MarketSection({
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {item.publishedByName && (
+                  <span
+                    className="max-w-32 truncate text-caption text-fg-3"
+                    title={t("enterpriseMarket.publisher", {
+                      name: item.publishedByName,
+                    })}
+                  >
+                    {item.publishedByName}
+                  </span>
+                )}
                 {(!installed || updateAvailable) && (
                   <Button
                     size="compact"

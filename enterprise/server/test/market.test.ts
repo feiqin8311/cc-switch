@@ -90,6 +90,28 @@ function upload(
   });
 }
 
+function memberUpload(
+  id: string,
+  body: Buffer | string,
+  opts: { token?: string; version?: string; kind?: string } = {},
+) {
+  const qs = new URLSearchParams({
+    kind: opts.kind ?? "skill",
+    name: `Item ${id}`,
+    description: "desc",
+    version: opts.version ?? "1.0.0",
+  });
+  return ctx.app.inject({
+    method: "PUT",
+    url: `/api/v1/market/items/${id}?${qs}`,
+    headers: {
+      ...bearer(opts.token ?? memberToken),
+      "content-type": "application/zip",
+    },
+    payload: body,
+  });
+}
+
 const blobCount = async () => (await ctx.db.select().from(marketBlobs)).length;
 
 describe("market upload validation", () => {
@@ -219,6 +241,7 @@ describe("market listing, download and lifecycle", () => {
     expect(res.statusCode).toBe(200);
     const list = ListMarketItemsResponseSchema.parse(res.json());
     expect(list.items.map((i) => i.id)).toEqual(["my-plugin", "alpha", "zeta"]);
+    expect(list.items.every((i) => i.publishedByName === "admin")).toBe(true);
 
     const admin = await ctx.app.inject({
       url: "/api/v1/market/items",
@@ -462,7 +485,8 @@ describe("mcp market items", () => {
     expect(res.statusCode).toBe(413);
     expect(res.json().error.code).toBe("payload_too_large");
 
-    const huge = await upload("demo", `"${"x".repeat(300 * 1024)}"`, {
+    // Above the raw JSON body cap (4 × the largest JSON-kind limit = 1 MB).
+    const huge = await upload("demo", `"${"x".repeat(1100 * 1024)}"`, {
       kind: "mcp",
       contentType: "application/json",
     });
@@ -483,5 +507,168 @@ describe("mcp market items", () => {
       kind: "mcp",
       mandatory: true,
     });
+  });
+});
+
+describe("prompt market items", () => {
+  const PROMPT = {
+    content: "# Team rules\n\n- Write tests.\n- 用中文回复。\n",
+  };
+
+  const uploadJson = (id: string, def: unknown, opts = {}) =>
+    upload(id, JSON.stringify(def, null, 2), {
+      kind: "prompt",
+      contentType: "application/json",
+      ...opts,
+    });
+
+  it("publishes a prompt and serves it back as compact JSON", async () => {
+    const res = await uploadJson("team-rules", PROMPT, { version: "2.0 beta" });
+    expect(res.statusCode).toBe(200);
+    const compact = Buffer.from(JSON.stringify(PROMPT));
+    expect(MarketItemSchema.parse(res.json())).toMatchObject({
+      id: "team-rules",
+      kind: "prompt",
+      version: "2.0 beta",
+      sha256: sha256(compact),
+      sizeBytes: compact.length,
+    });
+
+    const list = await ctx.app.inject({
+      url: "/api/v1/market/items",
+      headers: bearer(memberToken),
+    });
+    const items = ListMarketItemsResponseSchema.parse(list.json()).items;
+    expect(items.find((i) => i.id === "team-rules")?.kind).toBe("prompt");
+
+    const dl = await ctx.app.inject({
+      url: "/api/v1/market/items/team-rules/package",
+      headers: bearer(memberToken),
+    });
+    expect(dl.statusCode).toBe(200);
+    expect(dl.headers["content-type"]).toBe("application/json");
+    expect(dl.headers["content-disposition"]).toBe(
+      'attachment; filename="team-rules-2.0_beta.json"',
+    );
+    expect(dl.rawPayload.toString("utf8")).toBe(compact.toString("utf8"));
+    expect(dl.headers["x-content-sha256"]).toBe(sha256(dl.rawPayload));
+  });
+
+  it("rejects invalid definitions with 400 details", async () => {
+    const bad: unknown[] = [
+      { content: "" },
+      { content: "  \n\t " },
+      { content: "hi", extra: true },
+      {},
+      { content: 42 },
+      ["not", "an", "object"],
+    ];
+    for (const def of bad) {
+      const res = await uploadJson("demo", def);
+      expect(res.statusCode, JSON.stringify(def)).toBe(400);
+      expect(res.json().error.code).toBe("bad_request");
+      expect(Array.isArray(res.json().error.details)).toBe(true);
+    }
+    const malformed = await upload("demo", "{not json", {
+      kind: "prompt",
+      contentType: "application/json",
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(await blobCount()).toBe(0);
+  });
+
+  it("rejects a zip body", async () => {
+    const zipped = await upload("demo", zip({ "SKILL.md": SKILL_MD }), {
+      kind: "prompt",
+    });
+    expect(zipped.statusCode).toBe(400);
+    expect(zipped.json().error.message).toBe(
+      "kind prompt expects application/json",
+    );
+    expect(await blobCount()).toBe(0);
+  });
+
+  it("accepts prompts larger than the MCP limit", async () => {
+    const res = await uploadJson("big", { content: "x".repeat(200 * 1024) });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("rejects prompts over 256 KB with 413", async () => {
+    const res = await uploadJson("demo", {
+      content: "x".repeat(256 * 1024),
+    });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe("payload_too_large");
+
+    const huge = await uploadJson("demo", {
+      content: "x".repeat(1100 * 1024),
+    });
+    expect(huge.statusCode).toBe(413);
+    expect(await blobCount()).toBe(0);
+  });
+
+  it("can be made mandatory via PATCH", async () => {
+    await uploadJson("team-rules", PROMPT);
+    const res = await ctx.app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/market/items/team-rules",
+      headers: bearer(adminToken),
+      payload: { mandatory: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(MarketItemSchema.parse(res.json())).toMatchObject({
+      kind: "prompt",
+      mandatory: true,
+    });
+  });
+});
+
+describe("member skill publish", () => {
+  it("lets a member create and replace their own skill", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    const created = await memberUpload("team-skill", buf);
+    expect(created.statusCode).toBe(200);
+    expect(MarketItemSchema.parse(created.json())).toMatchObject({
+      id: "team-skill",
+      kind: "skill",
+      mandatory: false,
+      publishedByName: "mem",
+    });
+
+    const again = await memberUpload("team-skill", buf, { version: "1.0.1" });
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ version: "1.0.1", mandatory: false });
+  });
+
+  it("blocks another member from replacing, and a viewer from publishing", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect((await memberUpload("owned", buf)).statusCode).toBe(200);
+
+    const other = await createAndLogin("member", "mem2");
+    const stolen = await memberUpload("owned", buf, { token: other });
+    expect(stolen.statusCode).toBe(403);
+
+    expect((await memberUpload("v", buf, { token: viewerToken })).statusCode).toBe(
+      403,
+    );
+  });
+
+  it("lets an admin replace a member skill via the same route", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect((await memberUpload("shared", buf)).statusCode).toBe(200);
+    const res = await memberUpload("shared", buf, { token: adminToken });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ publishedByName: "admin" });
+  });
+
+  it("rejects a plugin kind and an id that already holds a plugin", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect(
+      (await memberUpload("x", buf, { kind: "plugin" })).statusCode,
+    ).toBe(400);
+
+    await upload("plug", pluginZip("plug"), { kind: "plugin" });
+    const clash = await memberUpload("plug", buf);
+    expect(clash.statusCode).toBe(409);
   });
 });

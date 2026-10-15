@@ -34,6 +34,7 @@ const m = vi.hoisted(() => ({
   checking: false,
   visibleApps: ["claude", "codex", "pi"] as string[],
   canInstallMarket: false,
+  publishSkill: vi.fn(),
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -44,6 +45,12 @@ vi.mock("@/contexts/AuthContext", () => ({
 
 vi.mock("@/components/skills/EnterpriseMarketPanel", () => ({
   EnterpriseMarketPanel: () => <div data-testid="enterprise-market" />,
+}));
+
+vi.mock("@/lib/api/enterpriseMarket", () => ({
+  enterpriseMarketApi: {
+    publishSkill: (...args: unknown[]) => m.publishSkill(...args),
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -207,6 +214,7 @@ describe("UnifiedSkillsPanel", () => {
     m.updateSkill
       .mockReset()
       .mockImplementation(async (id: string) => makeSkill({ id }));
+    m.publishSkill.mockReset().mockResolvedValue({});
     for (const fn of [
       m.toastError,
       m.toastSuccess,
@@ -392,6 +400,29 @@ describe("UnifiedSkillsPanel", () => {
     await userEvent.click(all);
     expect(all.checked).toBe(false);
     for (const pick of picks) expect(pick).not.toBeChecked();
+  });
+
+  it("uploads selected Skills to the enterprise marketplace", async () => {
+    m.canInstallMarket = true;
+    m.installed = [makeSkill({ id: "a", name: "A" })];
+    renderPanel();
+    await userEvent.click(
+      screen.getAllByRole("checkbox", { name: "skillsPage.selectAria" })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "skillsPage.bulk.publishMarket" }),
+    );
+    expect(
+      screen.getByText("skillsPage.confirm.publishBody"),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "skillsPage.confirm.publishManyButton",
+      }),
+    );
+    await waitFor(() =>
+      expect(m.publishSkill).toHaveBeenCalledWith("a"),
+    );
   });
 
   it("uninstalls through the row menu after confirming", async () => {

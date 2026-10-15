@@ -2765,6 +2765,9 @@
     }
   },
   "prompts": {
+    "viewAria": "提示詞檢視",
+    "viewInstalled": "已安裝",
+    "viewInstalledCount": "已安裝 {{count}}",
     "add": "新增提示詞",
     "addTitle": "新增提示詞 · {{appName}}",
     "editTitle": "編輯提示詞",
@@ -4062,7 +4065,9 @@
     "collapseSidebar": "收起側欄",
     "appsGroup": "應用",
     "todayCost": "今日 {{cost}}",
+    "connectors": "連接器",
     "usage": "用量統計",
+    "upstream": "用量視窗",
     "auth": "授權中心",
     "authNeedsReauth": "有帳號需要重新登入",
     "prompts": "提示詞",
@@ -4593,7 +4598,8 @@
       "enableToAria": "把選中的 {{count}} 個 Skill 啟用到",
       "disable": "停用",
       "disableAria": "在這個應用裡停用選中的 {{count}} 個 Skill",
-      "uninstall": "解除安裝"
+      "uninstall": "解除安裝",
+      "publishMarket": "上傳到企業市集"
     },
     "piColumnTitle": "Pi 按 ~/.pi/agent/skills 裡有沒有這個目錄來判斷",
     "piHelpTitle": "Pi 怎麼算啟用",
@@ -4627,7 +4633,11 @@
       "updateAll": "更新 {{count}} 個 Skill？",
       "updateBody": "更新會用倉庫裡的內容取代本機目錄。本機改過的地方只保留在備份裡（{{path}}）。",
       "updateAllButton": "更新 {{count}} 個",
-      "updateListAria": "將要更新的 Skill"
+      "updateListAria": "將要更新的 Skill",
+      "publishOne": "把 {{name}} 上傳到企業市集？",
+      "publishMany": "把 {{count}} 個 Skill 上傳到企業市集？",
+      "publishBody": "會打成 zip 發佈到企業市集，其他成員就能安裝。你自己發過的會覆蓋成新版本；別人發過的同名項會失敗。",
+      "publishManyButton": "上傳 {{count}} 個"
     },
     "toast": {
       "installed": "已安裝 {{name}}，並在 {{apps}} 啟用",
@@ -4639,7 +4649,9 @@
       "noUpdatesInSelection": "選中的 Skill 沒有可用的更新",
       "selectionAlreadyOn": "選中的 {{count}} 個 Skill 已經在 {{app}} 啟用",
       "selectionAlreadyOff": "選中的 {{count}} 個 Skill 都沒有在 {{app}} 啟用",
-      "disabledSelection": "已在 {{app}} 停用 {{count}} 個 {{noun}}"
+      "disabledSelection": "已在 {{app}} 停用 {{count}} 個 {{noun}}",
+      "publishedCount": "已上傳 {{count}} 個 Skill 到企業市集",
+      "publishPartial": "{{ok}} 個已上傳，{{fail}} 個失敗：{{error}}"
     },
     "installTo": {
       "prefix": "安裝到：",
@@ -4824,6 +4836,7 @@
     "skills": "技能",
     "plugins": "外掛",
     "mcp": "MCP",
+    "prompts": "提示詞",
     "mandatory": "必裝",
     "status": {
       "installed": "已安裝",
@@ -4831,17 +4844,47 @@
       "notInstalled": "未安裝"
     },
     "install": "安裝",
+    "installSelected": "安裝所選 ({{count}})",
+    "selectAll": "全選未安裝項",
     "update": "更新",
     "uninstall": "解除安裝",
     "loading": "正在載入企業市集…",
     "empty": "企業市集暫無可用內容",
+    "noMatch": "沒有符合「{{query}}」的項目",
+    "searchPlaceholder": "搜尋名稱、描述或發布人",
+    "searchAriaLabel": "搜尋企業市集",
+    "publisher": "發布人 {{name}}",
     "loadFailed": "企業市集載入失敗：{{error}}",
     "toast": {
       "installed": "已安裝",
+      "installedCount": "已安裝 {{count}} 項",
+      "installPartial": "{{ok}} 項已安裝，{{fail}} 項失敗：{{error}}",
       "uninstalled": "已解除安裝",
       "installFailed": "安裝失敗：{{error}}",
       "uninstallFailed": "解除安裝失敗：{{error}}"
     }
+  },
+  "connectors": {
+    "intro": "把公司系統接到 Codex。安裝後請登入一次釘釘，並徹底退出再開 Codex。",
+    "install": "安裝",
+    "installing": "正在下載並安裝 DingTalk Workspace CLI 與 Codex Skill…",
+    "installed": "已安裝",
+    "notInstalled": "未安裝",
+    "loggedIn": "已登入釘釘",
+    "login": "去登入",
+    "relogin": "重新登入",
+    "loginHint": "會開啟終端機執行 dws auth login，用釘釘掃碼或帳號授權。",
+    "dws": {
+      "name": "釘釘 Workspace CLI",
+      "blurb": "官方 dws 命令列。點安裝會裝二進位，並把日曆、文件、AI 表格等 Skill 接到 Codex。"
+    }
+  },
+  "upstream": {
+    "loading": "正在讀取上游帳號…",
+    "unconfigured": "企業伺服器未設定 Sub2API",
+    "empty": "沒有上游帳號",
+    "requests": "{{n}} 次查詢",
+    "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {
     "statusLabel": "對話留存：{{status}}",

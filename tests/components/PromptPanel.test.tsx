@@ -16,6 +16,7 @@ import PromptPanel, {
 import { promptsApi, type AppId, type Prompt } from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({
+  canInstallMarket: false,
   state: {
     prompts: {} as Record<string, Prompt>,
     loading: false,
@@ -30,6 +31,19 @@ const mocks = vi.hoisted(() => ({
   importFromFile: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({
+    hasPermission: (p: string) =>
+      p === "market.install" && mocks.canInstallMarket,
+  }),
+}));
+
+vi.mock("@/components/skills/EnterpriseMarketPanel", () => ({
+  EnterpriseMarketPanel: ({ kinds }: { kinds?: string[] }) => (
+    <div data-testid="enterprise-market">{kinds?.join(",")}</div>
+  ),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -196,6 +210,7 @@ function lastUndo(): (() => void) | undefined {
 describe("PromptPanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mocks.canInstallMarket = false;
     mocks.state.prompts = createPrompts();
     mocks.state.loading = false;
     mocks.state.currentFileContent = "Follow the quasar instruction exactly.";
@@ -222,6 +237,40 @@ describe("PromptPanel", () => {
     vi.spyOn(promptsApi, "upsertPrompt").mockResolvedValue(undefined);
     vi.spyOn(promptsApi, "enablePrompt").mockResolvedValue(undefined);
     vi.spyOn(promptsApi, "deletePrompt").mockResolvedValue(undefined);
+  });
+
+  it("shows the enterprise market tab only for Codex with market.install", async () => {
+    mocks.canInstallMarket = true;
+    const { rerenderWith } = renderPanel();
+    await waitForPanelReady();
+    expect(screen.queryByRole("tab")).toBeNull();
+
+    rerenderWith({ appId: "codex" });
+    expect(
+      await screen.findByRole("tab", { name: "enterpriseMarket.title" }),
+    ).toBeInTheDocument();
+
+    mocks.canInstallMarket = false;
+    rerenderWith({ appId: "codex" });
+    expect(screen.queryByRole("tab")).toBeNull();
+  });
+
+  it("opens the prompt market and reloads the list when switching back", async () => {
+    mocks.canInstallMarket = true;
+    renderPanel({ appId: "codex" });
+    await waitForPanelReady();
+    mocks.reload.mockClear();
+
+    fireEvent.click(
+      screen.getByRole("tab", { name: "enterpriseMarket.title" }),
+    );
+    expect(screen.getByTestId("enterprise-market")).toHaveTextContent("prompt");
+
+    fireEvent.click(
+      screen.getByRole("tab", { name: "prompts.viewInstalledCount" }),
+    );
+    expect(screen.queryByTestId("enterprise-market")).toBeNull();
+    await waitFor(() => expect(mocks.reload).toHaveBeenCalled());
   });
 
   it.each([

@@ -1,3 +1,4 @@
+import { Inbox, X } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type ReactNode,
@@ -5,9 +6,8 @@ import {
   useId,
   useRef,
 } from "react";
-import { Inbox, X } from "lucide-react";
-import { BrandMark } from "./BrandMark";
 import { describeError } from "../lib/format";
+import { BrandMark } from "./BrandMark";
 
 // ---------------------------------------------------------------------------
 // Buttons & inputs
@@ -196,9 +196,7 @@ export function EmptyState({
           {title}
         </h3>
       )}
-      <div className="text-xs text-muted-foreground max-w-sm">
-        {children}
-      </div>
+      <div className="text-xs text-muted-foreground max-w-sm">{children}</div>
     </div>
   );
 }
@@ -249,15 +247,37 @@ export function Notice({ children }: { children: ReactNode }) {
 // Layout helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Page title row. `embedded` is for a page shown as a tab body under another
+ * page's header: the title is dropped (the tab label names it) and the
+ * description and actions sit in a compact row above the content.
+ */
 export function PageHeader({
   title,
   description,
   actions,
+  embedded,
 }: {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
+  embedded?: boolean;
 }) {
+  if (embedded) {
+    if (!description && !actions) return null;
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {description ? (
+          <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
+            {description}
+          </p>
+        ) : (
+          <span />
+        )}
+        {actions && <div className="flex items-center gap-2">{actions}</div>}
+      </div>
+    );
+  }
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -273,7 +293,50 @@ export function PageHeader({
           </p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2 pt-0.5">{actions}</div>}
+      {actions && (
+        <div className="flex items-center gap-2 pt-0.5">{actions}</div>
+      )}
+    </div>
+  );
+}
+
+/** Underline tab bar; the caller owns the selected value (e.g. `?tab=`). */
+export function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+}: {
+  tabs: readonly { id: T; label: string }[];
+  value: T;
+  onChange(next: T): void;
+  label: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="mb-5 flex items-center gap-5 border-b border-border/60"
+    >
+      {tabs.map((tab) => {
+        const selected = tab.id === value;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onChange(tab.id)}
+            className={`-mb-px border-b-2 px-0.5 pb-2 text-sm transition-colors cursor-pointer ${
+              selected
+                ? "border-brand font-medium text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -354,7 +417,10 @@ export function Dialog({
         className={`w-full ${width} rounded-2xl border border-border/80 bg-card shadow-xl outline-none overflow-hidden`}
       >
         <div className="flex items-center justify-between border-b border-border/50 px-5 py-3.5">
-          <h2 id={titleId} className="font-serif text-base font-normal text-foreground">
+          <h2
+            id={titleId}
+            className="font-serif text-base font-normal text-foreground"
+          >
             {title}
           </h2>
           <button

@@ -53,6 +53,7 @@ import {
 import type { AppId } from "@/lib/api/types";
 import { SKILLS_APP_IDS } from "@/config/appConfig";
 import { settingsApi, skillsApi } from "@/lib/api";
+import { enterpriseMarketApi } from "@/lib/api/enterpriseMarket";
 import { copyText } from "@/lib/clipboard";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { cn } from "@/lib/utils";
@@ -89,6 +90,7 @@ const failKey = (id: string, app: AppId) => `${id}\u0000${app}`;
 
 type ConfirmState =
   | { kind: "uninstall"; ids: string[] }
+  | { kind: "publishMarket"; ids: string[] }
   | { kind: "updateAll" }
   | { kind: "deleteBackup"; backup: SkillBackupEntry };
 
@@ -579,6 +581,41 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     };
     if (piWarning) toast.warning(text, options);
     else toast.success(text, options);
+  };
+
+  const publishIds = async (ids: string[]) => {
+    if (!beginWrite(true)) return;
+    let ok = 0;
+    let lastError = "";
+    try {
+      for (const id of ids) {
+        const skill = installedSkills.find((item) => item.id === id);
+        try {
+          await enterpriseMarketApi.publishSkill(id);
+          ok += 1;
+        } catch (error) {
+          lastError = `${skill?.name ?? id}: ${extractErrorMessage(error)}`;
+        }
+      }
+      setConfirm(null);
+      setSelected(new Set());
+    } finally {
+      endWrite();
+    }
+    if (ok > 0) {
+      toast.success(
+        t("skillsPage.toast.publishedCount", { count: ok }),
+      );
+    }
+    if (ok < ids.length) {
+      toast.error(
+        t("skillsPage.toast.publishPartial", {
+          ok,
+          fail: ids.length - ok,
+          error: lastError,
+        }),
+      );
+    }
   };
 
   const updateIds = async (ids: string[], allowOpenDialog = false) => {
@@ -1220,6 +1257,23 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
                     >
                       {t("skillsPage.bulk.uninstall")}
                     </Button>
+                    {showEnterprise && (
+                      <Button
+                        type="button"
+                        variant="quiet"
+                        size="compact"
+                        className="px-2"
+                        disabled={controlsDisabled}
+                        onClick={() =>
+                          setConfirm({
+                            kind: "publishMarket",
+                            ids: [...selected],
+                          })
+                        }
+                      >
+                        {t("skillsPage.bulk.publishMarket")}
+                      </Button>
+                    )}
                     <div className="flex-1" />
                     <Button
                       type="button"
@@ -1446,6 +1500,10 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     confirm?.kind === "uninstall"
       ? installedSkills.filter((skill) => confirm.ids.includes(skill.id))
       : [];
+  const publishTargets =
+    confirm?.kind === "publishMarket"
+      ? installedSkills.filter((skill) => confirm.ids.includes(skill.id))
+      : [];
 
   return (
     <>
@@ -1660,6 +1718,29 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
         pending={writePending}
         onConfirm={() =>
           confirm?.kind === "uninstall" && void uninstallIds(confirm.ids)
+        }
+        onCancel={() => setConfirm(null)}
+      />
+
+      <V7ConfirmDialog
+        open={confirm?.kind === "publishMarket"}
+        danger={false}
+        title={
+          publishTargets.length === 1
+            ? t("skillsPage.confirm.publishOne", {
+                name: publishTargets[0].name,
+              })
+            : t("skillsPage.confirm.publishMany", {
+                count: publishTargets.length,
+              })
+        }
+        body={t("skillsPage.confirm.publishBody")}
+        confirmLabel={t("skillsPage.confirm.publishManyButton", {
+          count: publishTargets.length,
+        })}
+        pending={writePending}
+        onConfirm={() =>
+          confirm?.kind === "publishMarket" && void publishIds(confirm.ids)
         }
         onCancel={() => setConfirm(null)}
       />

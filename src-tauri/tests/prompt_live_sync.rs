@@ -193,3 +193,51 @@ fn saving_inactive_prompts_keeps_a_hand_written_file_until_the_last_enabled_one_
     update_settings(AppSettings::default()).unwrap();
     let _ = fs::remove_dir_all(&hermes_dir);
 }
+
+#[test]
+fn db_only_prompt_entry_points_back_up_and_clear_agents_md() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().unwrap();
+    let path = home.join(".codex/AGENTS.md");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "my own instructions\n").unwrap();
+
+    let prompt = Prompt {
+        id: "enterprise-team".into(),
+        name: "Team".into(),
+        content: "# Team rules\n".into(),
+        description: None,
+        enabled: false,
+        created_at: Some(1),
+        updated_at: Some(1),
+    };
+    // Adding a disabled prompt leaves the user's file alone.
+    PromptService::upsert_prompt_in(&state.db, AppType::Codex, &prompt.id, prompt.clone()).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "my own instructions\n");
+
+    // Enabling writes it and keeps the user's content as a backup prompt.
+    PromptService::enable_prompt_in(&state.db, AppType::Codex, &prompt.id).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "# Team rules\n");
+    let prompts = state.db.get_prompts(AppType::Codex.as_str()).unwrap();
+    assert!(prompts["enterprise-team"].enabled);
+    assert!(prompts
+        .values()
+        .any(|p| !p.enabled && p.content == "my own instructions\n"));
+
+    // Disabling the only enabled prompt clears the file.
+    let disabled = Prompt {
+        enabled: false,
+        ..prompts["enterprise-team"].clone()
+    };
+    PromptService::upsert_prompt_in(&state.db, AppType::Codex, &disabled.id, disabled.clone())
+        .unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "");
+
+    // Pi / MCode have their own file handling.
+    assert!(
+        PromptService::upsert_prompt_in(&state.db, AppType::Pi, "x", disabled.clone()).is_err()
+    );
+    assert!(PromptService::enable_prompt_in(&state.db, AppType::Mcode, "x").is_err());
+}

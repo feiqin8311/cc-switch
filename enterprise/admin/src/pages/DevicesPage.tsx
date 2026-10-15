@@ -10,6 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Monitor, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { Link } from "react-router";
 import { useToast } from "../components/Toast";
 import {
   Badge,
@@ -20,18 +21,22 @@ import {
   Field,
   InlineError,
   inputClass,
-  textareaClass,
   LoadingState,
   PageHeader,
   Spinner,
   tableClass,
   tdClass,
+  textareaClass,
   thClass,
   trClass,
 } from "../components/ui";
 import { useApi } from "../lib/auth";
-import { Link } from "react-router";
-import { describeError, fieldErrorsOf, formatDateTime, formatNumber } from "../lib/format";
+import {
+  describeError,
+  fieldErrorsOf,
+  formatDateTime,
+  formatNumber,
+} from "../lib/format";
 
 const DEVICES_KEY = ["admin", "devices"] as const;
 
@@ -60,7 +65,9 @@ function toDraft(p: AdminFleetProvider): Draft {
     baseUrl: p.baseUrl,
     model: p.model,
     modelsText: p.models
-      .map((m) => (m.displayName !== m.id ? `${m.id} | ${m.displayName}` : m.id))
+      .map((m) =>
+        m.displayName !== m.id ? `${m.id} | ${m.displayName}` : m.id,
+      )
       .join("\n"),
     apiKey: "",
     hint: p.apiKeyHint,
@@ -85,7 +92,7 @@ function parseModels(text: string, model: string) {
   return rows.length > 0 ? rows : undefined;
 }
 
-export function DevicesPage() {
+export function DevicesPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const devices = useQuery({
     queryKey: DEVICES_KEY,
@@ -97,7 +104,8 @@ export function DevicesPage() {
   return (
     <div>
       <PageHeader
-        title="设备配置"
+        embedded={embedded}
+        title="设备"
         description="每台电脑使用一套配置方案。方案在「配置方案」里编辑。"
       />
       <Card className="overflow-x-auto">
@@ -133,7 +141,9 @@ export function DevicesPage() {
                     <Link className="underline" to={`/devices/${d.id}`}>
                       {d.name}
                     </Link>
-                    <div className="text-xs text-muted-foreground">{d.hostname}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {d.hostname}
+                    </div>
                   </td>
                   <td className={tdClass}>{d.username}</td>
                   <td className={tdClass}>{d.profileName}</td>
@@ -193,7 +203,9 @@ export function FleetForm({
   const [name, setName] = useState(profile?.name ?? "默认方案");
 
   const save = useMutation({
-    mutationFn: (body: PutFleetRequest & { name?: string; isDefault?: boolean }) =>
+    mutationFn: (
+      body: PutFleetRequest & { name?: string; isDefault?: boolean },
+    ) =>
       profile
         ? client.request(`/admin/profiles/${profile.id}`, {
             method: "PUT",
@@ -229,7 +241,9 @@ export function FleetForm({
       mode,
       activeProviderId: providers.length === 0 ? "" : active,
       stackMemberIds:
-        mode === "stack" ? members.filter((id) => id !== active && ids.includes(id)) : [],
+        mode === "stack"
+          ? members.filter((id) => id !== active && ids.includes(id))
+          : [],
       providers: providers.map((p) =>
         p.kind === "gateway"
           ? { kind: "gateway" as const, id: p.id.trim() }
@@ -255,7 +269,9 @@ export function FleetForm({
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-5">
-      <div className="text-xs text-muted-foreground">当前版本 {initial.revision}</div>
+      <div className="text-xs text-muted-foreground">
+        当前版本 {initial.revision}
+      </div>
       {profile && (
         <Field label="方案名称" htmlFor="profile-name">
           <input
@@ -280,6 +296,7 @@ export function FleetForm({
       </Field>
       {providers.map((p, index) => (
         <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: drafts have no stable key (the id is editable); all inputs are controlled.
           key={index}
           className="grid gap-3 rounded-2xl border border-border/80 bg-card p-4 md:grid-cols-2"
         >
@@ -387,7 +404,10 @@ export function FleetForm({
         </Button>
       </div>
       {ids.length > 0 && (
-        <Field label={mode === "stack" ? "聚合默认供应商" : "生效供应商"} htmlFor="fleet-active">
+        <Field
+          label={mode === "stack" ? "聚合默认供应商" : "生效供应商"}
+          htmlFor="fleet-active"
+        >
           <select
             id="fleet-active"
             className={inputClass}

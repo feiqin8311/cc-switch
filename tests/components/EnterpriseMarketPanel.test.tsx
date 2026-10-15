@@ -21,7 +21,11 @@ vi.mock("@/lib/toast", () => ({
 const item = (
   id: string,
   kind: "skill" | "plugin" | "mcp",
-  extra: Partial<{ mandatory: boolean; version: string }> = {},
+  extra: Partial<{
+    mandatory: boolean;
+    version: string;
+    publishedByName: string | null;
+  }> = {},
 ) => ({
   id,
   kind,
@@ -32,11 +36,12 @@ const item = (
   sha256: "abc",
   sizeBytes: 10,
   updatedAt: "2026-10-13T00:00:00Z",
+  publishedByName: extra.publishedByName ?? null,
 });
 
 const entries = [
   {
-    item: item("fresh-skill", "skill"),
+    item: item("fresh-skill", "skill", { publishedByName: "Yida" }),
     installedVersion: null,
     updateAvailable: false,
   },
@@ -82,6 +87,7 @@ describe("EnterpriseMarketPanel", () => {
       "enterprise-market-item-fresh-skill",
     );
     expect(within(fresh).getByText("Name fresh-skill")).toBeInTheDocument();
+    expect(within(fresh).getByText("Yida")).toBeInTheDocument();
     expect(
       within(fresh).getByText("enterpriseMarket.status.notInstalled"),
     ).toBeInTheDocument();
@@ -153,6 +159,19 @@ describe("EnterpriseMarketPanel", () => {
     );
   });
 
+  it("installs selected uninstalled items in one click", async () => {
+    renderWithQueryClient(<EnterpriseMarketPanel kinds={["mcp"]} />);
+    const row = await screen.findByTestId("enterprise-market-item-github-mcp");
+    fireEvent.click(within(row).getByRole("checkbox", { name: "Name github-mcp" }));
+    fireEvent.click(screen.getByTestId("enterprise-market-install-selected"));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("enterprise_market_install", {
+        id: "github-mcp",
+      }),
+    );
+  });
+
   it("uninstalls a non-mandatory item", async () => {
     renderWithQueryClient(<EnterpriseMarketPanel />);
     const old = await screen.findByTestId("enterprise-market-item-old-skill");
@@ -164,5 +183,24 @@ describe("EnterpriseMarketPanel", () => {
         id: "old-skill",
       }),
     );
+  });
+
+  it("filters the list by search and keeps the publisher name", async () => {
+    renderWithQueryClient(<EnterpriseMarketPanel />);
+    const search = await screen.findByLabelText(
+      "enterpriseMarket.searchAriaLabel",
+    );
+    fireEvent.change(search, { target: { value: "Yida" } });
+    expect(
+      screen.getByTestId("enterprise-market-item-fresh-skill"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("enterprise-market-item-old-skill"),
+    ).toBeNull();
+
+    fireEvent.change(search, { target: { value: "no-such-item" } });
+    expect(
+      screen.getByText("enterpriseMarket.noMatch"),
+    ).toBeInTheDocument();
   });
 });

@@ -1546,8 +1546,13 @@ pub fn run() {
             commands::enterprise_market_list,
             commands::enterprise_market_install,
             commands::enterprise_market_uninstall,
+            commands::enterprise_market_publish_skill,
             commands::enterprise_retention_status,
             commands::enterprise_retention_acknowledge,
+            commands::enterprise_upstream_accounts,
+            commands::dws_status,
+            commands::dws_install,
+            commands::dws_open_login,
             commands::codex_set_provider_model,
             // New MCP via config.json (SSOT)
             commands::get_mcp_config,

@@ -76,8 +76,10 @@ import {
 import { WindowControls } from "@/components/shell/WindowControls";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
-import { UserStatusPill } from "@/components/auth/UserStatusPill";
+
 import { useAuth } from "@/contexts/AuthContext";
+import { ConnectorsPage } from "@/components/connectors/ConnectorsPage";
+import { UpstreamAccountsPage } from "@/components/upstream/UpstreamAccountsPage";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import {
@@ -1188,7 +1190,6 @@ function App() {
       }
       actions={
         <>
-          <UserStatusPill />
           {currentView === "providers" &&
             activeApp !== "mcode" &&
             (settingsData?.showProfileSwitcher ?? false) && (
@@ -1456,6 +1457,8 @@ function App() {
             onOpenRoutingSettings={() => openSettings("routing")}
           />
         );
+      case "upstream":
+        return <UpstreamAccountsPage />;
       case "auth":
         return (
           <>
@@ -1529,6 +1532,8 @@ function App() {
         );
       case "apps":
         return <AppsPage />;
+      case "connectors":
+        return <ConnectorsPage />;
       default:
         return null;
     }

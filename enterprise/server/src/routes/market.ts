@@ -3,10 +3,13 @@ import {
   type ListMarketItemsResponse,
   MAX_MARKET_PACKAGE_BYTES,
   MAX_MCP_DEFINITION_BYTES,
+  MAX_PROMPT_DEFINITION_BYTES,
+  type MarketItemKind,
   MarketItemMetadataSchema,
   MarketItemPatchSchema,
   McpDefinitionSchema,
   type Permission,
+  PromptDefinitionSchema,
   ProviderIdSchema,
 } from "@ccse/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -22,15 +25,25 @@ import {
 } from "../errors.ts";
 import {
   deleteMarketItem,
+  findMarketItem,
   getMarketPackage,
   listMarketItems,
   patchMarketItem,
   publishMarketItem,
+  publisherNameOf,
   toMarketItemDto,
 } from "../market/store.ts";
 import { validateMarketPackage } from "../market/validate.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
+
+/** Member skill publish: no mandatory flag, kind is skill only. */
+const MemberSkillPublishSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(1000).default(""),
+  version: z.string().trim().min(1).max(50),
+  kind: z.literal("skill").default("skill"),
+});
 
 function requireAnyPermission(...permissions: Permission[]) {
   return async (req: FastifyRequest, _reply: FastifyReply): Promise<void> => {
@@ -62,15 +75,32 @@ function parseQuery<S extends z.ZodType>(
 /** Keeps Content-Disposition filenames to a safe ASCII subset. */
 const safeFilenamePart = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "_");
 
-/**
- * Raw cap for JSON (mcp) upload bodies. The route's bodyLimit stays at the zip
- * size, so JSON is capped separately before it is buffered and parsed; the
- * slack over MAX_MCP_DEFINITION_BYTES allows pretty-printed input.
- */
-const MAX_MCP_JSON_BODY_BYTES = 4 * MAX_MCP_DEFINITION_BYTES;
+/** Kinds whose package is a JSON definition rather than a zip. */
+type JsonKind = Extract<MarketItemKind, "mcp" | "prompt">;
 
-const mcpBodyTooLarge = () =>
-  new AppError(413, "payload_too_large", "MCP definition too large");
+/** Schema and max stored (compact JSON) size per JSON kind. */
+const JSON_KINDS: Record<JsonKind, { schema: z.ZodType; maxBytes: number }> = {
+  mcp: { schema: McpDefinitionSchema, maxBytes: MAX_MCP_DEFINITION_BYTES },
+  prompt: {
+    schema: PromptDefinitionSchema,
+    maxBytes: MAX_PROMPT_DEFINITION_BYTES,
+  },
+};
+
+const isJsonKind = (kind: MarketItemKind): kind is JsonKind =>
+  Object.hasOwn(JSON_KINDS, kind);
+
+/**
+ * Raw cap for JSON upload bodies. The route's bodyLimit stays at the zip size,
+ * so JSON is capped separately before it is buffered and parsed; the slack
+ * over the largest per-kind limit allows pretty-printed input. The handler
+ * still enforces each kind's serialized limit.
+ */
+const MAX_JSON_BODY_BYTES =
+  4 * Math.max(...Object.values(JSON_KINDS).map((k) => k.maxBytes));
+
+const jsonBodyTooLarge = () =>
+  new AppError(413, "payload_too_large", "Definition too large");
 
 const isJsonRequest = (req: FastifyRequest) =>
   (req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase() ===
@@ -82,7 +112,7 @@ function limitStream(limit: number): Transform {
   return new Transform({
     transform(chunk: Buffer, _enc, cb) {
       seen += chunk.length;
-      if (seen > limit) cb(mcpBodyTooLarge());
+      if (seen > limit) cb(jsonBodyTooLarge());
       else cb(null, chunk);
     },
   });
@@ -112,21 +142,78 @@ export async function marketRoutes(
   };
 
   app.get("/market/items", readGuard, async () => {
-    const rows = await listMarketItems(db);
-    const res: ListMarketItemsResponse = { items: rows.map(toMarketItemDto) };
+    const res: ListMarketItemsResponse = { items: await listMarketItems(db) };
     return res;
   });
+
+  app.put(
+    "/market/items/:id",
+    {
+      preHandler: readGuard.preHandler,
+      bodyLimit: MAX_MARKET_PACKAGE_BYTES,
+    },
+    async (req) => {
+      const { id } = parseBody(IdParamSchema, req.params);
+      const meta = parseQuery(MemberSkillPublishSchema, req.query);
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        throw new AppError(
+          400,
+          "bad_request",
+          "Content-Type must be application/zip",
+        );
+      }
+      validateMarketPackage(body, "skill", id);
+      const actor = authOf(req).user;
+      const existing = await findMarketItem(db, id);
+      if (existing) {
+        if (existing.kind !== "skill") {
+          throw new AppError(
+            409,
+            "conflict",
+            "A marketplace item with this id already exists",
+          );
+        }
+        const own = existing.publishedBy === actor.id;
+        if (!own && actor.role !== "admin") {
+          throw forbidden(
+            "Only the publisher or an admin can replace this item",
+          );
+        }
+      }
+      const row = await publishMarketItem(db, {
+        id,
+        kind: "skill",
+        name: meta.name,
+        description: meta.description,
+        version: meta.version,
+        mandatory: false,
+        data: body,
+        publishedBy: actor.id,
+      });
+      req.log.info(
+        {
+          actor: actor.id,
+          itemId: id,
+          version: row.version,
+          sha256: row.sha256,
+        },
+        "market skill published by member",
+      );
+      return toMarketItemDto(row, actor.displayName.trim() || actor.username);
+    },
+  );
 
   app.get("/market/items/:id/package", readGuard, async (req, reply) => {
     const { id } = parseBody(IdParamSchema, req.params);
     const pkg = await getMarketPackage(db, id);
     if (!pkg) throw notFound("Market item not found");
-    const isMcp = pkg.item.kind === "mcp";
-    const ext = isMcp ? "json" : "zip";
+    const isJson = isJsonKind(pkg.item.kind);
+    const ext = isJson ? "json" : "zip";
     const filename = `${pkg.item.id}-${safeFilenamePart(pkg.item.version)}.${ext}`;
     return reply
       .status(200)
-      .header("content-type", isMcp ? "application/json" : "application/zip")
+      .header("content-type", isJson ? "application/json" : "application/zip")
       .header("x-content-sha256", pkg.item.sha256)
       .header("content-disposition", `attachment; filename="${filename}"`)
       .header("cache-control", "no-store")
@@ -141,8 +228,8 @@ export async function marketRoutes(
       preParsing: async (req, _reply, payload) => {
         if (!isJsonRequest(req)) return payload;
         const declared = Number(req.headers["content-length"]);
-        if (declared > MAX_MCP_JSON_BODY_BYTES) throw mcpBodyTooLarge();
-        return payload.pipe(limitStream(MAX_MCP_JSON_BODY_BYTES));
+        if (declared > MAX_JSON_BODY_BYTES) throw jsonBodyTooLarge();
+        return payload.pipe(limitStream(MAX_JSON_BODY_BYTES));
       },
     },
     async (req) => {
@@ -151,17 +238,18 @@ export async function marketRoutes(
       const kind = meta.kind;
       const body = req.body;
       let data: Buffer;
-      if (kind === "mcp") {
+      if (isJsonKind(kind)) {
         if (Buffer.isBuffer(body)) {
           throw new AppError(
             400,
             "bad_request",
-            "kind mcp expects application/json",
+            `kind ${kind} expects application/json`,
           );
         }
-        const definition = parseBody(McpDefinitionSchema, body);
+        const { schema, maxBytes } = JSON_KINDS[kind];
+        const definition = parseBody(schema, body);
         data = Buffer.from(JSON.stringify(definition));
-        if (data.length > MAX_MCP_DEFINITION_BYTES) throw mcpBodyTooLarge();
+        if (data.length > maxBytes) throw jsonBodyTooLarge();
       } else {
         if (!Buffer.isBuffer(body)) {
           throw new AppError(
@@ -199,7 +287,10 @@ export async function marketRoutes(
         },
         "market item published",
       );
-      return toMarketItemDto(row);
+      return toMarketItemDto(
+        row,
+        actor.displayName.trim() || actor.username,
+      );
     },
   );
 
@@ -212,7 +303,7 @@ export async function marketRoutes(
       { actor: authOf(req).user.id, itemId: id },
       "market item updated",
     );
-    return toMarketItemDto(row);
+    return toMarketItemDto(row, await publisherNameOf(db, row.publishedBy));
   });
 
   app.delete("/admin/market/items/:id", manageGuard, async (req, reply) => {

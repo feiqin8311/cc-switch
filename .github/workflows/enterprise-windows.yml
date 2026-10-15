@@ -1,0 +1,89 @@
+# Build the enterprise Windows MSI on GitHub-hosted windows-2022.
+# Trigger: push of this file, or Actions → Enterprise Windows → Run workflow.
+name: Enterprise Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/enterprise-updates-mcp-market
+    paths:
+      - ".github/workflows/enterprise-windows.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-windows-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  msi:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          channel=$(sed -nE 's/^channel *= *"([^"]+)".*/\1/p' rust-toolchain.toml)
+          test -n "$channel"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+
+      - name: Setup pnpm
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          corepack enable
+          corepack install
+          pnpm --version
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Tauri signing key
+        uses: ./.github/actions/prepare-tauri-signing-key
+        with:
+          private-key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Build MSI
+        env:
+          VITE_ENTERPRISE_SERVER_URL: http://116.205.229.31:41827
+        run: pnpm tauri build --bundles msi --ignore-version-mismatches
+
+      - name: Stage artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist-msi | Out-Null
+          $msi = Get-ChildItem -Path 'src-tauri/target/release/bundle/msi' -Recurse -Filter *.msi |
+            Select-Object -First 1
+          if ($null -eq $msi) { throw 'No MSI found' }
+          $dest = 'CC-Switch-Enterprise-Windows.msi'
+          Copy-Item $msi.FullName (Join-Path dist-msi $dest)
+          $sig = "$($msi.FullName).sig"
+          if (Test-Path $sig) {
+            Copy-Item $sig (Join-Path dist-msi "$dest.sig")
+          }
+          Get-ChildItem dist-msi | Format-Table Name, Length
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-switch-enterprise-windows
+          path: dist-msi/*
+          if-no-files-found: error
+          retention-days: 30

@@ -28,7 +28,7 @@ const PROFILES_KEY = ["admin", "profiles"] as const;
 
 const MODE_LABEL = { direct: "直连", route: "路由", stack: "聚合" } as const;
 
-export function ProfilesPage() {
+export function ProfilesPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
@@ -62,10 +62,15 @@ export function ProfilesPage() {
   return (
     <div>
       <PageHeader
+        embedded={embedded}
         title="配置方案"
         description="每套方案可以单独分给电脑。没指定的电脑使用默认方案。"
         actions={
-          <Button variant="primary" onClick={() => create.mutate()} disabled={create.isPending}>
+          <Button
+            variant="primary"
+            onClick={() => create.mutate()}
+            disabled={create.isPending}
+          >
             <Plus className="size-4" />
             新建方案
           </Button>
@@ -75,7 +80,10 @@ export function ProfilesPage() {
         {profiles.isPending ? (
           <LoadingState />
         ) : profiles.isError ? (
-          <ErrorState error={profiles.error} onRetry={() => profiles.refetch()} />
+          <ErrorState
+            error={profiles.error}
+            onRetry={() => profiles.refetch()}
+          />
         ) : profiles.data.items.length === 0 ? (
           <EmptyState title="还没有配置方案">保存后会出现在这里。</EmptyState>
         ) : (
@@ -96,15 +104,13 @@ export function ProfilesPage() {
                     <button
                       type="button"
                       className="underline"
-                      onClick={() => setOpenId(openId === item.id ? null : item.id)}
+                      onClick={() =>
+                        setOpenId(openId === item.id ? null : item.id)
+                      }
                     >
                       {item.name}
                     </button>
-                    {item.isDefault && (
-                      <Badge tone="blue" >
-                        默认
-                      </Badge>
-                    )}
+                    {item.isDefault && <Badge tone="blue">默认</Badge>}
                   </td>
                   <td className={tdClass}>{MODE_LABEL[item.mode]}</td>
                   <td className={tdClass}>{item.providerCount}</td>
@@ -118,7 +124,11 @@ export function ProfilesPage() {
       </Card>
       {openId && <ProfileEditor id={openId} />}
       <p className="mt-4 text-xs text-muted-foreground">
-        电脑列表在 <Link className="underline" to="/devices">设备配置</Link>。
+        电脑列表在{" "}
+        <Link className="underline" to="/devices?tab=devices">
+          设备
+        </Link>
+        标签页。
       </p>
     </div>
   );
@@ -133,7 +143,9 @@ function ProfileEditor({ id }: { id: string }) {
   });
   if (profile.isPending) return <LoadingState />;
   if (profile.isError) {
-    return <ErrorState error={profile.error} onRetry={() => profile.refetch()} />;
+    return (
+      <ErrorState error={profile.error} onRetry={() => profile.refetch()} />
+    );
   }
   return (
     <Card className="mt-6 p-6">

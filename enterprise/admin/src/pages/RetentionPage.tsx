@@ -25,7 +25,7 @@ import { describeError, fieldErrorsOf } from "../lib/format";
 const POLICY_KEY = ["admin", "retention-policy"] as const;
 const MAX_NOTICE = 2000;
 
-export function RetentionPage() {
+export function RetentionPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const policy = useQuery({
     queryKey: POLICY_KEY,
@@ -36,6 +36,7 @@ export function RetentionPage() {
   return (
     <div>
       <PageHeader
+        embedded={embedded}
         title="留存策略"
         description="控制客户端是否上传 Codex 对话用于审计，以及服务器保留多久。"
       />

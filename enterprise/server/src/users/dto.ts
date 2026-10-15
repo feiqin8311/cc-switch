@@ -10,5 +10,6 @@ export function toUserDto(row: UserRow): User {
     disabled: row.disabled,
     createdAt: row.createdAt.toISOString(),
     lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    upstreamAccountIds: row.upstreamAccountIds ?? [],
   };
 }
