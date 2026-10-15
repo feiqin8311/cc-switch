@@ -1120,6 +1120,10 @@ export const UpstreamAccountSchema = z.object({
   status: z.string(),
   schedulable: z.boolean(),
   groups: z.array(z.string()),
+  /** In-flight requests on this Sub2API account (Redis). */
+  currentConcurrency: z.number().int().nonnegative().default(0),
+  /** Account concurrency cap (`concurrency` on the Sub2API account). */
+  maxConcurrency: z.number().int().nonnegative().default(0),
   windows: z.array(UpstreamWindowSchema),
 });
 export type UpstreamAccount = z.infer<typeof UpstreamAccountSchema>;

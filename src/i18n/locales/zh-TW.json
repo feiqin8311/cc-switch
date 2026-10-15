@@ -4883,7 +4883,7 @@
     "loading": "正在讀取上游帳號…",
     "unconfigured": "企業伺服器未設定 Sub2API",
     "empty": "沒有上游帳號",
-    "requests": "{{n}} 次查詢",
+    "capacityLabel": "容量",
     "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {

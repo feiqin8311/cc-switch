@@ -28,6 +28,8 @@ describe("accountFromSub2Api", () => {
         type: "oauth",
         status: "active",
         schedulable: true,
+        concurrency: 1,
+        current_concurrency: 0,
         groups: [{ name: "openai-default" }],
         extra: {
           email: "a@example.com",
@@ -67,6 +69,8 @@ describe("accountFromSub2Api", () => {
       name: "Feiqin-Gpt",
       email: "a@example.com",
       groups: ["openai-default"],
+      currentConcurrency: 0,
+      maxConcurrency: 1,
     });
     expect(acc.windows[0]).toMatchObject({
       id: "5h",
@@ -94,6 +98,8 @@ describe("accountFromSub2Api", () => {
     );
     expect(acc.windows[0].usedPercent).toBe(12.5);
     expect(acc.windows[1].usedPercent).toBe(40);
+    expect(acc.currentConcurrency).toBe(0);
+    expect(acc.maxConcurrency).toBe(0);
   });
 });
 

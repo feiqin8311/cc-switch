@@ -1,17 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, RefreshCw } from "lucide-react";
+import { Gauge, LayoutGrid, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { UpstreamAccount, UpstreamWindow } from "../../../enterprise/contracts/src/index.ts";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import { enterpriseApi } from "@/lib/api/enterprise";
 import { extractErrorMessage } from "@/utils/errorUtils";
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(Math.round(n));
-}
 
 function fmtRemain(sec: number): string {
   if (sec <= 0) return "—";
@@ -35,41 +29,40 @@ function fmtResetAt(iso: string | null): string | null {
   return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function capacityClass(current: number, max: number): string {
+  if (max > 0 && current >= max) return "text-danger";
+  if (current > 0) return "text-warning-text";
+  return "text-fg-3";
+}
+
 function WindowRow({ w }: { w: UpstreamWindow }) {
   const { t } = useTranslation();
   const pct = Math.max(0, Math.min(100, w.usedPercent));
   const resetAt = fmtResetAt(w.resetsAt);
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-caption text-fg-3">
-        <span className="inline-flex h-5 min-w-8 items-center justify-center rounded-control bg-subtle px-1.5 font-medium text-fg-1">
-          {w.id}
-        </span>
-        <span>{t("upstream.requests", { n: w.requests })}</span>
-        <span>{fmtTokens(w.tokens)}</span>
-        <span>A ${w.accountCost.toFixed(2)}</span>
-        <span>U ${w.userCost.toFixed(2)}</span>
+    <div className="flex items-center gap-2">
+      <span className="inline-flex h-5 min-w-8 shrink-0 items-center justify-center rounded-control bg-subtle px-1.5 text-caption font-medium text-fg-1">
+        {w.id}
+      </span>
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-subtle">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
       </div>
-      <div className="flex items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-subtle">
-          <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+      <div className="w-32 shrink-0 text-right text-caption tabular-nums text-fg-3">
+        <div>
+          {pct.toFixed(0)}% {fmtRemain(w.remainingSeconds)}
         </div>
-        <div className="w-32 shrink-0 text-right text-caption tabular-nums text-fg-3">
-          <div>
-            {pct.toFixed(0)}% {fmtRemain(w.remainingSeconds)}
+        {resetAt && (
+          <div title={w.resetsAt ?? undefined}>
+            {t("upstream.expiresAt", { time: resetAt })}
           </div>
-          {resetAt && (
-            <div title={w.resetsAt ?? undefined}>
-              {t("upstream.expiresAt", { time: resetAt })}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 function AccountCard({ acc }: { acc: UpstreamAccount }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-3 rounded-panel border border-border bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
@@ -84,6 +77,13 @@ function AccountCard({ acc }: { acc: UpstreamAccount }) {
             {acc.status === "active" ? "正常" : acc.status}
           </span>
           {acc.groups[0] && <span className="text-fg-3">{acc.groups[0]}</span>}
+          <span
+            className={`inline-flex items-center gap-1 tabular-nums ${capacityClass(acc.currentConcurrency ?? 0, acc.maxConcurrency ?? 0)}`}
+            title={t("upstream.capacityLabel")}
+          >
+            <LayoutGrid className="h-3 w-3" strokeWidth={2} />
+            {acc.currentConcurrency ?? 0} / {acc.maxConcurrency ?? 0}
+          </span>
         </div>
       </div>
       <div className="space-y-3">

@@ -4882,7 +4882,7 @@
     "loading": "Loading upstream accounts…",
     "unconfigured": "Sub2API is not configured on the enterprise server",
     "empty": "No upstream accounts",
-    "requests": "{{n}} queries",
+    "capacityLabel": "Capacity",
     "expiresAt": "resets {{time}}"
   },
   "enterpriseRetention": {
