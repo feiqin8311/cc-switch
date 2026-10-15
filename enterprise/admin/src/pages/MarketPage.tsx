@@ -46,7 +46,7 @@ import {
 } from "./MarketUploadForm";
 import { useUsers } from "./UsersPage";
 
-const MARKET_KEY = ["market", "items"] as const;
+export const MARKET_KEY = ["market", "items"] as const;
 
 const KIND_BADGES: Record<
   MarketItem["kind"],
@@ -139,7 +139,7 @@ function prettyDefinition(text: string): string {
   }
 }
 
-async function sha256Hex(blob: Blob): Promise<string | null> {
+export async function sha256Hex(blob: Blob): Promise<string | null> {
   if (!globalThis.crypto?.subtle) return null;
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -150,7 +150,7 @@ async function sha256Hex(blob: Blob): Promise<string | null> {
   ).join("");
 }
 
-function saveBlob(blob: Blob, filename: string) {
+export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -376,7 +376,7 @@ export function MarketPage({
       </Card>
 
       {uploading && (
-        <UploadDialog
+        <MarketUploadDialog
           key={uploading === "new" ? "new" : uploading.id}
           kinds={kinds}
           title={
@@ -405,11 +405,13 @@ export function MarketPage({
   );
 }
 
-function publisherLabel(user: Pick<User, "displayName" | "username">): string {
+export function publisherLabel(
+  user: Pick<User, "displayName" | "username">,
+): string {
   return user.displayName.trim() || user.username;
 }
 
-function PublisherSelect({
+export function PublisherSelect({
   item,
   users,
   disabled,
@@ -426,7 +428,7 @@ function PublisherSelect({
   const known = users.some((u) => u.id === item.publishedBy);
   return (
     <select
-      className={`${inputClass} min-w-36 max-w-52`}
+      className={`${inputClass} w-full min-w-0`}
       aria-label={`${item.name} 创建人`}
       value={item.publishedBy ?? ""}
       disabled={disabled}
@@ -473,7 +475,7 @@ const DEFINITION_LIMITS = {
   connector: "16 KB",
 } as const;
 
-function UploadDialog({
+export function MarketUploadDialog({
   kinds,
   title,
   existing,

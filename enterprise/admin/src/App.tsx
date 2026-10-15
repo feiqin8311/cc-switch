@@ -13,6 +13,7 @@ import {
   NAV_ITEMS,
   navItemsFor,
 } from "./nav";
+import { ConnectorsPage } from "./pages/ConnectorsPage";
 import { ConversationsPage } from "./pages/ConversationsPage";
 import { DeviceDetailPage } from "./pages/DeviceDetailPage";
 import { DevicesPage } from "./pages/DevicesPage";
@@ -94,9 +95,7 @@ const PAGES: Record<string, () => ReactNode> = {
   "/usage": () => <UsagePage />,
   "/upstream": () => <UpstreamPage />,
   "/mcp": () => <MarketPage key="mcp" {...MARKET_PAGES.mcp} />,
-  "/connectors": () => (
-    <MarketPage key="connectors" {...MARKET_PAGES.connectors} />
-  ),
+  "/connectors": () => <ConnectorsPage />,
   "/skills": () => <MarketPage key="skills" {...MARKET_PAGES.skills} />,
   "/prompts": () => <MarketPage key="prompts" {...MARKET_PAGES.prompts} />,
   "/conversations": () => (
