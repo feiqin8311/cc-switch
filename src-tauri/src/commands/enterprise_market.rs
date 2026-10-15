@@ -3,7 +3,7 @@
 use tauri::State;
 
 use super::EnterpriseSessionState;
-use crate::enterprise::market::{self, MarketListEntry, MarketPaths};
+use crate::enterprise::market::{self, MarketItem, MarketListEntry, MarketPaths};
 use crate::store::AppState;
 
 /// Marketplace items with install state. Empty when not signed in or without
@@ -46,4 +46,14 @@ pub async fn enterprise_market_uninstall(
         &id,
     )
     .await
+}
+
+/// Zip a locally installed skill and publish it to the enterprise marketplace.
+#[tauri::command]
+pub async fn enterprise_market_publish_skill(
+    skill_id: String,
+    session: State<'_, EnterpriseSessionState>,
+    app_state: State<'_, AppState>,
+) -> Result<MarketItem, String> {
+    market::publish_skill(&session.0, &app_state.db, &skill_id).await
 }

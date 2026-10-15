@@ -109,6 +109,8 @@ export const UserSchema = z.object({
   disabled: z.boolean(),
   createdAt: z.string(),
   lastLoginAt: z.string().nullable(),
+  /** Sub2API account ids this user may see in 用量窗口. Admins ignore this and see all. */
+  upstreamAccountIds: z.array(z.number().int()).default([]),
 });
 export type User = z.infer<typeof UserSchema>;
 
@@ -171,6 +173,7 @@ export const CreateUserRequestSchema = z.object({
   displayName: DisplayNameSchema,
   password: PasswordSchema,
   role: RoleSchema,
+  upstreamAccountIds: z.array(z.number().int()).optional(),
 });
 export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 
@@ -189,6 +192,7 @@ export const UpdateUserRequestSchema = z
     role: RoleSchema.optional(),
     disabled: z.boolean().optional(),
     password: PasswordSchema.optional(),
+    upstreamAccountIds: z.array(z.number().int()).optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "At least one field is required",
@@ -621,6 +625,8 @@ export const MarketItemSchema = z.object({
   sha256: z.string(),
   sizeBytes: z.number().int(),
   updatedAt: z.string(),
+  /** Display name of the admin who last published this item; null if the user was deleted. */
+  publishedByName: z.string().nullable(),
 });
 export type MarketItem = z.infer<typeof MarketItemSchema>;
 
@@ -637,6 +643,10 @@ export type ListMarketItemsResponse = z.infer<
  *   → application/zip (skill, plugin) or application/json (mcp, prompt),
  *   header `X-Content-SHA256: <sha256>`; the client must verify it.
  *
+ * PUT /market/items/:id (market.install or market.manage) — members publish a
+ *   local skill. kind is always skill, mandatory is always false. Replacing an
+ *   existing item is allowed when the caller published it, or is an admin;
+ *   otherwise 403. A different kind at the same id is 409.
  * PUT /admin/market/items/:id (market.manage) — create or replace.
  *   skill / plugin: Content-Type application/zip, body = package bytes
  *   (≤ MAX_MARKET_PACKAGE_BYTES). mcp / prompt: Content-Type application/json,

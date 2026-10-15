@@ -23,15 +23,29 @@ function fmtRemain(sec: number): string {
   return `${m}m`;
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** 窗口重置的本地时刻，如 10-15 20:00 */
+function fmtResetAt(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function WindowRow({ w }: { w: UpstreamWindow }) {
+  const { t } = useTranslation();
   const pct = Math.max(0, Math.min(100, w.usedPercent));
+  const resetAt = fmtResetAt(w.resetsAt);
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-caption text-fg-3">
         <span className="inline-flex h-5 min-w-8 items-center justify-center rounded-control bg-subtle px-1.5 font-medium text-fg-1">
           {w.id}
         </span>
-        <span>{w.requests} req</span>
+        <span>{t("upstream.requests", { n: w.requests })}</span>
         <span>{fmtTokens(w.tokens)}</span>
         <span>A ${w.accountCost.toFixed(2)}</span>
         <span>U ${w.userCost.toFixed(2)}</span>
@@ -40,9 +54,16 @@ function WindowRow({ w }: { w: UpstreamWindow }) {
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-subtle">
           <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
         </div>
-        <span className="w-24 shrink-0 text-right text-caption tabular-nums text-fg-3">
-          {pct.toFixed(0)}% {fmtRemain(w.remainingSeconds)}
-        </span>
+        <div className="w-32 shrink-0 text-right text-caption tabular-nums text-fg-3">
+          <div>
+            {pct.toFixed(0)}% {fmtRemain(w.remainingSeconds)}
+          </div>
+          {resetAt && (
+            <div title={w.resetsAt ?? undefined}>
+              {t("upstream.expiresAt", { time: resetAt })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

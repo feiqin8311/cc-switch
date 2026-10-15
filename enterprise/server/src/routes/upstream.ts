@@ -1,11 +1,22 @@
 import {
+  type UpstreamAccount,
   type UpstreamAccountsResponse,
   UpstreamAccountsResponseSchema,
 } from "@ccse/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app.ts";
-import { requirePermission } from "../auth/guard.ts";
+import { authOf, requirePermission } from "../auth/guard.ts";
+import type { UserRow } from "../db/schema.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
+
+export function visibleUpstreamAccounts(
+  user: UserRow,
+  items: UpstreamAccount[],
+): UpstreamAccount[] {
+  if (user.role === "admin") return items;
+  const allow = new Set(user.upstreamAccountIds ?? []);
+  return items.filter((a) => allow.has(a.id));
+}
 
 export async function upstreamRoutes(
   app: FastifyInstance,
@@ -13,7 +24,7 @@ export async function upstreamRoutes(
 ): Promise<void> {
   const { authenticate, config } = deps;
 
-  const list = async () => {
+  const listAll = async () => {
     const cfg = config.sub2api;
     if (!cfg) {
       const empty: UpstreamAccountsResponse = {
@@ -42,10 +53,16 @@ export async function upstreamRoutes(
 
   app.get("/admin/upstream/accounts", {
     preHandler: [authenticate, requirePermission("audit.read")],
-    handler: list,
+    handler: listAll,
   });
   app.get("/client/upstream/accounts", {
     preHandler: [authenticate],
-    handler: list,
+    handler: async (req) => {
+      const all = await listAll();
+      return {
+        ...all,
+        items: visibleUpstreamAccounts(authOf(req).user, all.items),
+      };
+    },
   });
 }

@@ -4597,7 +4597,8 @@
       "enableToAria": "Enable the {{count}} selected Skills in",
       "disable": "Turn off in",
       "disableAria": "Turn off the {{count}} selected Skills in",
-      "uninstall": "Uninstall"
+      "uninstall": "Uninstall",
+      "publishMarket": "Upload to marketplace"
     },
     "piColumnTitle": "Pi counts a Skill as enabled when its folder exists in ~/.pi/agent/skills",
     "piHelpTitle": "How Pi counts as enabled",
@@ -4631,7 +4632,11 @@
       "updateAll": "Update {{count}} Skills?",
       "updateBody": "Updating replaces the local folder with the repository's content. Local edits are kept only in the backup ({{path}}).",
       "updateAllButton": "Update {{count}}",
-      "updateListAria": "Skills to update"
+      "updateListAria": "Skills to update",
+      "publishOne": "Upload {{name}} to the enterprise marketplace?",
+      "publishMany": "Upload {{count}} Skills to the enterprise marketplace?",
+      "publishBody": "Each Skill is zipped and published so other members can install it. Replacing an item you published overwrites it; an item someone else published will fail.",
+      "publishManyButton": "Upload {{count}}"
     },
     "toast": {
       "installed": "Installed {{name}} and enabled it in {{apps}}",
@@ -4643,7 +4648,9 @@
       "noUpdatesInSelection": "None of the selected Skills have updates",
       "selectionAlreadyOn": "The {{count}} selected Skills are already enabled in {{app}}",
       "selectionAlreadyOff": "None of the {{count}} selected Skills are enabled in {{app}}",
-      "disabledSelection": "Turned off {{count}} {{noun}} in {{app}}"
+      "disabledSelection": "Turned off {{count}} {{noun}} in {{app}}",
+      "publishedCount": "Uploaded {{count}} Skills to the enterprise marketplace",
+      "publishPartial": "Uploaded {{ok}}, {{fail}} failed: {{error}}"
     },
     "installTo": {
       "prefix": "Install to: ",

@@ -16,6 +16,11 @@ import { toUserDto } from "../users/dto.ts";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 
+function uniqueAccountIds(ids: number[] | undefined): number[] {
+  if (!ids) return [];
+  return [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))];
+}
+
 function isUniqueViolation(err: unknown): boolean {
   // Postgres unique_violation, possibly wrapped by drizzle in `cause`.
   const codeOf = (e: unknown) =>
@@ -53,6 +58,7 @@ export async function adminUserRoutes(
           displayName: body.displayName,
           passwordHash: await hashPassword(body.password),
           role: body.role,
+          upstreamAccountIds: uniqueAccountIds(body.upstreamAccountIds),
         })
         .returning();
       if (!row) throw new Error("insert returned no row");
@@ -98,6 +104,10 @@ export async function adminUserRoutes(
         passwordHash:
           body.password !== undefined
             ? await hashPassword(body.password)
+            : undefined,
+        upstreamAccountIds:
+          body.upstreamAccountIds !== undefined
+            ? uniqueAccountIds(body.upstreamAccountIds)
             : undefined,
         updatedAt: new Date(),
       })

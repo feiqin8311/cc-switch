@@ -87,6 +87,8 @@ pub struct MarketItem {
     pub size_bytes: u64,
     #[serde(default)]
     pub updated_at: String,
+    #[serde(default)]
+    pub published_by_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1295,6 +1297,150 @@ pub async fn uninstall(
     .map_err(|e| format!("Uninstall task failed: {e}"))?
 }
 
+/// Map a local skill directory onto a marketplace id (`^[a-z0-9][a-z0-9-]{1,31}$`).
+pub fn market_skill_id(directory: &str) -> Result<String, String> {
+    let mut out = String::new();
+    for c in directory.chars() {
+        let c = c.to_ascii_lowercase();
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    let mut id = if trimmed.len() > 32 {
+        let mut cut = trimmed[..32].to_string();
+        while cut.ends_with('-') {
+            cut.pop();
+        }
+        cut
+    } else {
+        trimmed
+    };
+    if id.len() == 1 {
+        id.push('0');
+    }
+    validate_item_id(&id).map_err(|_| {
+        format!("Skill directory {directory:?} cannot be used as a marketplace id")
+    })?;
+    Ok(id)
+}
+
+fn clip(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    s.chars().take(max).collect()
+}
+
+fn skill_md_version(path: &Path) -> String {
+    let Ok(text) = fs::read_to_string(path) else {
+        return "1.0.0".into();
+    };
+    let mut in_front = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t == "---" {
+            if in_front {
+                break;
+            }
+            in_front = true;
+            continue;
+        }
+        if !in_front {
+            continue;
+        }
+        let Some(rest) = t.strip_prefix("version:") else {
+            continue;
+        };
+        let v = rest
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim();
+        if !v.is_empty() && v.len() <= 50 {
+            return v.to_string();
+        }
+    }
+    "1.0.0".into()
+}
+
+fn pack_installed_skill(
+    db: &Database,
+    skill_id: &str,
+) -> Result<(Vec<u8>, String, String, String, String), String> {
+    let skill = db
+        .get_installed_skill(skill_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Skill '{skill_id}' is not installed"))?;
+    let src = SkillService::get_ssot_dir()
+        .map_err(|e| e.to_string())?
+        .join(&skill.directory);
+    if !src.join(SKILL_MARKER).is_file() {
+        return Err(format!(
+            "Skill '{}' has no SKILL.md and cannot be published",
+            skill.name
+        ));
+    }
+    let id = market_skill_id(&skill.directory)?;
+    let tmp = tempfile::NamedTempFile::new()
+        .map_err(|e| format!("Failed to create temp zip: {e}"))?;
+    repack_dir_as_zip(&src, &id, tmp.path())?;
+    let bytes =
+        fs::read(tmp.path()).map_err(|e| format!("Failed to read packaged skill: {e}"))?;
+    if bytes.len() as u64 > MAX_PACKAGE_BYTES {
+        return Err(format!(
+            "Package exceeds the {} MB limit",
+            MAX_PACKAGE_BYTES / (1024 * 1024)
+        ));
+    }
+    let name = clip(skill.name.trim(), 100);
+    let name = if name.is_empty() {
+        skill.directory.clone()
+    } else {
+        name
+    };
+    let description = clip(skill.description.as_deref().unwrap_or(""), 1000);
+    let version = skill_md_version(&src.join(SKILL_MARKER));
+    Ok((bytes, id, name, description, version))
+}
+
+/// Zip a locally installed skill and PUT it to `/market/items/:id`.
+pub async fn publish_skill(
+    session: &EnterpriseSession,
+    db: &Arc<Database>,
+    skill_id: &str,
+) -> Result<MarketItem, String> {
+    require_permission(session).await?;
+    let skill_id = skill_id.to_string();
+    let db = db.clone();
+    let (bytes, id, name, description, version) =
+        tauri::async_runtime::spawn_blocking(move || pack_installed_skill(&db, &skill_id))
+            .await
+            .map_err(|e| format!("Pack task failed: {e}"))??;
+
+    let path = format!("/market/items/{id}");
+    let (_, resp) = session
+        .send_authenticated(|http, base, token| {
+            http.put(endpoint(base, &path))
+                .query(&[
+                    ("kind", "skill"),
+                    ("name", name.as_str()),
+                    ("description", description.as_str()),
+                    ("version", version.as_str()),
+                ])
+                .header(reqwest::header::CONTENT_TYPE, "application/zip")
+                .bearer_auth(token)
+                .timeout(DOWNLOAD_TIMEOUT)
+                .body(bytes.clone())
+        })
+        .await
+        .map_err(String::from)?;
+    super::client::decode_json(resp)
+        .await
+        .map_err(String::from)
+}
+
 // ---------------------------------------------------------------------------
 // Mandatory auto-install
 // ---------------------------------------------------------------------------
@@ -1383,6 +1529,17 @@ mod tests {
         zw.finish().unwrap();
     }
 
+    #[test]
+    fn market_skill_id_slugs_and_truncates() {
+        assert_eq!(market_skill_id("alpha-skill").unwrap(), "alpha-skill");
+        assert_eq!(
+            market_skill_id("Amazon New Product Keyword Builder").unwrap(),
+            "amazon-new-product-keyword-build"
+        );
+        assert_eq!(market_skill_id("A").unwrap(), "a0");
+        assert!(market_skill_id("你好").is_err());
+    }
+
     fn item(id: &str, kind: MarketItemKind, version: &str, sha: &str) -> MarketItem {
         MarketItem {
             id: id.into(),
@@ -1394,6 +1551,7 @@ mod tests {
             sha256: sha.into(),
             size_bytes: 1,
             updated_at: String::new(),
+            published_by_name: None,
         }
     }
 

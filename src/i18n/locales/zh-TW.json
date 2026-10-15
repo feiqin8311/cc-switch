@@ -4598,7 +4598,8 @@
       "enableToAria": "把選中的 {{count}} 個 Skill 啟用到",
       "disable": "停用",
       "disableAria": "在這個應用裡停用選中的 {{count}} 個 Skill",
-      "uninstall": "解除安裝"
+      "uninstall": "解除安裝",
+      "publishMarket": "上傳到企業市集"
     },
     "piColumnTitle": "Pi 按 ~/.pi/agent/skills 裡有沒有這個目錄來判斷",
     "piHelpTitle": "Pi 怎麼算啟用",
@@ -4632,7 +4633,11 @@
       "updateAll": "更新 {{count}} 個 Skill？",
       "updateBody": "更新會用倉庫裡的內容取代本機目錄。本機改過的地方只保留在備份裡（{{path}}）。",
       "updateAllButton": "更新 {{count}} 個",
-      "updateListAria": "將要更新的 Skill"
+      "updateListAria": "將要更新的 Skill",
+      "publishOne": "把 {{name}} 上傳到企業市集？",
+      "publishMany": "把 {{count}} 個 Skill 上傳到企業市集？",
+      "publishBody": "會打成 zip 發佈到企業市集，其他成員就能安裝。你自己發過的會覆蓋成新版本；別人發過的同名項會失敗。",
+      "publishManyButton": "上傳 {{count}} 個"
     },
     "toast": {
       "installed": "已安裝 {{name}}，並在 {{apps}} 啟用",
@@ -4644,7 +4649,9 @@
       "noUpdatesInSelection": "選中的 Skill 沒有可用的更新",
       "selectionAlreadyOn": "選中的 {{count}} 個 Skill 已經在 {{app}} 啟用",
       "selectionAlreadyOff": "選中的 {{count}} 個 Skill 都沒有在 {{app}} 啟用",
-      "disabledSelection": "已在 {{app}} 停用 {{count}} 個 {{noun}}"
+      "disabledSelection": "已在 {{app}} 停用 {{count}} 個 {{noun}}",
+      "publishedCount": "已上傳 {{count}} 個 Skill 到企業市集",
+      "publishPartial": "{{ok}} 個已上傳，{{fail}} 個失敗：{{error}}"
     },
     "installTo": {
       "prefix": "安裝到：",

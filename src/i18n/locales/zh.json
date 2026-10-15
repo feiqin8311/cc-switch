@@ -4597,7 +4597,8 @@
       "enableToAria": "把选中的 {{count}} 个 Skill 启用到",
       "disable": "停用",
       "disableAria": "在这个应用里停用选中的 {{count}} 个 Skill",
-      "uninstall": "卸载"
+      "uninstall": "卸载",
+      "publishMarket": "上传到企业市场"
     },
     "piColumnTitle": "Pi 按 ~/.pi/agent/skills 里有没有这个目录来判断",
     "piHelpTitle": "Pi 怎么算启用",
@@ -4631,7 +4632,11 @@
       "updateAll": "更新 {{count}} 个 Skill？",
       "updateBody": "更新会用仓库里的内容替换本地目录。本地改过的地方只保留在备份里（{{path}}）。",
       "updateAllButton": "更新 {{count}} 个",
-      "updateListAria": "将要更新的 Skill"
+      "updateListAria": "将要更新的 Skill",
+      "publishOne": "把 {{name}} 上传到企业市场？",
+      "publishMany": "把 {{count}} 个 Skill 上传到企业市场？",
+      "publishBody": "会打成 zip 发布到企业市场，其他成员就能安装。你自己发过的会覆盖成新版本；别人发过的同名项会失败。",
+      "publishManyButton": "上传 {{count}} 个"
     },
     "toast": {
       "installed": "已安装 {{name}}，并在 {{apps}} 启用",
@@ -4643,7 +4648,9 @@
       "noUpdatesInSelection": "选中的 Skill 没有可用的更新",
       "selectionAlreadyOn": "选中的 {{count}} 个 Skill 已经在 {{app}} 启用",
       "selectionAlreadyOff": "选中的 {{count}} 个 Skill 都没有在 {{app}} 启用",
-      "disabledSelection": "已在 {{app}} 停用 {{count}} 个 {{noun}}"
+      "disabledSelection": "已在 {{app}} 停用 {{count}} 个 {{noun}}",
+      "publishedCount": "已上传 {{count}} 个 Skill 到企业市场",
+      "publishPartial": "{{ok}} 个已上传，{{fail}} 个失败：{{error}}"
     },
     "installTo": {
       "prefix": "安装到：",

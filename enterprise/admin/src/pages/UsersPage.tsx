@@ -4,6 +4,7 @@ import {
   type Role,
   RoleSchema,
   type UpdateUserRequest,
+  UpstreamAccountsResponseSchema,
   type User,
   UserSchema,
 } from "@ccse/contracts";
@@ -64,6 +65,8 @@ export function UsersPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const remove = useMutation({
     mutationFn: (user: User) =>
@@ -82,10 +85,19 @@ export function UsersPage() {
         title="用户管理"
         description="创建员工账号、分配角色、重置密码、禁用或删除账号。禁用、改角色、重置密码或删除会立即注销该用户的所有会话。"
         actions={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            <Plus className="size-4" />
-            新建用户
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              disabled={selected.length === 0}
+              onClick={() => setBulkOpen(true)}
+            >
+              设置用量窗口
+              {selected.length > 0 ? ` (${selected.length})` : ""}
+            </Button>
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              <Plus className="size-4" />
+              新建用户
+            </Button>
+          </div>
         }
       />
       <Card className="overflow-x-auto">
@@ -104,9 +116,27 @@ export function UsersPage() {
           <table className={tableClass}>
             <thead>
               <tr>
+                <th className={`${thClass} w-8`}>
+                  <input
+                    type="checkbox"
+                    aria-label="全选"
+                    checked={
+                      users.data.items.length > 0 &&
+                      selected.length === users.data.items.length
+                    }
+                    onChange={(e) =>
+                      setSelected(
+                        e.target.checked
+                          ? users.data.items.map((u) => u.id)
+                          : [],
+                      )
+                    }
+                  />
+                </th>
                 <th className={thClass}>用户名</th>
                 <th className={thClass}>显示名</th>
                 <th className={thClass}>角色</th>
+                <th className={thClass}>用量窗口</th>
                 <th className={thClass}>状态</th>
                 <th className={thClass}>创建时间</th>
                 <th className={thClass}>最近登录</th>
@@ -116,6 +146,20 @@ export function UsersPage() {
             <tbody>
               {users.data.items.map((u) => (
                 <tr key={u.id} className={trClass}>
+                  <td className={tdClass}>
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${u.username}`}
+                      checked={selected.includes(u.id)}
+                      onChange={(e) =>
+                        setSelected((prev) =>
+                          e.target.checked
+                            ? [...prev, u.id]
+                            : prev.filter((id) => id !== u.id),
+                        )
+                      }
+                    />
+                  </td>
                   <td className={`${tdClass} font-mono text-xs`}>
                     {u.username}
                     {u.id === session.user.id && (
@@ -129,6 +173,13 @@ export function UsersPage() {
                     <Badge tone={u.role === "admin" ? "purple" : "gray"}>
                       {ROLE_LABELS[u.role]}
                     </Badge>
+                  </td>
+                  <td className={tdClass}>
+                    {u.role === "admin"
+                      ? "全部"
+                      : u.upstreamAccountIds.length === 0
+                        ? "无"
+                        : `${u.upstreamAccountIds.length} 个账号`}
                   </td>
                   <td className={tdClass}>
                     {u.disabled ? (
@@ -167,6 +218,18 @@ export function UsersPage() {
         )}
       </Card>
       {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
+      {bulkOpen && (
+        <BulkWindowsDialog
+          users={(users.data?.items ?? []).filter((u) =>
+            selected.includes(u.id),
+          )}
+          onClose={() => setBulkOpen(false)}
+          onDone={() => {
+            setBulkOpen(false);
+            setSelected([]);
+          }}
+        />
+      )}
       {editing && (
         <EditUserDialog
           key={editing.id}
@@ -390,6 +453,9 @@ function EditUserDialog({
   const [role, setRole] = useState<Role>(user.role);
   const [disabled, setDisabled] = useState(user.disabled);
   const [password, setPassword] = useState("");
+  const [upstreamAccountIds, setUpstreamAccountIds] = useState<number[]>(
+    user.upstreamAccountIds,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -430,6 +496,10 @@ function EditUserDialog({
     if (!isSelf && role !== user.role) body.role = role;
     if (!isSelf && disabled !== user.disabled) body.disabled = disabled;
     if (password) body.password = password;
+    const idsChanged =
+      JSON.stringify([...upstreamAccountIds].sort()) !==
+      JSON.stringify([...user.upstreamAccountIds].sort());
+    if (idsChanged) body.upstreamAccountIds = upstreamAccountIds;
     if (Object.keys(body).length === 0) {
       onClose();
       return;
@@ -490,6 +560,18 @@ function EditUserDialog({
             disabled={isSelf}
           />
         </Field>
+        <div className="col-span-2">
+          <AccountChecklist
+            ids={upstreamAccountIds}
+            onChange={setUpstreamAccountIds}
+            disabled={user.role === "admin"}
+            hint={
+              user.role === "admin"
+                ? "管理员始终能看全部上游账号"
+                : "勾选该员工在桌面「用量窗口」里能看到的 Sub2API 账号"
+            }
+          />
+        </div>
         <Field
           label="重置密码"
           htmlFor="eu-password"
@@ -525,6 +607,139 @@ function EditUserDialog({
           <InlineError>{formError}</InlineError>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+function AccountChecklist({
+  ids,
+  onChange,
+  disabled,
+  hint,
+}: {
+  ids: number[];
+  onChange(ids: number[]): void;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  const client = useApi();
+  const accounts = useQuery({
+    queryKey: ["admin", "upstream", "accounts"],
+    queryFn: ({ signal }) =>
+      client.request("/admin/upstream/accounts", {
+        schema: UpstreamAccountsResponseSchema,
+        signal,
+      }),
+  });
+  return (
+    <Field label="用量窗口" hint={hint}>
+      {accounts.isPending ? (
+        <p className="text-xs text-muted-foreground">正在加载账号列表…</p>
+      ) : accounts.isError || !accounts.data?.configured ? (
+        <p className="text-xs text-muted-foreground">无法加载上游账号，稍后再试。</p>
+      ) : accounts.data.items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">还没有上游账号。</p>
+      ) : (
+        <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+          {accounts.data.items.map((acc) => (
+            <li key={acc.id}>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  disabled={disabled}
+                  checked={disabled ? true : ids.includes(acc.id)}
+                  onChange={(e) =>
+                    onChange(
+                      e.target.checked
+                        ? [...ids, acc.id]
+                        : ids.filter((id) => id !== acc.id),
+                    )
+                  }
+                />
+                <span>{acc.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {acc.platform}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Field>
+  );
+}
+
+function BulkWindowsDialog({
+  users,
+  onClose,
+  onDone,
+}: {
+  users: User[];
+  onClose(): void;
+  onDone(): void;
+}) {
+  const client = useApi();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [ids, setIds] = useState<number[]>([]);
+  const members = users.filter((u) => u.role !== "admin");
+  const skipped = users.length - members.length;
+
+  const apply = useMutation({
+    mutationFn: async () => {
+      let ok = 0;
+      let lastError = "";
+      for (const u of members) {
+        try {
+          await client.request(`/admin/users/${u.id}`, {
+            method: "PATCH",
+            body: { upstreamAccountIds: ids },
+            schema: UserSchema,
+          });
+          ok += 1;
+        } catch (err) {
+          lastError = describeError(err);
+        }
+      }
+      return { ok, fail: members.length - ok, lastError };
+    },
+    onSuccess: ({ ok, fail, lastError }) => {
+      qc.invalidateQueries({ queryKey: USERS_KEY });
+      if (ok > 0) toast.success(`已更新 ${ok} 个用户的用量窗口`);
+      if (fail > 0) toast.error(`${fail} 个用户更新失败：${lastError}`);
+      onDone();
+    },
+    onError: (err) => toast.error(`批量更新失败：${describeError(err)}`),
+  });
+
+  return (
+    <Dialog
+      open
+      title="批量设置用量窗口"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button
+            variant="primary"
+            disabled={apply.isPending || members.length === 0}
+            onClick={() => apply.mutate()}
+          >
+            {apply.isPending && <Spinner className="size-3" />}
+            应用到 {members.length} 个用户
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-muted-foreground">
+        将覆盖所选员工当前的用量窗口配置。管理员始终能看全部账号
+        {skipped > 0 ? `，已跳过 ${skipped} 个管理员` : ""}。
+      </p>
+      <AccountChecklist
+        ids={ids}
+        onChange={setIds}
+        hint="勾选这些用户能看到的上游账号；一个都不勾则他们打开用量窗口为空。"
+      />
     </Dialog>
   );
 }

@@ -25,4 +25,8 @@ export const enterpriseMarketApi = {
   /** Mandatory items are refused by the backend. */
   uninstall: (id: string) =>
     invoke<void>("enterprise_market_uninstall", { id }),
+
+  /** Zip a locally installed skill and PUT it to the enterprise marketplace. */
+  publishSkill: (skillId: string) =>
+    invoke<MarketItem>("enterprise_market_publish_skill", { skillId }),
 };

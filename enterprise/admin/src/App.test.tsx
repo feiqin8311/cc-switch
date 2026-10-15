@@ -19,6 +19,7 @@ const admin = {
   disabled: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: "2026-10-01T08:00:00.000Z",
+  upstreamAccountIds: [] as number[],
 };
 
 const FIXTURES: Record<string, unknown> = {

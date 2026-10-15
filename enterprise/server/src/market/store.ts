@@ -2,12 +2,23 @@ import { createHash } from "node:crypto";
 import type { MarketItem, MarketItemKind } from "@ccse/contracts";
 import { and, asc, eq, notExists } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { marketBlobs, marketItems } from "../db/schema.ts";
+import { marketBlobs, marketItems, users } from "../db/schema.ts";
 
 export type MarketItemRow = typeof marketItems.$inferSelect;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-export function toMarketItemDto(row: MarketItemRow): MarketItem {
+function publisherLabel(
+  displayName: string | null | undefined,
+  username: string | null | undefined,
+): string | null {
+  const n = displayName?.trim() || username?.trim();
+  return n || null;
+}
+
+export function toMarketItemDto(
+  row: MarketItemRow,
+  publishedByName: string | null = null,
+): MarketItem {
   return {
     id: row.id,
     kind: row.kind,
@@ -18,7 +29,21 @@ export function toMarketItemDto(row: MarketItemRow): MarketItem {
     sha256: row.sha256,
     sizeBytes: row.sizeBytes,
     updatedAt: row.updatedAt.toISOString(),
+    publishedByName,
   };
+}
+
+export async function publisherNameOf(
+  db: Db,
+  userId: string | null,
+): Promise<string | null> {
+  if (!userId) return null;
+  const [u] = await db
+    .select({ displayName: users.displayName, username: users.username })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return u ? publisherLabel(u.displayName, u.username) : null;
 }
 
 export function sha256Hex(buf: Uint8Array): string {
@@ -98,11 +123,31 @@ export async function publishMarketItem(
   });
 }
 
-export async function listMarketItems(db: Db): Promise<MarketItemRow[]> {
-  return db
+export async function listMarketItems(db: Db): Promise<MarketItem[]> {
+  const rows = await db
+    .select({
+      item: marketItems,
+      displayName: users.displayName,
+      username: users.username,
+    })
+    .from(marketItems)
+    .leftJoin(users, eq(users.id, marketItems.publishedBy))
+    .orderBy(asc(marketItems.kind), asc(marketItems.name), asc(marketItems.id));
+  return rows.map((r) =>
+    toMarketItemDto(r.item, publisherLabel(r.displayName, r.username)),
+  );
+}
+
+export async function findMarketItem(
+  db: Db,
+  id: string,
+): Promise<MarketItemRow | null> {
+  const [row] = await db
     .select()
     .from(marketItems)
-    .orderBy(asc(marketItems.kind), asc(marketItems.name), asc(marketItems.id));
+    .where(eq(marketItems.id, id))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function getMarketPackage(

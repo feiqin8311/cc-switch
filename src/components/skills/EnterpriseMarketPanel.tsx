@@ -2,6 +2,7 @@ import { type ReactNode, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
+import { MatrixSearch } from "@/components/mcp/AppMatrix";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,6 +57,7 @@ function EnterpriseMarketList({
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<{ id: string; action: Action }>();
   const [selected, setSelected] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const bulkRef = useRef(false);
 
   const query = useQuery({
@@ -104,12 +106,27 @@ function EnterpriseMarketList({
   });
 
   const entries = (query.data ?? []).filter((e) => kinds.includes(e.item.kind));
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const filtered = useMemo(() => {
+    if (!normalizedQuery) return entries;
+    return entries.filter((e) => {
+      const hay = [
+        e.item.name,
+        e.item.description,
+        e.item.id,
+        e.item.publishedByName ?? "",
+      ]
+        .join("\n")
+        .toLocaleLowerCase();
+      return hay.includes(normalizedQuery);
+    });
+  }, [entries, normalizedQuery]);
   const installableIds = useMemo(
     () =>
-      entries
+      filtered
         .filter((e) => e.installedVersion == null)
         .map((e) => e.item.id),
-    [entries],
+    [filtered],
   );
   const selectedInstallable = selected.filter((id) =>
     installableIds.includes(id),
@@ -168,27 +185,49 @@ function EnterpriseMarketList({
     </div>
   );
 
+  const trailing = (
+    <div className="flex items-center gap-2">
+      {entries.length > 0 && (
+        <MatrixSearch
+          className="w-[280px] min-w-[160px] shrink"
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+          placeholder={t("enterpriseMarket.searchPlaceholder")}
+          ariaLabel={t("enterpriseMarket.searchAriaLabel")}
+          status={
+            normalizedQuery
+              ? t("appMatrix.found", { count: filtered.length })
+              : ""
+          }
+        />
+      )}
+      <HoverTip content={t("common.refresh")}>
+        <Button
+          type="button"
+          variant="quiet"
+          size="icon-compact"
+          aria-label={t("common.refresh")}
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", query.isFetching && "animate-spin")}
+            strokeWidth={1.5}
+          />
+        </Button>
+      </HoverTip>
+    </div>
+  );
+
   return (
     <section
       className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-3"
       aria-label={t("enterpriseMarket.title")}
     >
-      {renderTrailing?.(
-        <HoverTip content={t("common.refresh")}>
-          <Button
-            type="button"
-            variant="quiet"
-            size="icon-compact"
-            aria-label={t("common.refresh")}
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", query.isFetching && "animate-spin")}
-              strokeWidth={1.5}
-            />
-          </Button>
-        </HoverTip>,
+      {renderTrailing ? (
+        renderTrailing(trailing)
+      ) : (
+        <div className="mb-3 flex justify-end">{trailing}</div>
       )}
       <div className="min-h-0 overflow-auto scroll-stable rounded-panel border border-border bg-surface">
         {query.isError ? (
@@ -205,6 +244,10 @@ function EnterpriseMarketList({
           </div>
         ) : entries.length === 0 ? (
           notice(t("enterpriseMarket.empty"))
+        ) : filtered.length === 0 ? (
+          notice(
+            t("enterpriseMarket.noMatch", { query: searchQuery.trim() }),
+          )
         ) : (
           <>
             {installableIds.length > 0 && (
@@ -246,7 +289,7 @@ function EnterpriseMarketList({
                 key={kind}
                 // 只列一种时不用分组标题
                 title={kinds.length > 1 ? t(KIND_TITLE_KEYS[kind]) : undefined}
-                entries={entries.filter((e) => e.item.kind === kind)}
+                entries={filtered.filter((e) => e.item.kind === kind)}
                 selected={selectedInstallable}
                 pending={pending}
                 busy={busy}
@@ -342,6 +385,16 @@ function MarketSection({
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {item.publishedByName && (
+                  <span
+                    className="max-w-32 truncate text-caption text-fg-3"
+                    title={t("enterpriseMarket.publisher", {
+                      name: item.publishedByName,
+                    })}
+                  >
+                    {item.publishedByName}
+                  </span>
+                )}
                 {(!installed || updateAvailable) && (
                   <Button
                     size="compact"

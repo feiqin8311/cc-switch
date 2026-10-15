@@ -4597,7 +4597,8 @@
       "enableToAria": "選択した {{count}} 件の Skill を有効にする先",
       "disable": "オフにする",
       "disableAria": "選択した {{count}} 件の Skill をこのアプリでオフ",
-      "uninstall": "アンインストール"
+      "uninstall": "アンインストール",
+      "publishMarket": "マーケットにアップロード"
     },
     "piColumnTitle": "Pi は ~/.pi/agent/skills にそのフォルダーがあるかで判定します",
     "piHelpTitle": "Pi の有効の判定",
@@ -4631,7 +4632,11 @@
       "updateAll": "{{count}} 件の Skill を更新しますか？",
       "updateBody": "更新するとローカルのフォルダーをリポジトリの内容で置き換えます。ローカルの変更はバックアップ（{{path}}）にだけ残ります。",
       "updateAllButton": "{{count}} 件を更新",
-      "updateListAria": "更新する Skill"
+      "updateListAria": "更新する Skill",
+      "publishOne": "{{name}} をエンタープライズマーケットにアップロードしますか？",
+      "publishMany": "{{count}} 件の Skill をエンタープライズマーケットにアップロードしますか？",
+      "publishBody": "zip にして公開し、他のメンバーがインストールできるようにします。自分が公開したものは上書きされ、他人が公開した同名の項目は失敗します。",
+      "publishManyButton": "{{count}} 件をアップロード"
     },
     "toast": {
       "installed": "{{name}} をインストールし、{{apps}} で有効にしました",
@@ -4643,7 +4648,9 @@
       "noUpdatesInSelection": "選択した Skill に更新はありません",
       "selectionAlreadyOn": "選択した {{count}} 件の Skill は既に {{app}} で有効です",
       "selectionAlreadyOff": "選択した {{count}} 件の Skill はどれも {{app}} で有効ではありません",
-      "disabledSelection": "{{app}} で {{count}} 件の {{noun}} をオフにしました"
+      "disabledSelection": "{{app}} で {{count}} 件の {{noun}} をオフにしました",
+      "publishedCount": "{{count}} 件の Skill をマーケットにアップロードしました",
+      "publishPartial": "{{ok}} 件成功、{{fail}} 件失敗：{{error}}"
     },
     "installTo": {
       "prefix": "インストール先：",

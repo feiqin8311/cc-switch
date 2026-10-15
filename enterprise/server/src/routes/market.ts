@@ -25,15 +25,25 @@ import {
 } from "../errors.ts";
 import {
   deleteMarketItem,
+  findMarketItem,
   getMarketPackage,
   listMarketItems,
   patchMarketItem,
   publishMarketItem,
+  publisherNameOf,
   toMarketItemDto,
 } from "../market/store.ts";
 import { validateMarketPackage } from "../market/validate.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
+
+/** Member skill publish: no mandatory flag, kind is skill only. */
+const MemberSkillPublishSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(1000).default(""),
+  version: z.string().trim().min(1).max(50),
+  kind: z.literal("skill").default("skill"),
+});
 
 function requireAnyPermission(...permissions: Permission[]) {
   return async (req: FastifyRequest, _reply: FastifyReply): Promise<void> => {
@@ -132,10 +142,67 @@ export async function marketRoutes(
   };
 
   app.get("/market/items", readGuard, async () => {
-    const rows = await listMarketItems(db);
-    const res: ListMarketItemsResponse = { items: rows.map(toMarketItemDto) };
+    const res: ListMarketItemsResponse = { items: await listMarketItems(db) };
     return res;
   });
+
+  app.put(
+    "/market/items/:id",
+    {
+      preHandler: readGuard.preHandler,
+      bodyLimit: MAX_MARKET_PACKAGE_BYTES,
+    },
+    async (req) => {
+      const { id } = parseBody(IdParamSchema, req.params);
+      const meta = parseQuery(MemberSkillPublishSchema, req.query);
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        throw new AppError(
+          400,
+          "bad_request",
+          "Content-Type must be application/zip",
+        );
+      }
+      validateMarketPackage(body, "skill", id);
+      const actor = authOf(req).user;
+      const existing = await findMarketItem(db, id);
+      if (existing) {
+        if (existing.kind !== "skill") {
+          throw new AppError(
+            409,
+            "conflict",
+            "A marketplace item with this id already exists",
+          );
+        }
+        const own = existing.publishedBy === actor.id;
+        if (!own && actor.role !== "admin") {
+          throw forbidden(
+            "Only the publisher or an admin can replace this item",
+          );
+        }
+      }
+      const row = await publishMarketItem(db, {
+        id,
+        kind: "skill",
+        name: meta.name,
+        description: meta.description,
+        version: meta.version,
+        mandatory: false,
+        data: body,
+        publishedBy: actor.id,
+      });
+      req.log.info(
+        {
+          actor: actor.id,
+          itemId: id,
+          version: row.version,
+          sha256: row.sha256,
+        },
+        "market skill published by member",
+      );
+      return toMarketItemDto(row, actor.displayName.trim() || actor.username);
+    },
+  );
 
   app.get("/market/items/:id/package", readGuard, async (req, reply) => {
     const { id } = parseBody(IdParamSchema, req.params);
@@ -220,7 +287,10 @@ export async function marketRoutes(
         },
         "market item published",
       );
-      return toMarketItemDto(row);
+      return toMarketItemDto(
+        row,
+        actor.displayName.trim() || actor.username,
+      );
     },
   );
 
@@ -233,7 +303,7 @@ export async function marketRoutes(
       { actor: authOf(req).user.id, itemId: id },
       "market item updated",
     );
-    return toMarketItemDto(row);
+    return toMarketItemDto(row, await publisherNameOf(db, row.publishedBy));
   });
 
   app.delete("/admin/market/items/:id", manageGuard, async (req, reply) => {

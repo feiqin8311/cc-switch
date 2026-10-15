@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { visibleUpstreamAccounts } from "../src/routes/upstream.ts";
 import { accountFromSub2Api } from "../src/sub2api.ts";
+import type { UserRow } from "../src/db/schema.ts";
+
+function user(role: UserRow["role"], ids: number[]): UserRow {
+  return {
+    id: "00000000-0000-4000-8000-000000000001",
+    username: "u",
+    displayName: "u",
+    passwordHash: "x",
+    role,
+    disabled: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastLoginAt: null,
+    upstreamAccountIds: ids,
+  };
+}
 
 describe("accountFromSub2Api", () => {
   it("merges extra percents with usage batch windows", () => {
@@ -77,5 +94,24 @@ describe("accountFromSub2Api", () => {
     );
     expect(acc.windows[0].usedPercent).toBe(12.5);
     expect(acc.windows[1].usedPercent).toBe(40);
+  });
+});
+
+describe("visibleUpstreamAccounts", () => {
+  const items = [
+    accountFromSub2Api({ id: 1, name: "A" }, undefined),
+    accountFromSub2Api({ id: 2, name: "B" }, undefined),
+  ];
+
+  it("admins see every account", () => {
+    expect(visibleUpstreamAccounts(user("admin", []), items)).toHaveLength(2);
+    expect(visibleUpstreamAccounts(user("admin", [1]), items)).toHaveLength(2);
+  });
+
+  it("members only see assigned ids", () => {
+    expect(visibleUpstreamAccounts(user("member", [2]), items).map((a) => a.id)).toEqual([
+      2,
+    ]);
+    expect(visibleUpstreamAccounts(user("member", []), items)).toEqual([]);
   });
 });

@@ -90,6 +90,28 @@ function upload(
   });
 }
 
+function memberUpload(
+  id: string,
+  body: Buffer | string,
+  opts: { token?: string; version?: string; kind?: string } = {},
+) {
+  const qs = new URLSearchParams({
+    kind: opts.kind ?? "skill",
+    name: `Item ${id}`,
+    description: "desc",
+    version: opts.version ?? "1.0.0",
+  });
+  return ctx.app.inject({
+    method: "PUT",
+    url: `/api/v1/market/items/${id}?${qs}`,
+    headers: {
+      ...bearer(opts.token ?? memberToken),
+      "content-type": "application/zip",
+    },
+    payload: body,
+  });
+}
+
 const blobCount = async () => (await ctx.db.select().from(marketBlobs)).length;
 
 describe("market upload validation", () => {
@@ -219,6 +241,7 @@ describe("market listing, download and lifecycle", () => {
     expect(res.statusCode).toBe(200);
     const list = ListMarketItemsResponseSchema.parse(res.json());
     expect(list.items.map((i) => i.id)).toEqual(["my-plugin", "alpha", "zeta"]);
+    expect(list.items.every((i) => i.publishedByName === "admin")).toBe(true);
 
     const admin = await ctx.app.inject({
       url: "/api/v1/market/items",
@@ -597,5 +620,55 @@ describe("prompt market items", () => {
       kind: "prompt",
       mandatory: true,
     });
+  });
+});
+
+describe("member skill publish", () => {
+  it("lets a member create and replace their own skill", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    const created = await memberUpload("team-skill", buf);
+    expect(created.statusCode).toBe(200);
+    expect(MarketItemSchema.parse(created.json())).toMatchObject({
+      id: "team-skill",
+      kind: "skill",
+      mandatory: false,
+      publishedByName: "mem",
+    });
+
+    const again = await memberUpload("team-skill", buf, { version: "1.0.1" });
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ version: "1.0.1", mandatory: false });
+  });
+
+  it("blocks another member from replacing, and a viewer from publishing", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect((await memberUpload("owned", buf)).statusCode).toBe(200);
+
+    const other = await createAndLogin("member", "mem2");
+    const stolen = await memberUpload("owned", buf, { token: other });
+    expect(stolen.statusCode).toBe(403);
+
+    expect((await memberUpload("v", buf, { token: viewerToken })).statusCode).toBe(
+      403,
+    );
+  });
+
+  it("lets an admin replace a member skill via the same route", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect((await memberUpload("shared", buf)).statusCode).toBe(200);
+    const res = await memberUpload("shared", buf, { token: adminToken });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ publishedByName: "admin" });
+  });
+
+  it("rejects a plugin kind and an id that already holds a plugin", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect(
+      (await memberUpload("x", buf, { kind: "plugin" })).statusCode,
+    ).toBe(400);
+
+    await upload("plug", pluginZip("plug"), { kind: "plugin" });
+    const clash = await memberUpload("plug", buf);
+    expect(clash.statusCode).toBe(409);
   });
 });
