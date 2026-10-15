@@ -139,6 +139,7 @@ const FIXTURES: Record<string, unknown> = {
         sha256: "00",
         sizeBytes: 2048,
         updatedAt: "2026-10-01T00:00:00.000Z",
+        publishedByName: null,
       },
       {
         id: "team-rules",
@@ -150,6 +151,7 @@ const FIXTURES: Record<string, unknown> = {
         sha256: "01",
         sizeBytes: 120,
         updatedAt: "2026-10-01T00:00:00.000Z",
+        publishedByName: "admin",
       },
     ],
   },
