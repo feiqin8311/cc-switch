@@ -5,9 +5,10 @@ import {
   type MarketItemPatch,
   MarketItemSchema,
   PromptDefinitionSchema,
+  type User,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plug, ScrollText, Sparkles, Upload } from "lucide-react";
+import { Cable, Plug, ScrollText, Sparkles, Upload } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "../components/Toast";
 import {
@@ -19,6 +20,7 @@ import {
   EmptyState,
   ErrorState,
   InlineError,
+  inputClass,
   LoadingState,
   PageHeader,
   Spinner,
@@ -42,6 +44,7 @@ import {
   MarketUploadForm,
   type MarketUploadValues,
 } from "./MarketUploadForm";
+import { useUsers } from "./UsersPage";
 
 const MARKET_KEY = ["market", "items"] as const;
 
@@ -53,6 +56,7 @@ const KIND_BADGES: Record<
   plugin: { tone: "purple", label: "plugin" },
   mcp: { tone: "green", label: KIND_LABELS.mcp },
   prompt: { tone: "amber", label: KIND_LABELS.prompt },
+  connector: { tone: "blue", label: KIND_LABELS.connector },
 };
 
 /** Copy and kinds of one market page; all of them share the list query. */
@@ -64,7 +68,7 @@ export interface MarketPageProps {
   uploadTitle: string;
   emptyTitle: string;
   emptyText: string;
-  icon: "skills" | "mcp" | "prompts";
+  icon: "skills" | "mcp" | "prompts" | "connectors";
 }
 
 export const MARKET_PAGES = {
@@ -88,6 +92,16 @@ export const MARKET_PAGES = {
     emptyText: "点击右上角「上传」发布第一个 MCP 服务器。",
     icon: "mcp",
   },
+  connectors: {
+    kinds: ["connector"],
+    title: "连接器",
+    description:
+      "发布公司系统连接器。员工在桌面客户端「连接器 → 企业市场」安装；钉钉 dws 登录仍需本人扫码。",
+    uploadTitle: "上传连接器",
+    emptyTitle: "还没有连接器",
+    emptyText: "点击右上角「上传」发布第一个连接器。",
+    icon: "connectors",
+  },
   prompts: {
     kinds: ["prompt"],
     title: "提示词",
@@ -100,7 +114,12 @@ export const MARKET_PAGES = {
   },
 } as const satisfies Record<string, MarketPageProps>;
 
-const PAGE_ICONS = { skills: Sparkles, mcp: Plug, prompts: ScrollText };
+const PAGE_ICONS = {
+  skills: Sparkles,
+  mcp: Plug,
+  prompts: ScrollText,
+  connectors: Cable,
+};
 
 const METADATA_FIELDS = new Set([
   "id",
@@ -157,6 +176,7 @@ export function MarketPage({
   const [uploading, setUploading] = useState<MarketItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<MarketItem | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const users = useUsers();
 
   const items = useQuery({
     queryKey: MARKET_KEY,
@@ -171,12 +191,20 @@ export function MarketPage({
         body,
         schema: MarketItemSchema,
       }),
-    onSuccess: (item) => {
+    onSuccess: (item, vars) => {
       qc.setQueryData(MARKET_KEY, (old: { items: MarketItem[] } | undefined) =>
         old
           ? { items: old.items.map((i) => (i.id === item.id ? item : i)) }
           : old,
       );
+      if (vars.body.publishedBy !== undefined) {
+        toast.success(
+          item.publishedByName
+            ? `已将 ${item.name} 的创建人改为 ${item.publishedByName}`
+            : `已清除 ${item.name} 的创建人`,
+        );
+        return;
+      }
       toast.success(
         item.mandatory ? `${item.name} 已设为必装` : `${item.name} 已取消必装`,
       );
@@ -253,6 +281,7 @@ export function MarketPage({
                 <th className={thClass}>类型</th>
                 <th className={thClass}>ID</th>
                 <th className={thClass}>名称</th>
+                <th className={thClass}>创建人</th>
                 <th className={thClass}>版本</th>
                 <th className={thClass}>必装</th>
                 <th className={`${thClass} text-right`}>大小</th>
@@ -279,6 +308,16 @@ export function MarketPage({
                         {item.description}
                       </div>
                     )}
+                  </td>
+                  <td className={tdClass}>
+                    <PublisherSelect
+                      item={item}
+                      users={users.data?.items}
+                      disabled={togglingId === item.id}
+                      onChange={(publishedBy) =>
+                        patch.mutate({ id: item.id, body: { publishedBy } })
+                      }
+                    />
                   </td>
                   <td className={`${tdClass} font-mono text-xs`}>
                     {item.version}
@@ -366,6 +405,52 @@ export function MarketPage({
   );
 }
 
+function publisherLabel(user: Pick<User, "displayName" | "username">): string {
+  return user.displayName.trim() || user.username;
+}
+
+function PublisherSelect({
+  item,
+  users,
+  disabled,
+  onChange,
+}: {
+  item: MarketItem;
+  users: User[] | undefined;
+  disabled: boolean;
+  onChange(userId: string): void;
+}) {
+  if (!users) {
+    return <span>{item.publishedByName ?? "—"}</span>;
+  }
+  const known = users.some((u) => u.id === item.publishedBy);
+  return (
+    <select
+      className={`${inputClass} min-w-36 max-w-52`}
+      aria-label={`${item.name} 创建人`}
+      value={item.publishedBy ?? ""}
+      disabled={disabled}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (!next || next === (item.publishedBy ?? "")) return;
+        onChange(next);
+      }}
+    >
+      {item.publishedBy == null && <option value="">未指定</option>}
+      {users.map((u) => (
+        <option key={u.id} value={u.id}>
+          {publisherLabel(u)}
+        </option>
+      ))}
+      {item.publishedBy && !known && (
+        <option value={item.publishedBy}>
+          {item.publishedByName ?? item.publishedBy}
+        </option>
+      )}
+    </select>
+  );
+}
+
 /** Text the definition field starts with for a new version of a JSON item. */
 function definitionTextOf(kind: MarketItemKind, text: string): string {
   if (kind !== "prompt") return prettyDefinition(text);
@@ -377,8 +462,16 @@ function definitionTextOf(kind: MarketItemKind, text: string): string {
   }
 }
 
-const DEFINITION_LABELS = { mcp: "MCP 配置", prompt: "提示词" } as const;
-const DEFINITION_LIMITS = { mcp: "64 KB", prompt: "256 KB" } as const;
+const DEFINITION_LABELS = {
+  mcp: "MCP 配置",
+  prompt: "提示词",
+  connector: "连接器配置",
+} as const;
+const DEFINITION_LIMITS = {
+  mcp: "64 KB",
+  prompt: "256 KB",
+  connector: "16 KB",
+} as const;
 
 function UploadDialog({
   kinds,
@@ -424,7 +517,7 @@ function UploadDialog({
           version: v.version,
           mandatory: v.mandatory ? "true" : "false",
         },
-        ...(v.kind === "mcp" || v.kind === "prompt"
+        ...(v.kind === "mcp" || v.kind === "prompt" || v.kind === "connector"
           ? { body: v.definition }
           : { raw: { data: v.file, contentType: "application/zip" } }),
         schema: MarketItemSchema,

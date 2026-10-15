@@ -35,6 +35,7 @@ const KIND_TITLE_KEYS: Record<MarketItemKind, string> = {
   plugin: "enterpriseMarket.plugins",
   mcp: "enterpriseMarket.mcp",
   prompt: "enterpriseMarket.prompts",
+  connector: "enterpriseMarket.connectors",
 };
 
 /**
@@ -72,6 +73,7 @@ function EnterpriseMarketList({
       queryClient.invalidateQueries({ queryKey: ["skills", "unmanaged"] }),
       queryClient.invalidateQueries({ queryKey: ["mcp", "all"] }),
       queryClient.invalidateQueries({ queryKey: ["prompts"] }),
+      queryClient.invalidateQueries({ queryKey: ["connectors", "dws"] }),
     ]);
 
   const mutation = useMutation({

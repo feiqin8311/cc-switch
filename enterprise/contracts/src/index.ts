@@ -542,6 +542,7 @@ export const MarketItemKindSchema = z.enum([
   "plugin",
   "mcp",
   "prompt",
+  "connector",
 ]);
 export type MarketItemKind = z.infer<typeof MarketItemKindSchema>;
 
@@ -603,6 +604,21 @@ export const PromptDefinitionSchema = z
   .strict();
 export type PromptDefinition = z.infer<typeof PromptDefinitionSchema>;
 
+/** Max size of a connector definition (JSON). */
+export const MAX_CONNECTOR_DEFINITION_BYTES = 16 * 1024;
+
+/**
+ * The package of a `connector` item. `dws` is DingTalk Workspace CLI; the
+ * desktop installs the official binary and Codex skills. Employees still sign
+ * in with `dws auth login` themselves.
+ */
+export const ConnectorDefinitionSchema = z
+  .object({
+    type: z.literal("dws"),
+  })
+  .strict();
+export type ConnectorDefinition = z.infer<typeof ConnectorDefinitionSchema>;
+
 /**
  * Package formats:
  * - skill:  zip of a single skill directory (contains SKILL.md), either at the
@@ -611,6 +627,8 @@ export type PromptDefinition = z.infer<typeof PromptDefinitionSchema>;
  *           either at the zip root or as the only top-level folder.
  * - mcp:    JSON, an McpDefinitionSchema object (≤ MAX_MCP_DEFINITION_BYTES).
  * - prompt: JSON, a PromptDefinitionSchema object (≤ MAX_PROMPT_DEFINITION_BYTES).
+ * - connector: JSON, a ConnectorDefinitionSchema object
+ *   (≤ MAX_CONNECTOR_DEFINITION_BYTES).
  * For the JSON kinds sha256 is over the stored (compact) JSON bytes.
  */
 export const MarketItemSchema = z.object({
@@ -625,7 +643,9 @@ export const MarketItemSchema = z.object({
   sha256: z.string(),
   sizeBytes: z.number().int(),
   updatedAt: z.string(),
-  /** Display name of the admin who last published this item; null if the user was deleted. */
+  /** User id of the publisher; null if the user was deleted. */
+  publishedBy: z.string().uuid().nullable(),
+  /** Display name of the publisher; null if the user was deleted. */
   publishedByName: z.string().nullable(),
 });
 export type MarketItem = z.infer<typeof MarketItemSchema>;
@@ -673,6 +693,8 @@ export const MarketItemPatchSchema = z
     name: z.string().trim().min(1).max(100).optional(),
     description: z.string().max(1000).optional(),
     mandatory: z.boolean().optional(),
+    /** Reassign (or clear) the publisher. Unknown user ids are 400. */
+    publishedBy: z.string().uuid().nullable().optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "At least one field is required",

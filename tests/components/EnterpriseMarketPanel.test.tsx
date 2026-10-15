@@ -24,6 +24,7 @@ const item = (
   extra: Partial<{
     mandatory: boolean;
     version: string;
+    publishedBy: string | null;
     publishedByName: string | null;
   }> = {},
 ) => ({
@@ -36,6 +37,7 @@ const item = (
   sha256: "abc",
   sizeBytes: 10,
   updatedAt: "2026-10-13T00:00:00Z",
+  publishedBy: extra.publishedBy ?? null,
   publishedByName: extra.publishedByName ?? null,
 });
 

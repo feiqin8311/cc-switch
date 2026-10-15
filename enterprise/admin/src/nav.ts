@@ -18,6 +18,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/usage", label: "用量统计", anyOf: ["audit.read"] },
   { path: "/upstream", label: "上游账号", anyOf: ["audit.read"] },
   { path: "/mcp", label: "MCP", anyOf: ["market.manage"] },
+  { path: "/connectors", label: "连接器", anyOf: ["market.manage"] },
   { path: "/skills", label: "Skills", anyOf: ["market.manage"] },
   { path: "/prompts", label: "提示词", anyOf: ["market.manage"] },
   { path: "/conversations", label: "会话", anyOf: ["audit.read"] },

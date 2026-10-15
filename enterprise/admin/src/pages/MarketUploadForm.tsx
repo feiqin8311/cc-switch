@@ -1,4 +1,7 @@
 import {
+  type ConnectorDefinition,
+  ConnectorDefinitionSchema,
+  MAX_CONNECTOR_DEFINITION_BYTES,
   MAX_MARKET_PACKAGE_BYTES,
   MAX_MCP_DEFINITION_BYTES,
   MAX_PROMPT_DEFINITION_BYTES,
@@ -24,12 +27,13 @@ interface MarketUploadMetadata {
   mandatory: boolean;
 }
 
-/** skill / plugin upload a zip; mcp and prompt upload a JSON definition. */
+/** skill / plugin upload a zip; mcp, prompt and connector upload JSON. */
 export type MarketUploadValues = MarketUploadMetadata &
   (
-    | { kind: Exclude<MarketItemKind, "mcp" | "prompt">; file: File }
+    | { kind: Exclude<MarketItemKind, JsonKind>; file: File }
     | { kind: "mcp"; definition: McpDefinition }
     | { kind: "prompt"; definition: PromptDefinition }
+    | { kind: "connector"; definition: ConnectorDefinition }
   );
 
 export const KIND_LABELS: Record<MarketItemKind, string> = {
@@ -37,11 +41,14 @@ export const KIND_LABELS: Record<MarketItemKind, string> = {
   plugin: "插件 (Plugin)",
   mcp: "MCP",
   prompt: "提示词",
+  connector: "连接器",
 };
 
+type JsonKind = "mcp" | "prompt" | "connector";
+
 /** Kinds whose package is a JSON definition rather than a zip. */
-export function isJsonKind(kind: MarketItemKind): kind is "mcp" | "prompt" {
-  return kind === "mcp" || kind === "prompt";
+export function isJsonKind(kind: MarketItemKind): kind is JsonKind {
+  return kind === "mcp" || kind === "prompt" || kind === "connector";
 }
 
 const ALL_KINDS: readonly MarketItemKind[] = MarketItemKindSchema.options;
@@ -54,6 +61,40 @@ export const DEFAULT_MCP_DEFINITION = `{
 
 const MCP_HINT =
   "stdio 填 command/args/env，http/sse 填 url/headers。env 和 headers 会下发给所有有安装权限的员工，不要放个人密钥。";
+
+export const DEFAULT_CONNECTOR_DEFINITION = `{
+  "type": "dws"
+}`;
+
+const CONNECTOR_HINT =
+  "目前只支持钉钉 Workspace CLI（type: dws）。员工在桌面端「连接器 → 企业市场」安装时会装官方 dws 二进制；登录仍需本人扫码。";
+
+/** Parses a connector JSON definition. */
+export function parseConnectorDefinition(
+  text: string,
+): { definition: ConnectorDefinition } | { error: string } {
+  if (!text.trim()) return { error: "请填写连接器配置" };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { error: "JSON 格式不正确" };
+  }
+  const parsed = ConnectorDefinitionSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".") ?? "";
+    return {
+      error: `连接器配置不符合要求：${path ? `${path} ` : ""}${issue?.message ?? ""}`,
+    };
+  }
+  const size = new TextEncoder().encode(JSON.stringify(parsed.data)).length;
+  if (size > MAX_CONNECTOR_DEFINITION_BYTES)
+    return {
+      error: `连接器配置 ${formatBytes(size)}，超过 ${formatBytes(MAX_CONNECTOR_DEFINITION_BYTES)} 上限`,
+    };
+  return { definition: parsed.data };
+}
 
 /** Parses and validates the MCP JSON text; returns the definition or a message. */
 export function parseMcpDefinition(
@@ -145,13 +186,15 @@ export function MarketUploadForm({
   const [version, setVersion] = useState("");
   const [mandatory, setMandatory] = useState(existing?.mandatory ?? false);
   const [file, setFile] = useState<File | null>(null);
-  const [definitionText, setDefinitionText] = useState(
-    existing
-      ? existing.kind === "mcp"
-        ? (initialDefinition ?? "")
-        : ""
-      : DEFAULT_MCP_DEFINITION,
-  );
+  const [definitionText, setDefinitionText] = useState(() => {
+    if (existing?.kind === "mcp" || existing?.kind === "connector") {
+      return initialDefinition ?? "";
+    }
+    if ((kinds[0] ?? "skill") === "connector") {
+      return DEFAULT_CONNECTOR_DEFINITION;
+    }
+    return DEFAULT_MCP_DEFINITION;
+  });
   const [promptText, setPromptText] = useState(
     existing?.kind === "prompt" ? (initialDefinition ?? "") : "",
   );
@@ -186,6 +229,7 @@ export function MarketUploadForm({
     else if (version.trim().length > 50) next.version = "版本号最多 50 个字符";
     let mcp: McpDefinition | null = null;
     let prompt: PromptDefinition | null = null;
+    let connector: ConnectorDefinition | null = null;
     if (kind === "mcp") {
       const result = parseMcpDefinition(definitionText);
       if ("error" in result) next.definition = result.error;
@@ -194,6 +238,10 @@ export function MarketUploadForm({
       const result = parsePromptDefinition(promptText);
       if ("error" in result) next.definition = result.error;
       else prompt = result.definition;
+    } else if (kind === "connector") {
+      const result = parseConnectorDefinition(definitionText);
+      if ("error" in result) next.definition = result.error;
+      else connector = result.definition;
     } else {
       const fileProblem = validatePackageFile(file);
       if (fileProblem) next.file = fileProblem;
@@ -211,6 +259,8 @@ export function MarketUploadForm({
       if (mcp) onSubmit({ ...meta, kind, definition: mcp });
     } else if (kind === "prompt") {
       if (prompt) onSubmit({ ...meta, kind, definition: prompt });
+    } else if (kind === "connector") {
+      if (connector) onSubmit({ ...meta, kind, definition: connector });
     } else if (file) {
       onSubmit({ ...meta, kind, file });
     }
@@ -303,18 +353,18 @@ export function MarketUploadForm({
           onChange={(e) => setDescription(e.target.value)}
         />
       </Field>
-      {kind === "mcp" ? (
+      {kind === "mcp" || kind === "connector" ? (
         <Field
-          label="MCP 配置（JSON）"
+          label={kind === "mcp" ? "MCP 配置（JSON）" : "连接器配置（JSON）"}
           htmlFor="mu-definition"
           required
           error={errors.definition}
-          hint={MCP_HINT}
+          hint={kind === "mcp" ? MCP_HINT : CONNECTOR_HINT}
           className="col-span-2"
         >
           <textarea
             id="mu-definition"
-            rows={10}
+            rows={kind === "mcp" ? 10 : 6}
             spellCheck={false}
             className={`${textareaClass} font-mono`}
             aria-invalid={!!errors.definition}

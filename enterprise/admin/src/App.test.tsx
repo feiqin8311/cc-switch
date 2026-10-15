@@ -139,6 +139,7 @@ const FIXTURES: Record<string, unknown> = {
         sha256: "00",
         sizeBytes: 2048,
         updatedAt: "2026-10-01T00:00:00.000Z",
+        publishedBy: null,
         publishedByName: null,
       },
       {
@@ -151,6 +152,7 @@ const FIXTURES: Record<string, unknown> = {
         sha256: "01",
         sizeBytes: 120,
         updatedAt: "2026-10-01T00:00:00.000Z",
+        publishedBy: admin.id,
         publishedByName: "admin",
       },
     ],
@@ -217,6 +219,7 @@ describe("App", () => {
     ["/upstream", "上游账号", "Feiqin-Gpt"],
     ["/skills", "Skills", "代码评审"],
     ["/mcp", "MCP", "还没有 MCP 服务器"],
+    ["/connectors", "连接器", "还没有连接器"],
     ["/prompts", "提示词", "团队约定"],
     ["/conversations", "会话", "修复登录问题"],
     ["/conversations?tab=retention", "会话", "对话将被留存用于审计"],
@@ -230,6 +233,15 @@ describe("App", () => {
     renderAt("/skills", permissionsForRole("admin"));
     expect(await screen.findByText("代码评审")).toBeTruthy();
     expect(screen.queryByText("团队约定")).toBeNull();
+  });
+
+  it("shows a publisher select on the Skills page", async () => {
+    renderAt("/skills", permissionsForRole("admin"));
+    const select = (await screen.findByLabelText(
+      "代码评审 创建人",
+    )) as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(screen.getByRole("columnheader", { name: "创建人" })).toBeTruthy();
   });
 
   it.each([
