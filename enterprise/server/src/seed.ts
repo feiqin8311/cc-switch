@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { count, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { hashPassword } from "./auth/password.ts";
 import type { AppConfig } from "./config.ts";
 import type { Db } from "./db/client.ts";
 import { users } from "./db/schema.ts";
+import { findMarketItem, publishMarketItem } from "./market/store.ts";
 
 export interface SeedResult {
   created: boolean;
@@ -85,4 +86,35 @@ export async function seedInitialAdmin(
     role: "admin",
   });
   return { created: true, passwordFile };
+}
+
+const DWS_CONNECTOR_ID = "dws";
+const DWS_CONNECTOR_BODY = Buffer.from(JSON.stringify({ type: "dws" }));
+
+/**
+ * Ensures the built-in DingTalk Workspace CLI connector exists in the market.
+ * Does not overwrite an existing row (admins may have edited name/version).
+ */
+export async function seedBuiltinConnectors(db: Db): Promise<boolean> {
+  if (await findMarketItem(db, DWS_CONNECTOR_ID)) return false;
+
+  const [admin] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, "admin"))
+    .limit(1);
+  if (!admin) return false;
+
+  await publishMarketItem(db, {
+    id: DWS_CONNECTOR_ID,
+    kind: "connector",
+    name: "钉钉 Workspace CLI",
+    description:
+      "官方 dws 命令行。员工安装后会把日历、文档、AI 表格等 Skill 接到 Codex；登录需本人扫码。",
+    version: "1.0.0",
+    mandatory: false,
+    data: DWS_CONNECTOR_BODY,
+    publishedBy: admin.id,
+  });
+  return true;
 }

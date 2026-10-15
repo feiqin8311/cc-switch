@@ -7,6 +7,7 @@ import {
 import { strToU8, type Zippable, zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { marketBlobs } from "../src/db/schema.ts";
+import { seedBuiltinConnectors } from "../src/seed.ts";
 import { ADMIN, bearer, login, setup, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext;
@@ -549,6 +550,20 @@ describe("mcp market items", () => {
 
 describe("connector market items", () => {
   const DWS = { type: "dws" };
+
+  it("seeds the built-in DingTalk connector once", async () => {
+    expect(await seedBuiltinConnectors(ctx.db)).toBe(true);
+    expect(await seedBuiltinConnectors(ctx.db)).toBe(false);
+    const list = await ctx.app.inject({
+      url: "/api/v1/market/items",
+      headers: bearer(memberToken),
+    });
+    const items = ListMarketItemsResponseSchema.parse(list.json()).items;
+    expect(items.find((i) => i.id === "dws")).toMatchObject({
+      kind: "connector",
+      name: "钉钉 Workspace CLI",
+    });
+  });
 
   it("publishes a dws definition as compact JSON", async () => {
     const res = await upload("dws", JSON.stringify(DWS, null, 2), {
