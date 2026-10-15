@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Cable,
   LogOut,
   MessageSquareText,
   Monitor,
@@ -20,6 +21,7 @@ const NAV_ICONS: Record<string, typeof Users> = {
   "/devices": Monitor,
   "/usage": BarChart3,
   "/mcp": Plug,
+  "/connectors": Cable,
   "/skills": Sparkles,
   "/prompts": ScrollText,
   "/conversations": MessageSquareText,

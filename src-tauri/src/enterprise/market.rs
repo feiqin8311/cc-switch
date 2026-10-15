@@ -11,6 +11,8 @@
 //!   id and are enabled for Codex;
 //! - prompts (a JSON definition) become Codex prompts `enterprise-<id>` through
 //!   [`PromptService`]; a mandatory prompt is also enabled (AGENTS.md);
+//! - connectors (a JSON definition, currently `{"type":"dws"}`) install the
+//!   DingTalk Workspace CLI binary via [`crate::commands::install_blocking`];
 //! - what we installed is recorded in `<app config dir>/enterprise_market.json`
 //!   (0600).
 
@@ -68,6 +70,7 @@ pub enum MarketItemKind {
     Plugin,
     Mcp,
     Prompt,
+    Connector,
 }
 
 /// `MarketItem` of the contract.
@@ -774,6 +777,50 @@ fn install_prompt_blocking(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Connectors
+// ---------------------------------------------------------------------------
+
+const MAX_CONNECTOR_DEFINITION_BYTES: u64 = 16 * 1024;
+
+/// Parse a `connector` package (contract `ConnectorDefinitionSchema`).
+fn parse_connector_definition(bytes: &[u8]) -> Result<&'static str, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ConnectorDefinition {
+        #[serde(rename = "type")]
+        kind: String,
+    }
+    if bytes.len() as u64 > MAX_CONNECTOR_DEFINITION_BYTES {
+        return Err("Connector definition is too large".into());
+    }
+    let def: ConnectorDefinition = serde_json::from_slice(bytes)
+        .map_err(|_| "Connector definition is not valid JSON with a type field".to_string())?;
+    match def.kind.as_str() {
+        "dws" => Ok("dws"),
+        other => Err(format!("Unsupported connector type '{other}'")),
+    }
+}
+
+fn install_connector_blocking(
+    item: &MarketItem,
+    package: &Path,
+) -> Result<InstalledItem, String> {
+    let bytes = fs::read(package).map_err(|e| format!("Failed to read the package: {e}"))?;
+    let kind = parse_connector_definition(&bytes)?;
+    if kind == "dws" && !crate::commands::is_installed() {
+        crate::commands::install_blocking()?;
+    }
+    Ok(InstalledItem {
+        kind: MarketItemKind::Connector,
+        version: item.version.clone(),
+        sha256: normalize_sha(&item.sha256),
+        installed_at: now_rfc3339(),
+        skill_dir: None,
+        skill_id: None,
+    })
+}
+
 /// Remove the prompt; when it is the enabled one, AGENTS.md is cleared first.
 fn remove_prompt_blocking(db: &Arc<Database>, item_id: &str) -> Result<(), String> {
     let id = prompt_id(item_id);
@@ -1133,6 +1180,8 @@ fn remove_installed_blocking(
             McpService::delete_server_in(db, id).map_err(|e| e.to_string())?;
         }
         MarketItemKind::Prompt => remove_prompt_blocking(db, id)?,
+        // dws stays on disk; employees may still use it outside the market.
+        MarketItemKind::Connector => {}
     }
     state.items.remove(id);
     save_state(&paths.state_file, state)
@@ -1156,6 +1205,7 @@ fn install_package_blocking(
         MarketItemKind::Plugin => install_plugin_blocking(paths, &state, item, package)?,
         MarketItemKind::Mcp => install_mcp_blocking(db, &state, item, package)?,
         MarketItemKind::Prompt => install_prompt_blocking(db, item, package)?,
+        MarketItemKind::Connector => install_connector_blocking(item, package)?,
     };
     state.items.insert(item.id.clone(), installed);
     save_state(&paths.state_file, &state)
@@ -1193,6 +1243,8 @@ fn is_present(
         MarketItemKind::Plugin => paths.marketplace_dir.join("plugins").join(id).is_dir(),
         MarketItemKind::Mcp => mcp_server_exists(db, id).unwrap_or(false),
         MarketItemKind::Prompt => codex_prompts(db).is_ok_and(|p| p.contains_key(&prompt_id(id))),
+        // Presence is the market state row; the dws binary is not removed on uninstall.
+        MarketItemKind::Connector => true,
     }
 }
 

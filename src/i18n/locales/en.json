@@ -4836,6 +4836,7 @@
     "plugins": "Plugins",
     "mcp": "MCP",
     "prompts": "Prompts",
+    "connectors": "Connectors",
     "mandatory": "Required",
     "status": {
       "installed": "Installed",
@@ -4865,6 +4866,17 @@
   },
   "connectors": {
     "intro": "Connect company systems to Codex. After install, sign in to DingTalk once and fully quit Codex before reopening.",
+    "viewAria": "Connectors view",
+    "viewInstalled": "Installed",
+    "viewInstalledCount": "Installed {{count}}",
+    "searchPlaceholder": "Search name or description",
+    "searchAriaLabel": "Search connectors",
+    "count": "{{count}} connectors",
+    "countFiltered": "{{shown}} of {{count}} connectors",
+    "columnName": "Name",
+    "listLabel": "Connectors",
+    "noMatch": "No connectors matching “{{query}}”",
+    "clearSearch": "Clear search",
     "install": "Install",
     "installing": "Downloading DingTalk Workspace CLI and Codex skills…",
     "installed": "Installed",
@@ -4882,7 +4894,7 @@
     "loading": "Loading upstream accounts…",
     "unconfigured": "Sub2API is not configured on the enterprise server",
     "empty": "No upstream accounts",
-    "requests": "{{n}} queries",
+    "capacityLabel": "Capacity",
     "expiresAt": "resets {{time}}"
   },
   "enterpriseRetention": {

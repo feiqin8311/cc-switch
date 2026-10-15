@@ -1,6 +1,8 @@
 import { Transform } from "node:stream";
 import {
   type ListMarketItemsResponse,
+  ConnectorDefinitionSchema,
+  MAX_CONNECTOR_DEFINITION_BYTES,
   MAX_MARKET_PACKAGE_BYTES,
   MAX_MCP_DEFINITION_BYTES,
   MAX_PROMPT_DEFINITION_BYTES,
@@ -76,7 +78,7 @@ function parseQuery<S extends z.ZodType>(
 const safeFilenamePart = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "_");
 
 /** Kinds whose package is a JSON definition rather than a zip. */
-type JsonKind = Extract<MarketItemKind, "mcp" | "prompt">;
+type JsonKind = Extract<MarketItemKind, "mcp" | "prompt" | "connector">;
 
 /** Schema and max stored (compact JSON) size per JSON kind. */
 const JSON_KINDS: Record<JsonKind, { schema: z.ZodType; maxBytes: number }> = {
@@ -84,6 +86,10 @@ const JSON_KINDS: Record<JsonKind, { schema: z.ZodType; maxBytes: number }> = {
   prompt: {
     schema: PromptDefinitionSchema,
     maxBytes: MAX_PROMPT_DEFINITION_BYTES,
+  },
+  connector: {
+    schema: ConnectorDefinitionSchema,
+    maxBytes: MAX_CONNECTOR_DEFINITION_BYTES,
   },
 };
 
@@ -189,7 +195,7 @@ export async function marketRoutes(
         version: meta.version,
         mandatory: false,
         data: body,
-        publishedBy: actor.id,
+        publishedBy: existing?.publishedBy ?? actor.id,
       });
       req.log.info(
         {
@@ -200,7 +206,7 @@ export async function marketRoutes(
         },
         "market skill published by member",
       );
-      return toMarketItemDto(row, actor.displayName.trim() || actor.username);
+      return toMarketItemDto(row, await publisherNameOf(db, row.publishedBy));
     },
   );
 
@@ -266,6 +272,7 @@ export async function marketRoutes(
       }
 
       const actor = authOf(req).user;
+      const existing = await findMarketItem(db, id);
       const row = await publishMarketItem(db, {
         id,
         kind,
@@ -274,7 +281,7 @@ export async function marketRoutes(
         version: meta.version,
         mandatory: meta.mandatory,
         data,
-        publishedBy: actor.id,
+        publishedBy: existing?.publishedBy ?? actor.id,
       });
       req.log.info(
         {
@@ -287,16 +294,21 @@ export async function marketRoutes(
         },
         "market item published",
       );
-      return toMarketItemDto(
-        row,
-        actor.displayName.trim() || actor.username,
-      );
+      return toMarketItemDto(row, await publisherNameOf(db, row.publishedBy));
     },
   );
 
   app.patch("/admin/market/items/:id", manageGuard, async (req) => {
     const { id } = parseBody(IdParamSchema, req.params);
     const patch = parseBody(MarketItemPatchSchema, req.body);
+    if (patch.publishedBy) {
+      const name = await publisherNameOf(db, patch.publishedBy);
+      if (name === null) {
+        throw new AppError(400, "bad_request", "Publisher not found", [
+          { path: "publishedBy", message: "User not found" },
+        ]);
+      }
+    }
     const row = await patchMarketItem(db, id, patch);
     if (!row) throw notFound("Market item not found");
     req.log.info(

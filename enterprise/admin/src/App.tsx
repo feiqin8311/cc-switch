@@ -94,6 +94,9 @@ const PAGES: Record<string, () => ReactNode> = {
   "/usage": () => <UsagePage />,
   "/upstream": () => <UpstreamPage />,
   "/mcp": () => <MarketPage key="mcp" {...MARKET_PAGES.mcp} />,
+  "/connectors": () => (
+    <MarketPage key="connectors" {...MARKET_PAGES.connectors} />
+  ),
   "/skills": () => <MarketPage key="skills" {...MARKET_PAGES.skills} />,
   "/prompts": () => <MarketPage key="prompts" {...MARKET_PAGES.prompts} />,
   "/conversations": () => (

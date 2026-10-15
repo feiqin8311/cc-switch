@@ -77,7 +77,7 @@ import { WindowControls } from "@/components/shell/WindowControls";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
 
-import { useAuth } from "@/contexts/AuthContext";
+import { canManageLocalProviders, useAuth } from "@/contexts/AuthContext";
 import { ConnectorsPage } from "@/components/connectors/ConnectorsPage";
 import { UpstreamAccountsPage } from "@/components/upstream/UpstreamAccountsPage";
 import { ProviderList } from "@/components/providers/ProviderList";
@@ -212,8 +212,11 @@ function App() {
     storeView(currentView);
   }, [currentView]);
 
-  const { state: authState, hasPermission } = useAuth();
-  const canManageProviders = !authState.loggedIn || hasPermission("providers.manage");
+  const { state: authState } = useAuth();
+  const canManageProviders = canManageLocalProviders(
+    authState.loggedIn,
+    authState.permissions,
+  );
 
   const { data: settingsData } = useSettingsQuery();
   // Windows 一律去掉系统标题栏，用页头里的应用内窗口按钮；Linux 由设置决定

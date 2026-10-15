@@ -4836,6 +4836,7 @@
     "plugins": "プラグイン",
     "mcp": "MCP",
     "prompts": "プロンプト",
+    "connectors": "コネクタ",
     "mandatory": "必須",
     "status": {
       "installed": "インストール済み",
@@ -4865,6 +4866,17 @@
   },
   "connectors": {
     "intro": "会社のシステムを Codex に接続します。インストール後は DingTalk に一度ログインし、Codex を完全に終了してから開き直してください。",
+    "viewAria": "コネクタ表示",
+    "viewInstalled": "インストール済み",
+    "viewInstalledCount": "インストール済み {{count}}",
+    "searchPlaceholder": "名前または説明を検索",
+    "searchAriaLabel": "コネクタを検索",
+    "count": "{{count}} 件のコネクタ",
+    "countFiltered": "{{shown}} / {{count}} 件のコネクタ",
+    "columnName": "名前",
+    "listLabel": "コネクタ一覧",
+    "noMatch": "「{{query}}」に一致するコネクタはありません",
+    "clearSearch": "検索をクリア",
     "install": "インストール",
     "installing": "DingTalk Workspace CLI と Codex Skill をインストールしています…",
     "installed": "インストール済み",
@@ -4882,7 +4894,7 @@
     "loading": "上流アカウントを読み込み中…",
     "unconfigured": "企業サーバーに Sub2API が設定されていません",
     "empty": "上流アカウントがありません",
-    "requests": "{{n}} 回",
+    "capacityLabel": "容量",
     "expiresAt": "{{time}} 期限"
   },
   "enterpriseRetention": {

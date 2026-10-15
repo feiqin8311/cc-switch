@@ -174,6 +174,17 @@ fn not_installed() -> DwsStatus {
     }
 }
 
+pub fn is_installed() -> bool {
+    find_dws().is_some()
+}
+
+pub fn install_blocking() -> Result<DwsStatus, String> {
+    run_installer()?;
+    find_dws()
+        .map(|bin| probe(&bin))
+        .ok_or_else(|| "安装完成但找不到 dws，请重新打开本应用后再试".to_string())
+}
+
 #[tauri::command]
 pub async fn dws_status() -> Result<DwsStatus, String> {
     Ok(match find_dws() {
@@ -278,14 +289,9 @@ fn first_line(s: &str) -> Option<String> {
 
 #[tauri::command]
 pub async fn dws_install() -> Result<DwsStatus, String> {
-    tokio::task::spawn_blocking(|| {
-        run_installer()?;
-        find_dws()
-            .map(|bin| probe(&bin))
-            .ok_or_else(|| "安装完成但找不到 dws，请重新打开本应用后再试".to_string())
-    })
-    .await
-    .map_err(|e| format!("安装任务中断：{e}"))?
+    tokio::task::spawn_blocking(install_blocking)
+        .await
+        .map_err(|e| format!("安装任务中断：{e}"))?
 }
 
 #[tauri::command]

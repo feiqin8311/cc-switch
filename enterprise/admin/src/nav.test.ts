@@ -12,6 +12,7 @@ describe("navItemsFor", () => {
       "用量统计",
       "上游账号",
       "MCP",
+      "连接器",
       "Skills",
       "提示词",
       "会话",
@@ -40,9 +41,10 @@ describe("navItemsFor", () => {
     ]);
   });
 
-  it("shows the three market pages for market.manage", () => {
+  it("shows the market pages for market.manage", () => {
     expect(navItemsFor(["market.manage"]).map((i) => i.path)).toEqual([
       "/mcp",
+      "/connectors",
       "/skills",
       "/prompts",
     ]);

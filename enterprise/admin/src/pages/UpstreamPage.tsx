@@ -8,12 +8,6 @@ import { RefreshCw } from "lucide-react";
 import { Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "../components/ui";
 import { useApi } from "../lib/auth";
 
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(Math.round(n));
-}
-
 function fmtRemain(sec: number): string {
   if (sec <= 0) return "已过期";
   const d = Math.floor(sec / 86400);
@@ -35,35 +29,33 @@ function fmtResetAt(iso: string | null): string | null {
   return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function capacityClass(current: number, max: number): string {
+  if (max > 0 && current >= max) return "text-destructive";
+  if (current > 0) return "text-amber-600";
+  return "text-muted-foreground";
+}
+
 function WindowRow({ w }: { w: UpstreamWindow }) {
   const pct = Math.max(0, Math.min(100, w.usedPercent));
   const resetAt = fmtResetAt(w.resetsAt);
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span className="inline-flex h-5 min-w-8 items-center justify-center rounded bg-muted px-1.5 font-medium text-foreground">
-          {w.id}
-        </span>
-        <span>{w.requests} 次查询</span>
-        <span>{fmtTokens(w.tokens)}</span>
-        <span>A ${w.accountCost.toFixed(2)}</span>
-        <span>U ${w.userCost.toFixed(2)}</span>
+    <div className="flex items-center gap-2">
+      <span className="inline-flex h-5 min-w-8 shrink-0 items-center justify-center rounded bg-muted px-1.5 text-xs font-medium text-foreground">
+        {w.id}
+      </span>
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      <div className="flex items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary"
-            style={{ width: `${pct}%` }}
-          />
+      <div className="w-32 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+        <div>
+          {pct.toFixed(0)}% {fmtRemain(w.remainingSeconds)}
         </div>
-        <div className="w-32 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-          <div>
-            {pct.toFixed(0)}% {fmtRemain(w.remainingSeconds)}
-          </div>
-          {resetAt && (
-            <div title={w.resetsAt ?? undefined}>到期 {resetAt}</div>
-          )}
-        </div>
+        {resetAt && (
+          <div title={w.resetsAt ?? undefined}>到期 {resetAt}</div>
+        )}
       </div>
     </div>
   );
@@ -96,6 +88,12 @@ function AccountCard({ acc }: { acc: UpstreamAccount }) {
           {acc.groups[0] && (
             <span className="text-muted-foreground">{acc.groups[0]}</span>
           )}
+          <span
+            className={`tabular-nums ${capacityClass(acc.currentConcurrency, acc.maxConcurrency)}`}
+            title="容量"
+          >
+            {acc.currentConcurrency} / {acc.maxConcurrency}
+          </span>
         </div>
       </div>
       <div className="space-y-3">

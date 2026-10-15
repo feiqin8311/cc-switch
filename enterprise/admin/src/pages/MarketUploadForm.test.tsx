@@ -145,6 +145,8 @@ describe("MarketUploadForm", () => {
           sha256: "x",
           sizeBytes: 10,
           updatedAt: new Date(0).toISOString(),
+          publishedBy: null,
+          publishedByName: null,
         }}
         initialDefinition={current}
         onSubmit={onSubmit}
@@ -255,6 +257,8 @@ describe("MarketUploadForm", () => {
           sha256: "x",
           sizeBytes: 10,
           updatedAt: new Date(0).toISOString(),
+          publishedBy: null,
+          publishedByName: null,
         }}
         initialDefinition="# 旧内容"
         onSubmit={onSubmit}

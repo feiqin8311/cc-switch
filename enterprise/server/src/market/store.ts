@@ -29,6 +29,7 @@ export function toMarketItemDto(
     sha256: row.sha256,
     sizeBytes: row.sizeBytes,
     updatedAt: row.updatedAt.toISOString(),
+    publishedBy: row.publishedBy,
     publishedByName,
   };
 }
@@ -166,7 +167,12 @@ export async function getMarketPackage(
 export async function patchMarketItem(
   db: Db,
   id: string,
-  patch: { name?: string; description?: string; mandatory?: boolean },
+  patch: {
+    name?: string;
+    description?: string;
+    mandatory?: boolean;
+    publishedBy?: string | null;
+  },
 ): Promise<MarketItemRow | null> {
   const [row] = await db
     .update(marketItems)
@@ -174,6 +180,7 @@ export async function patchMarketItem(
       name: patch.name,
       description: patch.description,
       mandatory: patch.mandatory,
+      publishedBy: patch.publishedBy,
       updatedAt: new Date(),
     })
     .where(eq(marketItems.id, id))

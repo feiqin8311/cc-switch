@@ -334,7 +334,9 @@ export const deviceUsageDaily = pgTable(
 
 export const marketItems = pgTable("market_items", {
   id: text("id").primaryKey(),
-  kind: text("kind", { enum: ["skill", "plugin", "mcp", "prompt"] }).notNull(),
+  kind: text("kind", {
+    enum: ["skill", "plugin", "mcp", "prompt", "connector"],
+  }).notNull(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   version: text("version").notNull(),

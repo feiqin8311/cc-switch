@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   ListMarketItemsResponseSchema,
+  ListUsersResponseSchema,
   MarketItemSchema,
 } from "@ccse/contracts";
 import { strToU8, type Zippable, zipSync } from "fflate";
@@ -242,6 +243,7 @@ describe("market listing, download and lifecycle", () => {
     const list = ListMarketItemsResponseSchema.parse(res.json());
     expect(list.items.map((i) => i.id)).toEqual(["my-plugin", "alpha", "zeta"]);
     expect(list.items.every((i) => i.publishedByName === "admin")).toBe(true);
+    expect(list.items.every((i) => i.publishedBy !== null)).toBe(true);
 
     const admin = await ctx.app.inject({
       url: "/api/v1/market/items",
@@ -350,6 +352,41 @@ describe("market listing, download and lifecycle", () => {
       payload: { mandatory: false },
     });
     expect(member.statusCode).toBe(403);
+  });
+
+  it("lets an admin reassign the publisher", async () => {
+    await upload("demo", zip({ "SKILL.md": SKILL_MD }));
+    const users = ListUsersResponseSchema.parse(
+      (
+        await ctx.app.inject({
+          url: "/api/v1/admin/users",
+          headers: bearer(adminToken),
+        })
+      ).json(),
+    );
+    const mem = users.items.find((u) => u.username === "mem");
+    expect(mem).toBeDefined();
+
+    const res = await ctx.app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/market/items/demo",
+      headers: bearer(adminToken),
+      payload: { publishedBy: mem!.id },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(MarketItemSchema.parse(res.json())).toMatchObject({
+      publishedBy: mem!.id,
+      publishedByName: "mem",
+    });
+
+    const missing = await ctx.app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/market/items/demo",
+      headers: bearer(adminToken),
+      payload: { publishedBy: "00000000-0000-4000-8000-000000000000" },
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().error.code).toBe("bad_request");
   });
 
   it("deletes an item and its orphaned blob", async () => {
@@ -510,6 +547,32 @@ describe("mcp market items", () => {
   });
 });
 
+describe("connector market items", () => {
+  const DWS = { type: "dws" };
+
+  it("publishes a dws definition as compact JSON", async () => {
+    const res = await upload("dws", JSON.stringify(DWS, null, 2), {
+      kind: "connector",
+      contentType: "application/json",
+    });
+    expect(res.statusCode).toBe(200);
+    const compact = Buffer.from(JSON.stringify(DWS));
+    expect(MarketItemSchema.parse(res.json())).toMatchObject({
+      id: "dws",
+      kind: "connector",
+      sha256: sha256(compact),
+    });
+  });
+
+  it("rejects unknown connector types", async () => {
+    const res = await upload("feishu", JSON.stringify({ type: "feishu" }), {
+      kind: "connector",
+      contentType: "application/json",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe("prompt market items", () => {
   const PROMPT = {
     content: "# Team rules\n\n- Write tests.\n- 用中文回复。\n",
@@ -658,7 +721,7 @@ describe("member skill publish", () => {
     expect((await memberUpload("shared", buf)).statusCode).toBe(200);
     const res = await memberUpload("shared", buf, { token: adminToken });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ publishedByName: "admin" });
+    expect(res.json()).toMatchObject({ publishedByName: "mem" });
   });
 
   it("rejects a plugin kind and an id that already holds a plugin", async () => {

@@ -4837,6 +4837,7 @@
     "plugins": "外掛",
     "mcp": "MCP",
     "prompts": "提示詞",
+    "connectors": "連接器",
     "mandatory": "必裝",
     "status": {
       "installed": "已安裝",
@@ -4866,6 +4867,17 @@
   },
   "connectors": {
     "intro": "把公司系統接到 Codex。安裝後請登入一次釘釘，並徹底退出再開 Codex。",
+    "viewAria": "連接器視圖",
+    "viewInstalled": "已安裝",
+    "viewInstalledCount": "已安裝 {{count}}",
+    "searchPlaceholder": "搜尋名稱或說明",
+    "searchAriaLabel": "搜尋連接器",
+    "count": "{{count}} 個連接器",
+    "countFiltered": "{{shown}} / {{count}} 個連接器",
+    "columnName": "名稱",
+    "listLabel": "連接器列表",
+    "noMatch": "沒有符合「{{query}}」的連接器",
+    "clearSearch": "清除搜尋",
     "install": "安裝",
     "installing": "正在下載並安裝 DingTalk Workspace CLI 與 Codex Skill…",
     "installed": "已安裝",
@@ -4883,7 +4895,7 @@
     "loading": "正在讀取上游帳號…",
     "unconfigured": "企業伺服器未設定 Sub2API",
     "empty": "沒有上游帳號",
-    "requests": "{{n}} 次查詢",
+    "capacityLabel": "容量",
     "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {

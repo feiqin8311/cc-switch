@@ -26,6 +26,8 @@ export interface UpstreamAccount {
   status: string;
   schedulable: boolean;
   groups: string[];
+  currentConcurrency: number;
+  maxConcurrency: number;
   windows: UpstreamWindow[];
 }
 
@@ -108,6 +110,8 @@ export function accountFromSub2Api(
     status: str(item.status) ?? "",
     schedulable: Boolean(item.schedulable),
     groups: groupNames(item.groups ?? item.account_groups),
+    currentConcurrency: Math.max(0, Math.floor(num(item.current_concurrency))),
+    maxConcurrency: Math.max(0, Math.floor(num(item.concurrency))),
     windows: [
       windowFromUsage("5h", usage?.five_hour, extra),
       windowFromUsage("7d", usage?.seven_day, extra),
