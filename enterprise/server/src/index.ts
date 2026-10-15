@@ -3,7 +3,7 @@ import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { openDatabase } from "./db/client.ts";
 import { startRetentionJobs } from "./retention/jobs.ts";
-import { seedInitialAdmin } from "./seed.ts";
+import { seedBuiltinConnectors, seedInitialAdmin } from "./seed.ts";
 import { registerAdminStatic } from "./static.ts";
 
 const config = loadConfig();
@@ -25,6 +25,9 @@ if (seed.created) {
       ? `Created admin "${config.admin.username}"; password written to ${seed.passwordFile}`
       : `Created admin "${config.admin.username}" from ADMIN_PASSWORD`,
   );
+}
+if (await seedBuiltinConnectors(database.db)) {
+  app.log.info('Seeded built-in connector "钉钉 Workspace CLI" (dws)');
 }
 
 const stopJobs = startRetentionJobs(database.db);
