@@ -13,9 +13,7 @@ import { type FormEvent, useState } from "react";
 import { Plus, Users as UsersIcon } from "lucide-react";
 import { useToast } from "../components/Toast";
 import {
-  Badge,
   Button,
-  Card,
   ConfirmDialog,
   Dialog,
   EmptyState,
@@ -24,13 +22,8 @@ import {
   InlineError,
   inputClass,
   LoadingState,
-  PageHeader,
   Spinner,
   Switch,
-  tableClass,
-  tdClass,
-  thClass,
-  trClass,
 } from "../components/ui";
 import { ApiError } from "../lib/api";
 import { useApi, useAuth, useSession } from "../lib/auth";
@@ -45,6 +38,12 @@ export const USERS_KEY = ["admin", "users"] as const;
 
 const ROLES = RoleSchema.options;
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+
+const userTh =
+  "px-4 py-3 text-left text-[13px] font-medium text-muted-foreground";
+const userTd = "px-4 py-4 align-middle text-sm leading-5";
+const userTr =
+  "border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/50";
 
 export function useUsers(enabled = true) {
   const client = useApi();
@@ -81,44 +80,54 @@ export function UsersPage() {
 
   return (
     <div>
-      <PageHeader
-        title="用户管理"
-        description="创建员工账号、分配角色、重置密码、禁用或删除账号。禁用、改角色、重置密码或删除会立即注销该用户的所有会话。"
-        actions={
-          <div className="flex gap-2">
+      <div className="mb-6">
+        <h1 className="font-serif text-[32px] font-normal leading-none tracking-tight text-foreground">
+          用户管理
+        </h1>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+          <p className="min-w-0 max-w-2xl text-sm leading-6 text-muted-foreground">
+            创建员工账号、分配角色、重置密码、禁用或删除账号。禁用、改角色、重置密码或删除会立即注销该用户的所有会话。
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
             <Button
+              className="font-normal shadow-none"
               disabled={selected.length === 0}
               onClick={() => setBulkOpen(true)}
             >
               设置用量窗口
               {selected.length > 0 ? ` (${selected.length})` : ""}
             </Button>
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              <Plus className="size-4" />
+            <Button
+              variant="primary"
+              className="shadow-none"
+              onClick={() => setCreating(true)}
+            >
+              <Plus className="size-3.5" />
               新建用户
             </Button>
           </div>
-        }
-      />
-      <Card className="overflow-x-auto">
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-border/80 bg-card">
         {users.isPending ? (
           <LoadingState />
         ) : users.isError ? (
           <ErrorState error={users.error} onRetry={() => users.refetch()} />
         ) : users.data.items.length === 0 ? (
           <EmptyState
-            icon={<UsersIcon className="size-6 stroke-[1.5]" />}
+            icon={<UsersIcon className="size-5 stroke-[1.5]" />}
             title="暂无用户"
           >
             暂无用户
           </EmptyState>
         ) : (
-          <table className={tableClass}>
+          <table className="w-full border-collapse text-left">
             <thead>
-              <tr>
-                <th className={`${thClass} w-8`}>
+              <tr className="border-b border-border/70">
+                <th className={`${userTh} w-10`}>
                   <input
                     type="checkbox"
+                    className="size-3.5 accent-foreground"
                     aria-label="全选"
                     checked={
                       users.data.items.length > 0 &&
@@ -133,22 +142,23 @@ export function UsersPage() {
                     }
                   />
                 </th>
-                <th className={thClass}>用户名</th>
-                <th className={thClass}>显示名</th>
-                <th className={thClass}>角色</th>
-                <th className={thClass}>用量窗口</th>
-                <th className={thClass}>状态</th>
-                <th className={thClass}>创建时间</th>
-                <th className={thClass}>最近登录</th>
-                <th className={`${thClass} text-right`}>操作</th>
+                <th className={userTh}>用户名</th>
+                <th className={userTh}>显示名</th>
+                <th className={userTh}>角色</th>
+                <th className={userTh}>用量窗口</th>
+                <th className={userTh}>状态</th>
+                <th className={userTh}>创建时间</th>
+                <th className={userTh}>最近登录</th>
+                <th className={`${userTh} text-right`}>操作</th>
               </tr>
             </thead>
             <tbody>
               {users.data.items.map((u) => (
-                <tr key={u.id} className={trClass}>
-                  <td className={tdClass}>
+                <tr key={u.id} className={userTr}>
+                  <td className={userTd}>
                     <input
                       type="checkbox"
+                      className="size-3.5 accent-foreground"
                       aria-label={`选择 ${u.username}`}
                       checked={selected.includes(u.id)}
                       onChange={(e) =>
@@ -160,54 +170,71 @@ export function UsersPage() {
                       }
                     />
                   </td>
-                  <td className={`${tdClass} font-mono text-xs`}>
+                  <td className={`${userTd} font-medium`}>
                     {u.username}
                     {u.id === session.user.id && (
-                      <span className="ml-1.5 font-sans">
-                        <Badge tone="blue">我</Badge>
+                      <span className="ml-1.5 font-normal text-muted-foreground">
+                        我
                       </span>
                     )}
                   </td>
-                  <td className={tdClass}>{u.displayName}</td>
-                  <td className={tdClass}>
-                    <Badge tone={u.role === "admin" ? "purple" : "gray"}>
-                      {ROLE_LABELS[u.role]}
-                    </Badge>
+                  <td className={userTd}>{u.displayName}</td>
+                  <td
+                    className={`${userTd} ${u.role === "admin" ? "font-medium" : "text-muted-foreground"}`}
+                  >
+                    {ROLE_LABELS[u.role]}
                   </td>
-                  <td className={tdClass}>
+                  <td
+                    className={`${userTd} ${
+                      u.role === "admin" || u.upstreamAccountIds.length > 0
+                        ? ""
+                        : "text-muted-foreground"
+                    }`}
+                  >
                     {u.role === "admin"
                       ? "全部"
                       : u.upstreamAccountIds.length === 0
                         ? "无"
                         : `${u.upstreamAccountIds.length} 个账号`}
                   </td>
-                  <td className={tdClass}>
-                    {u.disabled ? (
-                      <Badge tone="red">已禁用</Badge>
-                    ) : (
-                      <Badge tone="green">正常</Badge>
-                    )}
+                  <td className={userTd}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        aria-hidden
+                        className={`size-1.5 rounded-full ${
+                          u.disabled ? "bg-destructive" : "bg-emerald-600"
+                        }`}
+                      />
+                      {u.disabled ? "已禁用" : "正常"}
+                    </span>
                   </td>
-                  <td className={`${tdClass} whitespace-nowrap`}>
+                  <td
+                    className={`${userTd} whitespace-nowrap text-muted-foreground tabular-nums`}
+                  >
                     {formatDateTime(u.createdAt)}
                   </td>
-                  <td className={`${tdClass} whitespace-nowrap`}>
+                  <td
+                    className={`${userTd} whitespace-nowrap text-muted-foreground tabular-nums`}
+                  >
                     {formatDateTime(u.lastLoginAt)}
                   </td>
-                  <td className={`${tdClass} text-right whitespace-nowrap`}>
-                    <div className="inline-flex gap-1">
-                      <Button size="sm" onClick={() => setEditing(u)}>
+                  <td className={`${userTd} text-right whitespace-nowrap`}>
+                    <div className="inline-flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(u)}
+                        className="rounded-lg px-2 py-1 text-sm text-foreground hover:bg-muted"
+                      >
                         编辑
-                      </Button>
+                      </button>
                       {u.id !== session.user.id && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:bg-destructive/10"
+                        <button
+                          type="button"
                           onClick={() => setDeleting(u)}
+                          className="rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         >
                           删除
-                        </Button>
+                        </button>
                       )}
                     </div>
                   </td>
@@ -216,7 +243,7 @@ export function UsersPage() {
             </tbody>
           </table>
         )}
-      </Card>
+      </div>
       {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
       {bulkOpen && (
         <BulkWindowsDialog
