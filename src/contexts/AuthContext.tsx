@@ -37,6 +37,14 @@ interface AuthContextValue {
   hasPermission: (permission: Permission) => boolean;
 }
 
+/** Desktop local cards. `providers.manage` is admin gateway CRUD and must not gate this. */
+export function canManageLocalProviders(
+  loggedIn: boolean,
+  permissions: readonly Permission[],
+): boolean {
+  return !loggedIn || permissions.includes("models.use");
+}
+
 const noop = async () => {};
 
 // Default value lets components render outside the provider (e.g. in tests).
