@@ -4064,6 +4064,7 @@
     "collapseSidebar": "Collapse sidebar",
     "appsGroup": "Apps",
     "todayCost": "Today {{cost}}",
+    "connectors": "Connectors",
     "usage": "Usage",
     "upstream": "Usage windows",
     "auth": "Accounts",
@@ -4841,6 +4842,10 @@
     "uninstall": "Uninstall",
     "loading": "Loading enterprise marketplace…",
     "empty": "No items in the enterprise marketplace",
+    "noMatch": "No items matching “{{query}}”",
+    "searchPlaceholder": "Search name, description, or publisher",
+    "searchAriaLabel": "Search enterprise marketplace",
+    "publisher": "Published by {{name}}",
     "loadFailed": "Failed to load the enterprise marketplace: {{error}}",
     "toast": {
       "installed": "Installed",
@@ -4851,10 +4856,27 @@
       "uninstallFailed": "Uninstall failed: {{error}}"
     }
   },
+  "connectors": {
+    "intro": "Connect company systems to Codex. After install, sign in to DingTalk once and fully quit Codex before reopening.",
+    "install": "Install",
+    "installing": "Downloading DingTalk Workspace CLI and Codex skills…",
+    "installed": "Installed",
+    "notInstalled": "Not installed",
+    "loggedIn": "Signed in to DingTalk",
+    "login": "Sign in",
+    "relogin": "Sign in again",
+    "loginHint": "Opens a terminal running dws auth login. Scan the QR code or approve in the browser.",
+    "dws": {
+      "name": "DingTalk Workspace CLI",
+      "blurb": "Official dws CLI. Install puts the binary on this machine and wires calendar, docs, and AI Table skills into Codex."
+    }
+  },
   "upstream": {
     "loading": "Loading upstream accounts…",
     "unconfigured": "Sub2API is not configured on the enterprise server",
-    "empty": "No upstream accounts"
+    "empty": "No upstream accounts",
+    "requests": "{{n}} queries",
+    "expiresAt": "resets {{time}}"
   },
   "enterpriseRetention": {
     "statusLabel": "Conversation retention: {{status}}",

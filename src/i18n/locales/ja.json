@@ -4064,6 +4064,7 @@
     "collapseSidebar": "サイドバーを折りたたむ",
     "appsGroup": "アプリ",
     "todayCost": "今日 {{cost}}",
+    "connectors": "コネクタ",
     "usage": "使用量",
     "upstream": "使用量ウィンドウ",
     "auth": "アカウント",
@@ -4841,6 +4842,10 @@
     "uninstall": "アンインストール",
     "loading": "エンタープライズマーケットを読み込み中…",
     "empty": "エンタープライズマーケットに項目がありません",
+    "noMatch": "「{{query}}」に一致する項目はありません",
+    "searchPlaceholder": "名前、説明、公開者で検索",
+    "searchAriaLabel": "エンタープライズマーケットを検索",
+    "publisher": "公開者 {{name}}",
     "loadFailed": "エンタープライズマーケットの読み込みに失敗しました：{{error}}",
     "toast": {
       "installed": "インストールしました",
@@ -4851,10 +4856,27 @@
       "uninstallFailed": "アンインストールに失敗しました：{{error}}"
     }
   },
+  "connectors": {
+    "intro": "会社のシステムを Codex に接続します。インストール後は DingTalk に一度ログインし、Codex を完全に終了してから開き直してください。",
+    "install": "インストール",
+    "installing": "DingTalk Workspace CLI と Codex Skill をインストールしています…",
+    "installed": "インストール済み",
+    "notInstalled": "未インストール",
+    "loggedIn": "DingTalk にログイン済み",
+    "login": "ログイン",
+    "relogin": "再ログイン",
+    "loginHint": "端末で dws auth login を実行します。QR またはブラウザで承認してください。",
+    "dws": {
+      "name": "DingTalk Workspace CLI",
+      "blurb": "公式 dws CLI。インストールでバイナリを入れ、カレンダー・ドキュメント・AI テーブルなどの Skill を Codex に接続します。"
+    }
+  },
   "upstream": {
     "loading": "上流アカウントを読み込み中…",
     "unconfigured": "企業サーバーに Sub2API が設定されていません",
-    "empty": "上流アカウントがありません"
+    "empty": "上流アカウントがありません",
+    "requests": "{{n}} 回",
+    "expiresAt": "{{time}} 期限"
   },
   "enterpriseRetention": {
     "statusLabel": "会話保存：{{status}}",

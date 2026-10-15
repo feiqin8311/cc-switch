@@ -4064,6 +4064,7 @@
     "collapseSidebar": "收起侧栏",
     "appsGroup": "应用",
     "todayCost": "今日 {{cost}}",
+    "connectors": "连接器",
     "usage": "用量统计",
     "upstream": "用量窗口",
     "auth": "授权中心",
@@ -4841,6 +4842,10 @@
     "uninstall": "卸载",
     "loading": "正在加载企业市场…",
     "empty": "企业市场暂无可用内容",
+    "noMatch": "没有匹配「{{query}}」的项",
+    "searchPlaceholder": "搜索名称、描述或发布人",
+    "searchAriaLabel": "搜索企业市场",
+    "publisher": "发布人 {{name}}",
     "loadFailed": "企业市场加载失败：{{error}}",
     "toast": {
       "installed": "已安装",
@@ -4851,10 +4856,27 @@
       "uninstallFailed": "卸载失败：{{error}}"
     }
   },
+  "connectors": {
+    "intro": "把公司系统接到 Codex。安装后请登录一次钉钉，并彻底退出再开 Codex。",
+    "install": "安装",
+    "installing": "正在下载并安装 DingTalk Workspace CLI 和 Codex Skill，请稍候…",
+    "installed": "已安装",
+    "notInstalled": "未安装",
+    "loggedIn": "已登录钉钉",
+    "login": "去登录",
+    "relogin": "重新登录",
+    "loginHint": "会打开终端跑 dws auth login，用钉钉扫码或账号授权。",
+    "dws": {
+      "name": "钉钉 Workspace CLI",
+      "blurb": "官方 dws 命令行。点安装会装二进制，并把日历、文档、AI 表格等 Skill 接到 Codex。"
+    }
+  },
   "upstream": {
     "loading": "正在读取上游账号…",
     "unconfigured": "企业服务器未配置 Sub2API",
-    "empty": "没有上游账号"
+    "empty": "没有上游账号",
+    "requests": "{{n}} 次查询",
+    "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {
     "statusLabel": "对话留存：{{status}}",

@@ -11,6 +11,7 @@ import {
   ChevronsRight,
   Database,
   Folder,
+  Cable,
   Globe,
   History,
   Info,
@@ -232,6 +233,7 @@ function MainDirectory({
     alert?: string;
   }[] = [
     { page: "mcp", label: "MCP", icon: Server },
+    { page: "connectors", label: t("nav.connectors"), icon: Cable },
     { page: "skills", label: "Skills", icon: SkillsIcon },
     { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
     { page: "sessions", label: t("nav.sessions"), icon: History },

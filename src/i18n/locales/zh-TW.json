@@ -4065,6 +4065,7 @@
     "collapseSidebar": "收起側欄",
     "appsGroup": "應用",
     "todayCost": "今日 {{cost}}",
+    "connectors": "連接器",
     "usage": "用量統計",
     "upstream": "用量視窗",
     "auth": "授權中心",
@@ -4842,6 +4843,10 @@
     "uninstall": "解除安裝",
     "loading": "正在載入企業市集…",
     "empty": "企業市集暫無可用內容",
+    "noMatch": "沒有符合「{{query}}」的項目",
+    "searchPlaceholder": "搜尋名稱、描述或發布人",
+    "searchAriaLabel": "搜尋企業市集",
+    "publisher": "發布人 {{name}}",
     "loadFailed": "企業市集載入失敗：{{error}}",
     "toast": {
       "installed": "已安裝",
@@ -4852,10 +4857,27 @@
       "uninstallFailed": "解除安裝失敗：{{error}}"
     }
   },
+  "connectors": {
+    "intro": "把公司系統接到 Codex。安裝後請登入一次釘釘，並徹底退出再開 Codex。",
+    "install": "安裝",
+    "installing": "正在下載並安裝 DingTalk Workspace CLI 與 Codex Skill…",
+    "installed": "已安裝",
+    "notInstalled": "未安裝",
+    "loggedIn": "已登入釘釘",
+    "login": "去登入",
+    "relogin": "重新登入",
+    "loginHint": "會開啟終端機執行 dws auth login，用釘釘掃碼或帳號授權。",
+    "dws": {
+      "name": "釘釘 Workspace CLI",
+      "blurb": "官方 dws 命令列。點安裝會裝二進位，並把日曆、文件、AI 表格等 Skill 接到 Codex。"
+    }
+  },
   "upstream": {
     "loading": "正在讀取上游帳號…",
     "unconfigured": "企業伺服器未設定 Sub2API",
-    "empty": "沒有上游帳號"
+    "empty": "沒有上游帳號",
+    "requests": "{{n}} 次查詢",
+    "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {
     "statusLabel": "對話留存：{{status}}",
