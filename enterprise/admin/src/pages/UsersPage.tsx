@@ -498,6 +498,7 @@ function EditUserDialog({
   const qc = useQueryClient();
   const toast = useToast();
   const { patchCurrentUser } = useAuth();
+  const [username, setUsername] = useState(user.username);
   const [groupName, setGroupName] = useState(user.groupName);
   const [role, setRole] = useState<Role>(user.role);
   const [disabled, setDisabled] = useState(user.disabled);
@@ -522,6 +523,10 @@ function EditUserDialog({
       onClose();
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.code === "conflict") {
+        setErrors({ username: "用户名已存在" });
+        return;
+      }
       const fields = fieldErrorsOf(err);
       if (Object.keys(fields).length > 0) setErrors(fields);
       else setFormError(describeError(err));
@@ -531,6 +536,8 @@ function EditUserDialog({
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
+    if (!USERNAME_RE.test(username.trim()))
+      next.username = "2-32 位，中文或字母数字，可含 '.'、'_'、'-'";
     if (password && (password.length < 6 || password.length > 128))
       next.password = "密码长度需为 6-128 位";
     if (groupName.trim().length > 64) next.groupName = "组名最多 64 个字符";
@@ -539,6 +546,7 @@ function EditUserDialog({
     if (Object.keys(next).length > 0) return;
 
     const body: UpdateUserRequest = {};
+    if (username.trim() !== user.username) body.username = username.trim();
     if (groupName.trim() !== user.groupName) body.groupName = groupName.trim();
     if (!isSelf && role !== user.role) body.role = role;
     if (!isSelf && disabled !== user.disabled) body.disabled = disabled;
@@ -580,6 +588,22 @@ function EditUserDialog({
         onSubmit={onSubmit}
         className="grid grid-cols-2 gap-3"
       >
+        <Field
+          label="用户名"
+          htmlFor="eu-username"
+          error={errors.username}
+          hint="员工用新用户名登录，已登录的设备不受影响"
+          className="col-span-2"
+        >
+          <input
+            id="eu-username"
+            className={inputClass}
+            aria-invalid={!!errors.username}
+            autoComplete="off"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </Field>
         <Field
           label="组"
           htmlFor="eu-group"

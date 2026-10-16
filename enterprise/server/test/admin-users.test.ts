@@ -296,6 +296,73 @@ describe("admin users", () => {
     expect(user.offboardedBy).toBeNull();
   });
 
+  it("renames a user, keeps their session and rejects taken names", async () => {
+    const created = UserSchema.parse((await createUser("member")).json());
+    const member = await login(ctx.app, "alice", "alice-password-1");
+    await createUser("member", "bob");
+
+    const taken = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+      payload: { username: "bob" },
+    });
+    expect(taken.statusCode).toBe(409);
+
+    const res = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+      payload: { username: "李梦" },
+    });
+    expect(res.statusCode).toBe(200);
+    // displayName was "Alice", not the old username, so it stays.
+    expect(UserSchema.parse(res.json())).toMatchObject({
+      username: "李梦",
+      displayName: "Alice",
+    });
+
+    const me = await ctx.app.inject({
+      url: "/api/v1/me",
+      headers: bearer(member.accessToken),
+    });
+    expect(me.statusCode).toBe(200);
+    expect((await login(ctx.app, "李梦", "alice-password-1")).user.id).toBe(
+      created.id,
+    );
+    const old = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: { username: "alice", password: "alice-password-1" },
+    });
+    expect(old.statusCode).toBe(401);
+  });
+
+  it("renames the display name along when it equals the username", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/admin/users",
+      headers: bearer(adminToken),
+      payload: {
+        username: "zhoujieping",
+        password: "zjp-password-1",
+        role: "member",
+      },
+    });
+    const user = UserSchema.parse(res.json());
+    expect(user.displayName).toBe("zhoujieping");
+    const renamed = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/users/${user.id}`,
+      headers: bearer(adminToken),
+      payload: { username: "周洁萍" },
+    });
+    expect(UserSchema.parse(renamed.json())).toMatchObject({
+      username: "周洁萍",
+      displayName: "周洁萍",
+    });
+  });
+
   it("prevents admins from disabling or demoting themselves", async () => {
     for (const payload of [{ disabled: true }, { role: "member" }]) {
       const res = await ctx.app.inject({
