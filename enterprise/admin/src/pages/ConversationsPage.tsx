@@ -114,7 +114,7 @@ export function ConversationsPage({ embedded }: { embedded?: boolean } = {}) {
       <PageHeader
         embedded={embedded}
         title="对话记录"
-        description="查看员工确认留存告知后上传的 Codex 对话，按最近消息时间倒序。"
+        description="查看员工电脑每天同步上来的 Codex 对话，按最近消息时间倒序。"
       />
 
       {/* Filter toolbar */}

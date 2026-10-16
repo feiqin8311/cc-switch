@@ -6,14 +6,13 @@
 //!
 //! Rules implemented here:
 //! - Uploads happen only while signed in and the server policy is enabled.
-//!   The first time that is true, this device records a cutoff for the current
-//!   `(serverUrl, userId)`. There is no consent dialog.
-//! - Only Codex sessions whose start time is at or after that cutoff are
-//!   considered; history from before it is never sent (a resumed old session
-//!   stays excluded too, because its start time is before the cutoff).
+//! - Every Codex session on this device is synced, history included, at most
+//!   once per [`SYNC_INTERVAL`]: the first pass runs shortly after the policy
+//!   is seen enabled, later passes once a day after the last successful one.
 //! - The rollout files themselves are the offline buffer: a per-file cursor
-//!   (`uploadedSeq` = next seq to send) only advances after a 2xx, so network
-//!   errors are simply retried on the next tick.
+//!   (`uploadedSeq` = next seq to send) only advances after a 2xx, so a
+//!   failed pass is retried on the next check ([`CHECK_EVERY`]) and only sends
+//!   what is still missing.
 //! - Message contents are never logged.
 //!
 //! ## Seq stability
@@ -36,6 +35,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -64,8 +64,11 @@ pub const SETTLE_AFTER: Duration = Duration::from_secs(10 * 60);
 
 const STATE_FILE: &str = "enterprise_retention.json";
 const UPLOAD_PATH: &str = "/retention/conversations";
+/// Time between two successful sync passes.
+pub const SYNC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often the loop checks whether a pass is due (also the retry delay after a failure).
+const CHECK_EVERY: Duration = Duration::from_secs(15 * 60);
 const FIRST_TICK: Duration = Duration::from_secs(30);
-const TICK: Duration = Duration::from_secs(60);
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
 const MAX_SESSION_ID: usize = 200;
@@ -118,14 +121,14 @@ struct UploadResponse {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionStore {
-    /// `"<serverUrl>|<userId>"` → acknowledgedAt (RFC 3339).
-    #[serde(default)]
-    pub acks: BTreeMap<String, String>,
     /// Logical rollout path (without `.zst`) → cursor.
     #[serde(default)]
     pub cursors: BTreeMap<String, FileCursor>,
     #[serde(default)]
     pub last_upload_at: Option<String>,
+    /// End of the last pass that uploaded everything it found (RFC 3339).
+    #[serde(default)]
+    pub last_sync_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -146,10 +149,6 @@ pub struct FileCursor {
 pub struct FileSig {
     pub size: u64,
     pub mtime_ms: i64,
-}
-
-pub fn ack_key(server_url: &str, user_id: &str) -> String {
-    format!("{server_url}|{user_id}")
 }
 
 pub fn state_file_path(config_dir: &Path) -> PathBuf {
@@ -191,8 +190,18 @@ pub fn find_cursor<'a>(
         .or_else(|| cursors.values().find(|c| c.session_id == session_id))
 }
 
-pub fn session_after_ack(created_at_ms: Option<i64>, ack_ms: i64) -> bool {
-    created_at_ms.is_some_and(|t| t >= ack_ms)
+/// A pass is due when none has succeeded yet or the last one is [`SYNC_INTERVAL`] old.
+pub fn sync_due(last_sync_at: Option<&str>, now_ms: i64) -> bool {
+    last_sync_at
+        .and_then(parse_rfc3339_ms)
+        .is_none_or(|last| now_ms.saturating_sub(last) >= SYNC_INTERVAL.as_millis() as i64)
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn parse_rfc3339_ms(s: &str) -> Option<i64> {
@@ -624,18 +633,16 @@ pub fn file_sig(path: &Path) -> Option<FileSig> {
     })
 }
 
-/// Sessions started at/after the acknowledgment whose file changed since it
-/// was last fully uploaded.
+/// Sessions whose file changed since it was last fully uploaded.
 pub fn select_candidates(
     sessions: Vec<SessionMeta>,
-    ack_ms: i64,
     cursors: &BTreeMap<String, FileCursor>,
     now_ms: i64,
     stat: &dyn Fn(&Path) -> Option<FileSig>,
 ) -> Vec<Candidate> {
     let mut out = Vec::new();
     for meta in sessions {
-        if !session_after_ack(meta.created_at, ack_ms) || meta.session_id.is_empty() {
+        if meta.session_id.is_empty() {
             continue;
         }
         let Some(source) = meta.source_path.as_deref() else {
@@ -659,7 +666,10 @@ pub fn select_candidates(
             session_id: meta.session_id,
             title: meta.title,
             project_dir: meta.project_dir,
-            started_at_ms: meta.created_at.unwrap_or(ack_ms),
+            started_at_ms: meta
+                .created_at
+                .or(meta.last_active_at)
+                .unwrap_or(sig.mtime_ms),
             sig,
             uploaded_seq: cursor.map_or(0, |c| c.uploaded_seq),
             idle,
@@ -746,35 +756,16 @@ pub(super) fn prepare_candidate(candidate: &Candidate) -> Result<Vec<PendingChun
 #[serde(rename_all = "camelCase")]
 pub struct RetentionStatus {
     pub enabled: bool,
-    pub notice_text: String,
-    pub acknowledged: bool,
-    pub acknowledged_at: Option<String>,
+    pub last_sync_at: Option<String>,
     pub last_upload_at: Option<String>,
     pub last_error: Option<String>,
     pub uploaded_sessions: usize,
 }
 
-struct UploadContext {
-    ack_key: String,
-}
-
-fn upload_context(state: &EnterpriseState) -> Option<UploadContext> {
-    if !state.logged_in {
-        return None;
-    }
-    let config = state.config.as_ref()?;
-    if !config.retention.enabled {
-        return None;
-    }
-    let server = state.server_url.as_deref()?;
-    let user = state
-        .user
-        .as_ref()
-        .map(|u| u.id.as_str())
-        .unwrap_or(&config.user.id);
-    Some(UploadContext {
-        ack_key: ack_key(server, user),
-    })
+fn upload_enabled(state: &EnterpriseState) -> bool {
+    state.logged_in
+        && state.server_url.is_some()
+        && state.config.as_ref().is_some_and(|c| c.retention.enabled)
 }
 
 pub struct RetentionService {
@@ -783,6 +774,8 @@ pub struct RetentionService {
     store: Mutex<RetentionStore>,
     last_error: Mutex<Option<String>>,
     wake: Notify,
+    /// Set by [`Self::trigger`]: run the next pass even if one is not due.
+    forced: AtomicBool,
     run_lock: tokio::sync::Mutex<()>,
 }
 
@@ -796,12 +789,15 @@ impl RetentionService {
             store: Mutex::new(store),
             last_error: Mutex::new(None),
             wake: Notify::new(),
+            forced: AtomicBool::new(false),
             run_lock: tokio::sync::Mutex::new(()),
         })
     }
 
-    /// Run an upload pass as soon as possible.
+    /// Run an upload pass as soon as possible, due or not.
+    #[cfg(test)]
     pub fn trigger(&self) {
+        self.forced.store(true, Ordering::SeqCst);
         self.wake.notify_one();
     }
 
@@ -821,21 +817,11 @@ impl RetentionService {
     }
 
     pub async fn status(&self) -> RetentionStatus {
-        let state = self.session.state().await;
-        let policy = state
-            .config
-            .as_ref()
-            .filter(|_| state.logged_in)
-            .map(|c| c.retention.clone());
-        let enabled = policy.as_ref().is_some_and(|p| p.enabled);
-        let ack =
-            upload_context(&state).and_then(|ctx| self.store().acks.get(&ctx.ack_key).cloned());
+        let enabled = upload_enabled(&self.session.state().await);
         let store = self.store();
         RetentionStatus {
             enabled,
-            notice_text: policy.map(|p| p.notice_text).unwrap_or_default(),
-            acknowledged: ack.is_some(),
-            acknowledged_at: ack,
+            last_sync_at: store.last_sync_at.clone(),
             last_upload_at: store.last_upload_at.clone(),
             last_error: self
                 .last_error
@@ -850,30 +836,8 @@ impl RetentionService {
         }
     }
 
-    /// Record the upload cutoff for the current server + user and upload right away.
-    pub async fn acknowledge(&self) -> Result<RetentionStatus, String> {
-        let state = self.session.state().await;
-        let ctx = upload_context(&state)
-            .ok_or_else(|| "Conversation retention is not enabled for this account".to_string())?;
-        let changed = {
-            let mut store = self.store();
-            if store.acks.contains_key(&ctx.ack_key) {
-                false
-            } else {
-                store.acks.insert(ctx.ack_key.clone(), now_rfc3339());
-                true
-            }
-        };
-        if changed {
-            let snapshot = self.store().clone();
-            save_store(&self.state_path, &snapshot)?;
-            log::info!("[Retention] cutoff recorded");
-        }
-        self.trigger();
-        Ok(self.status().await)
-    }
-
-    /// Background loop: first pass after [`FIRST_TICK`], then every [`TICK`] or on [`Self::trigger`].
+    /// Background loop: first check after [`FIRST_TICK`], then every [`CHECK_EVERY`]
+    /// or on [`Self::trigger`]. A check only uploads when a pass is due.
     pub async fn run_loop(self: Arc<Self>) {
         tokio::select! {
             _ = tokio::time::sleep(FIRST_TICK) => {}
@@ -882,7 +846,7 @@ impl RetentionService {
         loop {
             self.run_once().await;
             tokio::select! {
-                _ = tokio::time::sleep(TICK) => {}
+                _ = tokio::time::sleep(CHECK_EVERY) => {}
                 _ = self.wake.notified() => {}
             }
         }
@@ -890,37 +854,18 @@ impl RetentionService {
 
     async fn run_once(&self) {
         let _running = self.run_lock.lock().await;
-        let state = self.session.state().await;
-        let Some(ctx) = upload_context(&state) else {
+        if !upload_enabled(&self.session.state().await) {
             return;
-        };
-        // Drop the store lock before acknowledge(); that call locks it again.
-        let needs_cutoff = !self.store().acks.contains_key(&ctx.ack_key);
-        if needs_cutoff {
-            // The consent dialog is gone. The cutoff is the first time this
-            // device applies the enabled policy; sessions started earlier stay local.
-            if let Err(e) = self.acknowledge().await {
-                log::warn!("[Retention] failed to record cutoff: {e}");
-                return;
-            }
         }
-        let Some(ack_ms) = self
-            .store()
-            .acks
-            .get(&ctx.ack_key)
-            .and_then(|s| parse_rfc3339_ms(s))
-        else {
+        let forced = self.forced.swap(false, Ordering::SeqCst);
+        if !forced && !sync_due(self.store().last_sync_at.as_deref(), now_ms()) {
             return;
-        };
+        }
 
         let cursors = self.store().cursors.clone();
         let scanned = tokio::task::spawn_blocking(move || {
-            let now_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0);
             let sessions = codex::scan_sessions();
-            let candidates = select_candidates(sessions, ack_ms, &cursors, now_ms, &file_sig);
+            let candidates = select_candidates(sessions, &cursors, now_ms(), &file_sig);
             // Forget cursors of rollouts that no longer exist in either form.
             let stale: Vec<String> = cursors
                 .keys()
@@ -948,7 +893,6 @@ impl RetentionService {
         }
 
         let mut builder = BatchBuilder::new(MAX_ITEMS_PER_REQUEST, MAX_BODY_BYTES);
-        let mut dirty = !stale.is_empty();
         for candidate in candidates {
             let prepared = tokio::task::spawn_blocking(move || prepare_candidate(&candidate)).await;
             let chunks = match prepared {
@@ -965,7 +909,6 @@ impl RetentionService {
             for chunk in chunks {
                 if chunk.upload.messages.is_empty() {
                     apply_accepted(&mut self.store(), std::slice::from_ref(&chunk));
-                    dirty = true;
                     continue;
                 }
                 if let Some(batch) = builder.push(chunk) {
@@ -973,7 +916,6 @@ impl RetentionService {
                         self.persist();
                         return;
                     }
-                    dirty = false;
                 }
             }
         }
@@ -982,12 +924,11 @@ impl RetentionService {
                 self.persist();
                 return;
             }
-            dirty = false;
         }
-        if dirty {
-            self.persist();
-        }
+        self.store().last_sync_at = Some(now_rfc3339());
+        self.persist();
         self.set_error(None);
+        log::info!("[Retention] daily sync finished");
     }
 
     /// Send one request; on 2xx advance the cursors and persist. Returns success.
@@ -1328,15 +1269,11 @@ mod tests {
     }
 
     #[test]
-    fn only_sessions_after_ack_are_candidates() {
-        let ack = 1_000_000;
-        assert!(session_after_ack(Some(ack), ack));
-        assert!(!session_after_ack(Some(ack - 1), ack));
-        assert!(!session_after_ack(None, ack));
-
+    fn every_changed_session_is_a_candidate() {
+        let t = 1_000_000;
         let sig = FileSig {
             size: 10,
-            mtime_ms: ack + 10,
+            mtime_ms: t + 10,
         };
         let mut cursors = BTreeMap::new();
         cursors.insert(
@@ -1345,22 +1282,35 @@ mod tests {
                 session_id: "done".into(),
                 uploaded_seq: 4,
                 file_size: Some(10),
-                mtime: Some(ack + 10),
+                mtime: Some(t + 10),
             },
         );
         let sessions = vec![
-            meta("old", Some(ack - 1), "/r/old.jsonl"),
-            meta("new", Some(ack + 1), "/r/new.jsonl.zst"),
-            meta("done", Some(ack + 1), "/r/done.jsonl"),
+            meta("old", Some(t - 86_400_000), "/r/old.jsonl"),
+            meta("new", Some(t + 1), "/r/new.jsonl.zst"),
+            meta("done", Some(t + 1), "/r/done.jsonl"),
             meta("unknown", None, "/r/unknown.jsonl"),
+            meta("", Some(t), "/r/no-id.jsonl"),
         ];
-        let now = ack + 10 + SETTLE_AFTER.as_millis() as i64;
-        let got = select_candidates(sessions, ack, &cursors, now, &|_| Some(sig));
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].session_id, "new");
-        assert_eq!(got[0].cursor_key, "/r/new.jsonl");
-        assert!(got[0].idle);
-        assert_eq!(got[0].uploaded_seq, 0);
+        let now = t + 10 + SETTLE_AFTER.as_millis() as i64;
+        let got = select_candidates(sessions, &cursors, now, &|_| Some(sig));
+        let ids: Vec<_> = got.iter().map(|c| c.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["old", "new", "unknown"]);
+        assert_eq!(got[1].cursor_key, "/r/new.jsonl");
+        assert!(got.iter().all(|c| c.idle && c.uploaded_seq == 0));
+        // No start time: fall back to the file's mtime.
+        assert_eq!(got[2].started_at_ms, t + 10);
+    }
+
+    #[test]
+    fn sync_runs_once_per_interval() {
+        let day = SYNC_INTERVAL.as_millis() as i64;
+        let last = "2026-01-01T00:00:00.000Z";
+        let last_ms = parse_rfc3339_ms(last).unwrap();
+        assert!(sync_due(None, last_ms));
+        assert!(sync_due(Some("garbage"), last_ms));
+        assert!(!sync_due(Some(last), last_ms + day - 1));
+        assert!(sync_due(Some(last), last_ms + day));
     }
 
     #[test]
@@ -1368,11 +1318,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = state_file_path(dir.path());
         assert_eq!(load_store(&path), RetentionStore::default());
-        let mut store = RetentionStore::default();
-        store.acks.insert(
-            ack_key("https://e.example", "u1"),
-            "2026-01-01T00:00:00.000Z".into(),
-        );
+        let mut store = RetentionStore {
+            last_sync_at: Some("2026-01-01T00:00:00.000Z".into()),
+            ..Default::default()
+        };
         store.cursors.insert(
             "/r/a.jsonl".into(),
             FileCursor {
@@ -1392,7 +1341,7 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600);
         }
         assert_eq!(
-            parse_rfc3339_ms(&store.acks["https://e.example|u1"]),
+            parse_rfc3339_ms(store.last_sync_at.as_deref().unwrap()),
             Some(1_767_225_600_000)
         );
         std::fs::write(&path, b"not json").unwrap();

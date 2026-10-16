@@ -242,10 +242,13 @@ export const ManagedProviderSchema = z.object({
 export type ManagedProvider = z.infer<typeof ManagedProviderSchema>;
 
 export const RetentionPolicySchema = z.object({
-  /** When true the client uploads Codex conversations to the server. */
+  /** When true the client syncs all its Codex conversations to the server once a day. */
   enabled: z.boolean(),
-  /** Text the client must show the user before uploading anything. */
-  noticeText: z.string(),
+  /**
+   * Deprecated: the server always sends "" because desktop builds up to
+   * 4.0.19 require the field. Newer clients ignore it.
+   */
+  noticeText: z.string().optional(),
 });
 export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
 
@@ -416,15 +419,12 @@ export type UsageResponse = z.infer<typeof UsageResponseSchema>;
 
 /**
  * GET /admin/retention-policy (audit.read), PUT (settings.manage) → policy.
- * The desktop records a per-device cutoff the first time this policy is
- * enabled for the signed-in user, then uploads only Codex sessions that
- * start after that cutoff. History before the cutoff is never sent.
+ * While enabled, every signed-in desktop syncs all of its Codex sessions
+ * (history included) once a day. The server keeps uploaded conversations
+ * permanently.
  */
 export const AdminRetentionPolicySchema = z.object({
   enabled: z.boolean(),
-  noticeText: z.string().max(2000),
-  /** Conversations idle longer than this are deleted by the server. */
-  retentionDays: z.number().int().min(1).max(3650),
 });
 export type AdminRetentionPolicy = z.infer<typeof AdminRetentionPolicySchema>;
 

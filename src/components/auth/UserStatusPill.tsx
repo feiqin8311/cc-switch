@@ -73,7 +73,7 @@ export function UserStatusPill() {
           <div className="truncate text-caption font-normal text-fg-3">
             {t("enterpriseRetention.statusLabel", {
               status: t(
-                retention?.enabled && retention.acknowledged
+                retention?.enabled
                   ? "enterpriseRetention.statusOn"
                   : "enterpriseRetention.statusOff",
               ),

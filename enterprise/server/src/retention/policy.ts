@@ -10,11 +10,13 @@ export const RETENTION_SETTINGS_KEY = "retention";
 
 export const DEFAULT_RETENTION_POLICY: AdminRetentionPolicy = {
   enabled: false,
-  noticeText: "",
-  retentionDays: 180,
 };
 
-/** Current retention policy (settings key "retention"), or the default. */
+/**
+ * Current retention policy (settings key "retention"), or the default. Rows
+ * saved before noticeText / retentionDays were dropped still parse: the extra
+ * keys are stripped.
+ */
 export async function getRetentionPolicy(
   db: Db,
 ): Promise<AdminRetentionPolicy> {

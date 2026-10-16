@@ -4900,7 +4900,7 @@
   },
   "enterpriseRetention": {
     "statusLabel": "会話保存：{{status}}",
-    "statusOn": "有効",
+    "statusOn": "有効（毎日同期）",
     "statusOff": "無効"
   }
 }

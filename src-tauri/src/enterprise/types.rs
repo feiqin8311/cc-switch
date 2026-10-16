@@ -76,8 +76,8 @@ pub(crate) struct GatewayKeyResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPolicy {
+    /// While true this device syncs all its Codex sessions once a day.
     pub enabled: bool,
-    pub notice_text: String,
 }
 
 /// `GET /client/config`

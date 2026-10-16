@@ -35,11 +35,7 @@ export async function retentionRoutes(
       const body = parseBody(AdminRetentionPolicySchema, req.body);
       const saved = await saveRetentionPolicy(db, body);
       req.log.info(
-        {
-          actor: authOf(req).user.id,
-          enabled: saved.enabled,
-          retentionDays: saved.retentionDays,
-        },
+        { actor: authOf(req).user.id, enabled: saved.enabled },
         "retention policy updated",
       );
       return saved;
