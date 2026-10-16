@@ -26,7 +26,7 @@ const EnvSchema = z.object({
   ADMIN_DIST_DIR: z.string().default("../admin/dist"),
   ADMIN_USERNAME: z.string().default("Yida"),
   /** Initial admin password; defaults to Password123$ when unset. */
-  ADMIN_PASSWORD: z.string().min(10).default("Password123$"),
+  ADMIN_PASSWORD: z.string().min(6).default("Password123$"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
