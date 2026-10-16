@@ -20,6 +20,7 @@ import { AppError, notFound, parseBody } from "../errors.ts";
 import type { ProviderRow } from "../gateway/auth.ts";
 import { generateGatewayKey, hashGatewayKey } from "../gateway/keys.ts";
 import { encryptSecret, secretHint } from "../secrets.ts";
+import { assertUsersExist } from "../users/dto.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
 const DAY_MS = 86_400_000;
@@ -47,7 +48,8 @@ function toAdminProvider(row: ProviderRow): AdminProvider {
     apiKeyHint: row.apiKeyHint,
     models: row.models.map((m) => ({ id: m.id, displayName: m.displayName })),
     defaultModel: row.defaultModel,
-    allowedRoles: [...row.allowedRoles],
+    allowedUserIds: row.allowedUserIds ?? [],
+    allowedGroups: row.allowedGroups ?? [],
     dailyTokenLimitPerUser: row.dailyTokenLimitPerUser,
     enabled: row.enabled,
     createdAt: row.createdAt.toISOString(),
@@ -82,6 +84,16 @@ export async function adminProviderRoutes(
 
   app.post("/admin/providers", guard, async (req, reply) => {
     const body = parseBody(CreateProviderRequestSchema, req.body);
+    const allowedUserIds = body.allowedUserIds
+      ? [...new Set(body.allowedUserIds)]
+      : [];
+    if (allowedUserIds.length > 0) {
+      await assertUsersExist(db, allowedUserIds);
+    }
+    const allowedGroups = body.allowedGroups
+      ? [...new Set(body.allowedGroups)]
+      : [];
+
     try {
       const [row] = await db
         .insert(providers)
@@ -94,7 +106,8 @@ export async function adminProviderRoutes(
           apiKeyHint: secretHint(body.apiKey),
           models: body.models,
           defaultModel: body.defaultModel,
-          allowedRoles: [...new Set(body.allowedRoles)],
+          allowedUserIds,
+          allowedGroups,
           dailyTokenLimitPerUser: body.dailyTokenLimitPerUser,
           enabled: body.enabled,
         })
@@ -140,6 +153,18 @@ export async function adminProviderRoutes(
       );
     }
 
+    const allowedUserIds =
+      body.allowedUserIds !== undefined
+        ? [...new Set(body.allowedUserIds)]
+        : undefined;
+    if (allowedUserIds && allowedUserIds.length > 0) {
+      await assertUsersExist(db, allowedUserIds);
+    }
+    const allowedGroups =
+      body.allowedGroups !== undefined
+        ? [...new Set(body.allowedGroups)]
+        : undefined;
+
     const [row] = await db
       .update(providers)
       .set({
@@ -154,10 +179,8 @@ export async function adminProviderRoutes(
           body.apiKey !== undefined ? secretHint(body.apiKey) : undefined,
         models: body.models,
         defaultModel: body.defaultModel,
-        allowedRoles:
-          body.allowedRoles !== undefined
-            ? [...new Set(body.allowedRoles)]
-            : undefined,
+        allowedUserIds,
+        allowedGroups,
         dailyTokenLimitPerUser: body.dailyTokenLimitPerUser,
         enabled: body.enabled,
         updatedAt: new Date(),

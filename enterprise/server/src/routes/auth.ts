@@ -4,7 +4,7 @@ import {
   type MeResponse,
   RefreshRequestSchema,
 } from "@ccse/contracts";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app.ts";
 import { authOf } from "../auth/guard.ts";

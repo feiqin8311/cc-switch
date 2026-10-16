@@ -1,5 +1,8 @@
 import type { User } from "@ccse/contracts";
-import type { UserRow } from "../db/schema.ts";
+import { inArray } from "drizzle-orm";
+import type { Db } from "../db/client.ts";
+import { users, type UserRow } from "../db/schema.ts";
+import { AppError } from "../errors.ts";
 
 export function toUserDto(row: UserRow): User {
   return {
@@ -16,3 +19,15 @@ export function toUserDto(row: UserRow): User {
     offboardedBy: row.offboardedBy ?? null,
   };
 }
+
+export async function assertUsersExist(db: Db, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.id, ids));
+  if (rows.length !== ids.length) {
+    throw new AppError(400, "bad_request", "User not found");
+  }
+}
+

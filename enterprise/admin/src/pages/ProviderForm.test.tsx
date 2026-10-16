@@ -2,6 +2,37 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderForm } from "./ProviderForm";
 
+vi.mock("./UsersPage", () => ({
+  useUsers: () => ({
+    data: {
+      items: [
+        {
+          id: "u-admin",
+          username: "admin",
+          displayName: "Admin",
+          role: "admin",
+          groupName: "Dev",
+          disabled: false,
+          createdAt: "",
+          lastLoginAt: null,
+          upstreamAccountIds: [],
+        },
+        {
+          id: "u-member",
+          username: "member",
+          displayName: "Member",
+          role: "member",
+          groupName: "Dev",
+          disabled: false,
+          createdAt: "",
+          lastLoginAt: null,
+          upstreamAccountIds: [],
+        },
+      ],
+    },
+  }),
+}));
+
 function fill(label: string | RegExp, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
@@ -42,7 +73,8 @@ describe("ProviderForm", () => {
     render(<ProviderForm formId="pf" mode="create" onSubmit={onSubmit} />);
     fillValidBasics();
     fill(/^默认模型/, "gpt-5");
-    fill(/^每用户每日额度/, "100000");
+    fireEvent.click(screen.getByLabelText("Dev"));
+    fireEvent.click(screen.getByLabelText(/^member/));
     submit();
 
     expect(onSubmit).toHaveBeenCalledWith({
@@ -53,8 +85,8 @@ describe("ProviderForm", () => {
       apiKey: "sk-test-123",
       models: [{ id: "gpt-5", displayName: "GPT-5" }],
       defaultModel: "gpt-5",
-      allowedRoles: ["admin", "member"],
-      dailyTokenLimitPerUser: 100000,
+      allowedUserIds: ["u-member"],
+      allowedGroups: ["Dev"],
       enabled: true,
     });
   });
@@ -101,7 +133,8 @@ describe("ProviderForm", () => {
           apiKeyHint: "sk-…a1b2",
           models: [{ id: "gpt-5", displayName: "GPT-5" }],
           defaultModel: "gpt-5",
-          allowedRoles: ["admin"],
+          allowedUserIds: ["u-admin"],
+          allowedGroups: ["Dev"],
           dailyTokenLimitPerUser: null,
           enabled: true,
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -115,8 +148,8 @@ describe("ProviderForm", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("apiKey");
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
-      dailyTokenLimitPerUser: null,
-      allowedRoles: ["admin"],
+      allowedUserIds: ["u-admin"],
+      allowedGroups: ["Dev"],
     });
   });
 });

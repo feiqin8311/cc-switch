@@ -11,6 +11,7 @@ import {
 } from "../db/schema.ts";
 import { forbidden, notFound, unauthorized } from "../errors.ts";
 import { GATEWAY_KEY_PREFIX, hashGatewayKey } from "./keys.ts";
+import { canUserAccessProvider } from "./managed.ts";
 
 export type ProviderRow = typeof providers.$inferSelect;
 
@@ -95,7 +96,7 @@ export async function authenticateGatewayRequest(
     .where(eq(providers.id, providerId))
     .limit(1);
   if (!provider) throw notFound("Provider not found");
-  if (!provider.enabled || !provider.allowedRoles.includes(row.user.role)) {
+  if (!provider.enabled || !canUserAccessProvider(provider, row.user)) {
     throw forbidden("Provider is not available to you");
   }
 

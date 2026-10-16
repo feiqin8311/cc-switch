@@ -14,13 +14,10 @@ import {
   PromptDefinitionSchema,
   ProviderIdSchema,
 } from "@ccse/contracts";
-import { inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
 import { authOf, requirePermission } from "../auth/guard.ts";
-import type { Db } from "../db/client.ts";
-import { users } from "../db/schema.ts";
 import {
   AppError,
   forbidden,
@@ -40,19 +37,9 @@ import {
   toMarketItemDto,
 } from "../market/store.ts";
 import { validateMarketPackage } from "../market/validate.ts";
+import { assertUsersExist } from "../users/dto.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
-
-async function assertUsersExist(db: Db, ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(inArray(users.id, ids));
-  if (rows.length !== ids.length) {
-    throw new AppError(400, "bad_request", "User not found");
-  }
-}
 
 /** Member skill publish: no mandatory flag, kind is skill only. */
 const MemberSkillPublishSchema = z.object({

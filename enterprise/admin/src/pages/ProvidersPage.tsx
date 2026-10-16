@@ -7,7 +7,7 @@ import {
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cpu, Plus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useToast } from "../components/Toast";
 import {
   Badge,
@@ -29,13 +29,9 @@ import {
 } from "../components/ui";
 import { ApiError } from "../lib/api";
 import { useApi } from "../lib/auth";
-import {
-  describeError,
-  fieldErrorsOf,
-  formatNumber,
-  ROLE_LABELS,
-} from "../lib/format";
+import { describeError, fieldErrorsOf } from "../lib/format";
 import { gatewayUrl, ProviderForm, type ProviderPayload } from "./ProviderForm";
+import { useUsers } from "./UsersPage";
 
 const PROVIDERS_KEY = ["admin", "providers"] as const;
 
@@ -43,6 +39,14 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
+  const users = useUsers();
+  const userMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users.data?.items ?? []) {
+      map.set(u.id, u.username);
+    }
+    return map;
+  }, [users.data]);
   const [editing, setEditing] = useState<AdminProvider | "new" | null>(null);
   const [deleting, setDeleting] = useState<AdminProvider | null>(null);
 
@@ -108,8 +112,7 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
                 <th className={thClass}>ID</th>
                 <th className={thClass}>上游地址</th>
                 <th className={thClass}>模型数</th>
-                <th className={thClass}>允许角色</th>
-                <th className={thClass}>每日额度</th>
+                <th className={thClass}>允许访问</th>
                 <th className={thClass}>状态</th>
                 <th className={`${thClass} text-right`}>操作</th>
               </tr>
@@ -140,16 +143,22 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
                     {p.models.length}
                   </td>
                   <td className={tdClass}>
-                    <div className="flex flex-wrap gap-1">
-                      {p.allowedRoles.map((r) => (
-                        <Badge key={r}>{ROLE_LABELS[r]}</Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td className={`${tdClass} whitespace-nowrap`}>
-                    {p.dailyTokenLimitPerUser === null
-                      ? "不限"
-                      : formatNumber(p.dailyTokenLimitPerUser)}
+                    {p.allowedGroups.length === 0 && p.allowedUserIds.length === 0 ? (
+                      <Badge tone="gray">全员不可用</Badge>
+                    ) : (
+                      <div className="flex flex-wrap gap-1 max-w-56">
+                        {p.allowedGroups.map((g) => (
+                          <Badge key={g} tone="blue">
+                            {g}
+                          </Badge>
+                        ))}
+                        {p.allowedUserIds.map((uid) => (
+                          <Badge key={uid}>
+                            {userMap.get(uid) ?? uid.slice(0, 8)}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td className={tdClass}>
                     {p.enabled ? (
