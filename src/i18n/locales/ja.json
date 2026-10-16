@@ -4810,6 +4810,7 @@
     "password": "パスワード",
     "loggingIn": "ログイン中...",
     "loginFailed": "ログインに失敗しました",
+    "account": "企業アカウント",
     "logout": "ログアウト",
     "refresh": "企業設定を同期",
     "offline": "オフライン（最後に同期した設定を使用）",
@@ -4894,7 +4895,7 @@
     "loading": "上流アカウントを読み込み中…",
     "unconfigured": "企業サーバーに Sub2API が設定されていません",
     "empty": "上流アカウントがありません",
-    "capacityLabel": "容量",
+    "capacityLabel": "使用容量",
     "expiresAt": "{{time}} 期限"
   },
   "enterpriseRetention": {

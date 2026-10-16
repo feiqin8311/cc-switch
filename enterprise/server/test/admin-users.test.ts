@@ -60,7 +60,6 @@ describe("admin users", () => {
       headers: bearer(adminToken),
       payload: {
         username: "Bad Name",
-        displayName: "x",
         password: "short",
         role: "member",
       },
@@ -68,6 +67,25 @@ describe("admin users", () => {
     expect(res.statusCode).toBe(400);
     const paths = res.json().error.details.map((d: { path: string }) => d.path);
     expect(paths).toEqual(expect.arrayContaining(["username", "password"]));
+  });
+
+  it("accepts a Chinese username and defaults displayName to it", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/admin/users",
+      headers: bearer(adminToken),
+      payload: {
+        username: "张三",
+        password: "alice-password-1",
+        role: "member",
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const user = UserSchema.parse(res.json());
+    expect(user.username).toBe("张三");
+    expect(user.displayName).toBe("张三");
+    const session = await login(ctx.app, "张三", "alice-password-1");
+    expect(session.user.username).toBe("张三");
   });
 
   it("forbids non-admins", async () => {
@@ -213,5 +231,26 @@ describe("admin users", () => {
     });
     expect(patch.statusCode).toBe(200);
     expect(UserSchema.parse(patch.json()).upstreamAccountIds).toEqual([39, 12]);
+  });
+
+  it("stores a trimmed group name and allows clearing it", async () => {
+    const created = UserSchema.parse((await createUser("member")).json());
+    expect(created.groupName).toBe("");
+    const set = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+      payload: { groupName: " Libraton组 " },
+    });
+    expect(set.statusCode).toBe(200);
+    expect(UserSchema.parse(set.json()).groupName).toBe("Libraton组");
+    const cleared = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/users/${created.id}`,
+      headers: bearer(adminToken),
+      payload: { groupName: "  " },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(UserSchema.parse(cleared.json()).groupName).toBe("");
   });
 });

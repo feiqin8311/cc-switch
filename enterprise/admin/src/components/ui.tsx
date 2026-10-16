@@ -1,13 +1,14 @@
-import { Inbox, X } from "lucide-react";
+import { Check, ChevronDown, Inbox, Search, X } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type ReactNode,
   useEffect,
   useId,
+  useMemo,
   useRef,
+  useState,
 } from "react";
 import { describeError } from "../lib/format";
-import { BrandMark } from "./BrandMark";
 
 // ---------------------------------------------------------------------------
 // Buttons & inputs
@@ -51,6 +52,9 @@ export function Button({
 
 export const inputClass =
   "h-8 w-full rounded-lg border border-input bg-card px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground aria-[invalid=true]:border-destructive shadow-2xs";
+
+export const selectClass =
+  "h-8 w-full rounded-lg border border-input bg-card px-2.5 text-xs text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground shadow-2xs cursor-pointer";
 
 export const textareaClass =
   "min-h-24 w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground aria-[invalid=true]:border-destructive shadow-2xs";
@@ -125,6 +129,201 @@ export function Switch({
         }`}
       />
     </button>
+  );
+}
+
+export interface SelectOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export function Select({
+  id,
+  value,
+  onChange,
+  options,
+  placeholder = "请选择",
+  disabled = false,
+  className = "",
+  size = "md",
+  "aria-label": ariaLabel,
+}: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: readonly SelectOption[];
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  size?: "sm" | "md";
+  "aria-label"?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [openUpwards, setOpenUpwards] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleDown = (e: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handleDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  const selectedOption = options.find((o) => o.value === value);
+  const displayLabel = selectedOption ? selectedOption.label : placeholder;
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        (o.description && o.description.toLowerCase().includes(q)),
+    );
+  }, [options, search]);
+
+  const toggleOpen = () => {
+    if (disabled) return;
+    if (!open && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setOpenUpwards(spaceBelow < 260 && rect.top > 260);
+    }
+    setOpen((v) => !v);
+    setSearch("");
+  };
+
+  const sizing =
+    size === "sm"
+      ? "h-7 px-2 text-xs rounded-md"
+      : "h-8 px-2.5 text-xs rounded-lg";
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative inline-block w-full ${className}`}
+    >
+      {/* Hidden native select for accessibility and testing */}
+      <select
+        id={id}
+        aria-label={ariaLabel}
+        value={value}
+        disabled={disabled}
+        tabIndex={-1}
+        className="sr-only"
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Styled Trigger Button */}
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={toggleOpen}
+        className={`flex w-full items-center justify-between gap-1.5 border border-border/80 bg-card text-foreground transition-all outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/20 shadow-2xs hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${sizing} ${
+          open ? "border-zinc-400 ring-1 ring-zinc-400/20" : ""
+        }`}
+      >
+        <span
+          className={`min-w-0 flex-1 truncate text-left ${
+            !selectedOption ? "text-muted-foreground" : "font-normal"
+          }`}
+        >
+          {displayLabel}
+        </span>
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${
+            open ? "rotate-180 text-foreground" : ""
+          }`}
+        />
+      </button>
+
+      {/* Floating Popover Menu */}
+      {open && (
+        <div
+          role="listbox"
+          className={`absolute start-0 z-50 min-w-full w-max max-w-xs rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg backdrop-blur-md ${
+            openUpwards ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+        >
+          {options.length > 7 && (
+            <div className="mb-1 border-b border-border/40 p-1">
+              <div className="relative">
+                <Search
+                  aria-hidden
+                  className="pointer-events-none absolute start-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+                />
+                <input
+                  className="h-6 w-full rounded-md bg-muted/60 ps-6 pe-2 text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                  placeholder="搜索选项..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="max-h-56 overflow-y-auto space-y-0.5">
+            {filtered.length === 0 ? (
+              <div className="px-2.5 py-3 text-center text-xs text-muted-foreground">
+                未找到匹配项
+              </div>
+            ) : (
+              filtered.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-left cursor-pointer transition-colors ${
+                      isSelected
+                        ? "bg-muted font-medium text-foreground"
+                        : "text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate">{opt.label}</span>
+                    {isSelected && (
+                      <Check className="size-3.5 shrink-0 text-foreground" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -268,7 +467,7 @@ export function PageHeader({
     return (
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         {description ? (
-          <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
+          <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
             {description}
           </p>
         ) : (
@@ -279,22 +478,23 @@ export function PageHeader({
     );
   }
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <div className="flex items-center gap-2.5">
-          <BrandMark className="size-6 text-brand" />
-          <h1 className="font-serif text-2xl font-normal tracking-tight text-foreground md:text-[28px]">
-            {title}
-          </h1>
+    <div className="mb-6">
+      <h1 className="font-serif text-[32px] font-normal leading-none tracking-tight text-foreground">
+        {title}
+      </h1>
+      {(description || actions) && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+          {description ? (
+            <p className="min-w-0 max-w-2xl text-sm leading-6 text-muted-foreground">
+              {description}
+            </p>
+          ) : (
+            <span />
+          )}
+          {actions && (
+            <div className="flex shrink-0 items-center gap-2">{actions}</div>
+          )}
         </div>
-        {description && (
-          <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-2xl">
-            {description}
-          </p>
-        )}
-      </div>
-      {actions && (
-        <div className="flex items-center gap-2 pt-0.5">{actions}</div>
       )}
     </div>
   );

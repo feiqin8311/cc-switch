@@ -8,10 +8,10 @@ export type MarketItemRow = typeof marketItems.$inferSelect;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 function publisherLabel(
-  displayName: string | null | undefined,
+  _displayName: string | null | undefined,
   username: string | null | undefined,
 ): string | null {
-  const n = displayName?.trim() || username?.trim();
+  const n = username?.trim();
   return n || null;
 }
 

@@ -22,6 +22,7 @@ import {
   InlineError,
   inputClass,
   LoadingState,
+  Select,
   Spinner,
   Switch,
 } from "../components/ui";
@@ -37,7 +38,7 @@ import {
 export const USERS_KEY = ["admin", "users"] as const;
 
 const ROLES = RoleSchema.options;
-const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+const USERNAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,31}$/u;
 
 const userTh =
   "px-4 py-3 text-left text-[13px] font-medium text-muted-foreground";
@@ -143,7 +144,7 @@ export function UsersPage() {
                   />
                 </th>
                 <th className={userTh}>用户名</th>
-                <th className={userTh}>显示名</th>
+                <th className={userTh}>组</th>
                 <th className={userTh}>角色</th>
                 <th className={userTh}>用量窗口</th>
                 <th className={userTh}>状态</th>
@@ -178,7 +179,11 @@ export function UsersPage() {
                       </span>
                     )}
                   </td>
-                  <td className={userTd}>{u.displayName}</td>
+                  <td
+                    className={`${userTd} ${u.groupName ? "" : "text-muted-foreground"}`}
+                  >
+                    {u.groupName || "—"}
+                  </td>
                   <td
                     className={`${userTd} ${u.role === "admin" ? "font-medium" : "text-muted-foreground"}`}
                   >
@@ -273,8 +278,8 @@ export function UsersPage() {
         pending={remove.isPending}
         message={
           <>
-            确定删除 <b>{deleting?.username}</b>（{deleting?.displayName}
-            ）吗？该账号会立即退出登录，其设备、用量和已留存的对话一并删除，此操作不可撤销。
+            确定删除 <b>{deleting?.username}</b>
+            吗？该账号会立即退出登录，其设备、用量和已留存的对话一并删除，此操作不可撤销。
           </>
         }
         onCancel={() => setDeleting(null)}
@@ -295,20 +300,19 @@ function RoleSelect({
   onChange(role: Role): void;
   disabled?: boolean;
 }) {
+  const options = ROLES.map((r) => ({
+    value: r,
+    label: ROLE_LABELS[r],
+  }));
   return (
-    <select
+    <Select
       id={id}
-      className={inputClass}
+      options={options}
       value={value}
+      onChange={(v) => onChange(v as Role)}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value as Role)}
-    >
-      {ROLES.map((r) => (
-        <option key={r} value={r}>
-          {ROLE_LABELS[r]}
-        </option>
-      ))}
-    </select>
+      size="md"
+    />
   );
 }
 
@@ -318,9 +322,9 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
   const toast = useToast();
   const [form, setForm] = useState<CreateUserRequest>({
     username: "",
-    displayName: "",
     password: "",
     role: "member",
+    groupName: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -358,20 +362,18 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
     const next: Record<string, string> = {};
     const username = form.username.trim();
     if (!USERNAME_RE.test(username))
-      next.username =
-        "3-32 位，仅限小写字母、数字、'.'、'_'、'-'，且以字母或数字开头";
-    if (!form.displayName.trim()) next.displayName = "请输入显示名";
-    else if (form.displayName.trim().length > 64)
-      next.displayName = "显示名最多 64 个字符";
-    if (form.password.length < 10 || form.password.length > 128)
-      next.password = "密码长度需为 10-128 位";
+      next.username = "2-32 位，中文或字母数字，可含 '.'、'_'、'-'";
+    if (form.password.length < 6 || form.password.length > 128)
+      next.password = "密码长度需为 6-128 位";
+    if ((form.groupName ?? "").trim().length > 64)
+      next.groupName = "组名最多 64 个字符";
     setErrors(next);
     setFormError(null);
     if (Object.keys(next).length > 0) return;
     create.mutate({
       ...form,
       username,
-      displayName: form.displayName.trim(),
+      groupName: (form.groupName ?? "").trim(),
     });
   };
 
@@ -406,7 +408,7 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
           htmlFor="cu-username"
           required
           error={errors.username}
-          hint="登录名，创建后不可修改"
+          hint="登录名，中英文均可，创建后不可修改"
         >
           <input
             id="cu-username"
@@ -418,25 +420,11 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
           />
         </Field>
         <Field
-          label="显示名"
-          htmlFor="cu-display"
-          required
-          error={errors.displayName}
-        >
-          <input
-            id="cu-display"
-            className={inputClass}
-            aria-invalid={!!errors.displayName}
-            value={form.displayName}
-            onChange={(e) => set("displayName", e.target.value)}
-          />
-        </Field>
-        <Field
           label="初始密码"
           htmlFor="cu-password"
           required
           error={errors.password}
-          hint="至少 10 位"
+          hint="至少 6 位"
         >
           <input
             id="cu-password"
@@ -453,6 +441,20 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
             id="cu-role"
             value={form.role}
             onChange={(r) => set("role", r)}
+          />
+        </Field>
+        <Field
+          label="组"
+          htmlFor="cu-group"
+          error={errors.groupName}
+          hint="留空表示不分组"
+        >
+          <input
+            id="cu-group"
+            className={inputClass}
+            aria-invalid={!!errors.groupName}
+            value={form.groupName ?? ""}
+            onChange={(e) => set("groupName", e.target.value)}
           />
         </Field>
         <div className="col-span-2">
@@ -476,7 +478,7 @@ function EditUserDialog({
   const qc = useQueryClient();
   const toast = useToast();
   const { patchCurrentUser } = useAuth();
-  const [displayName, setDisplayName] = useState(user.displayName);
+  const [groupName, setGroupName] = useState(user.groupName);
   const [role, setRole] = useState<Role>(user.role);
   const [disabled, setDisabled] = useState(user.disabled);
   const [password, setPassword] = useState("");
@@ -509,17 +511,15 @@ function EditUserDialog({
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
-    const name = displayName.trim();
-    if (!name) next.displayName = "请输入显示名";
-    else if (name.length > 64) next.displayName = "显示名最多 64 个字符";
-    if (password && (password.length < 10 || password.length > 128))
-      next.password = "密码长度需为 10-128 位";
+    if (password && (password.length < 6 || password.length > 128))
+      next.password = "密码长度需为 6-128 位";
+    if (groupName.trim().length > 64) next.groupName = "组名最多 64 个字符";
     setErrors(next);
     setFormError(null);
     if (Object.keys(next).length > 0) return;
 
     const body: UpdateUserRequest = {};
-    if (name !== user.displayName) body.displayName = name;
+    if (groupName.trim() !== user.groupName) body.groupName = groupName.trim();
     if (!isSelf && role !== user.role) body.role = role;
     if (!isSelf && disabled !== user.disabled) body.disabled = disabled;
     if (password) body.password = password;
@@ -561,17 +561,17 @@ function EditUserDialog({
         className="grid grid-cols-2 gap-3"
       >
         <Field
-          label="显示名"
-          htmlFor="eu-display"
-          required
-          error={errors.displayName}
+          label="组"
+          htmlFor="eu-group"
+          error={errors.groupName}
+          hint="留空表示不分组"
         >
           <input
-            id="eu-display"
+            id="eu-group"
             className={inputClass}
-            aria-invalid={!!errors.displayName}
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            aria-invalid={!!errors.groupName}
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
           />
         </Field>
         <Field
@@ -603,7 +603,7 @@ function EditUserDialog({
           label="重置密码"
           htmlFor="eu-password"
           error={errors.password}
-          hint="留空则不修改；至少 10 位"
+          hint="留空则不修改；至少 6 位"
         >
           <input
             id="eu-password"

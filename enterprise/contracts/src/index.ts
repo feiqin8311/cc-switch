@@ -92,14 +92,18 @@ export function permissionsForRole(role: Role): Permission[] {
 
 export const UsernameSchema = z
   .string()
+  .trim()
   .regex(
-    /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,31}$/,
-    "3-32 chars: letters, digits, '.', '_' or '-'",
+    /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,31}$/u,
+    "2-32 chars: letters (any language), digits, '.', '_' or '-'",
   );
 
-export const PasswordSchema = z.string().min(10).max(128);
+export const PasswordSchema = z.string().min(6).max(128);
 
 export const DisplayNameSchema = z.string().trim().min(1).max(64);
+
+/** Org group shown on the users table. Empty means the user is ungrouped. */
+export const GroupNameSchema = z.string().trim().max(64);
 
 export const UserSchema = z.object({
   id: z.string().uuid(),
@@ -111,6 +115,8 @@ export const UserSchema = z.object({
   lastLoginAt: z.string().nullable(),
   /** Sub2API account ids this user may see in 用量窗口. Admins ignore this and see all. */
   upstreamAccountIds: z.array(z.number().int()).default([]),
+  /** Empty when the user is not in a group. */
+  groupName: GroupNameSchema.default(""),
 });
 export type User = z.infer<typeof UserSchema>;
 
@@ -170,10 +176,11 @@ export type ListUsersResponse = z.infer<typeof ListUsersResponseSchema>;
 /** POST /admin/users → 201 User */
 export const CreateUserRequestSchema = z.object({
   username: UsernameSchema,
-  displayName: DisplayNameSchema,
+  displayName: DisplayNameSchema.optional(),
   password: PasswordSchema,
   role: RoleSchema,
   upstreamAccountIds: z.array(z.number().int()).optional(),
+  groupName: GroupNameSchema.optional(),
 });
 export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 
@@ -193,6 +200,7 @@ export const UpdateUserRequestSchema = z
     disabled: z.boolean().optional(),
     password: PasswordSchema.optional(),
     upstreamAccountIds: z.array(z.number().int()).optional(),
+    groupName: GroupNameSchema.optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "At least one field is required",

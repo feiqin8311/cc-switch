@@ -4810,6 +4810,7 @@
     "password": "密码",
     "loggingIn": "登录中...",
     "loginFailed": "登录失败",
+    "account": "企业账号",
     "logout": "退出登录",
     "refresh": "同步企业配置",
     "offline": "离线（使用上次同步的配置）",
@@ -4894,7 +4895,7 @@
     "loading": "正在读取上游账号…",
     "unconfigured": "企业服务器未配置 Sub2API",
     "empty": "没有上游账号",
-    "capacityLabel": "容量",
+    "capacityLabel": "使用容量",
     "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {

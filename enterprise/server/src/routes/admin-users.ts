@@ -55,10 +55,11 @@ export async function adminUserRoutes(
         .insert(users)
         .values({
           username: body.username,
-          displayName: body.displayName,
+          displayName: body.displayName ?? body.username,
           passwordHash: await hashPassword(body.password),
           role: body.role,
           upstreamAccountIds: uniqueAccountIds(body.upstreamAccountIds),
+          groupName: body.groupName ?? "",
         })
         .returning();
       if (!row) throw new Error("insert returned no row");
@@ -109,6 +110,7 @@ export async function adminUserRoutes(
           body.upstreamAccountIds !== undefined
             ? uniqueAccountIds(body.upstreamAccountIds)
             : undefined,
+        groupName: body.groupName,
         updatedAt: new Date(),
       })
       .where(eq(users.id, id))

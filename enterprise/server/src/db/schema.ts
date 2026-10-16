@@ -38,6 +38,8 @@ export const users = pgTable("users", {
     .array()
     .notNull()
     .default(sql`'{}'::integer[]`),
+  /** Org group label. Empty means ungrouped. */
+  groupName: text("group_name").notNull().default(""),
 });
 
 /** One row per login (device). Revoking it invalidates its access and refresh tokens. */

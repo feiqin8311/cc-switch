@@ -4810,6 +4810,7 @@
     "password": "Password",
     "loggingIn": "Signing in...",
     "loginFailed": "Sign-in failed",
+    "account": "Enterprise account",
     "logout": "Sign out",
     "refresh": "Sync enterprise config",
     "offline": "Offline (using last synced config)",
@@ -4894,7 +4895,7 @@
     "loading": "Loading upstream accounts…",
     "unconfigured": "Sub2API is not configured on the enterprise server",
     "empty": "No upstream accounts",
-    "capacityLabel": "Capacity",
+    "capacityLabel": "In use",
     "expiresAt": "resets {{time}}"
   },
   "enterpriseRetention": {

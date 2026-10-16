@@ -1,6 +1,7 @@
 import {
   AdminProfileSchema,
   ListProfilesResponseSchema,
+  type ProfileSummary,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
@@ -11,6 +12,7 @@ import {
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -33,6 +35,7 @@ export function ProfilesPage({ embedded }: { embedded?: boolean } = {}) {
   const qc = useQueryClient();
   const toast = useToast();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<ProfileSummary | null>(null);
   const profiles = useQuery({
     queryKey: PROFILES_KEY,
     queryFn: ({ signal }) =>
@@ -55,6 +58,17 @@ export function ProfilesPage({ embedded }: { embedded?: boolean } = {}) {
       qc.invalidateQueries({ queryKey: PROFILES_KEY });
       setOpenId(saved.id);
       toast.success("已新建方案");
+    },
+    onError: (err) => toast.error(describeError(err)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      client.request(`/admin/profiles/${id}`, { method: "DELETE" }),
+    onSuccess: (_saved, id) => {
+      qc.invalidateQueries({ queryKey: PROFILES_KEY });
+      setOpenId((cur) => (cur === id ? null : cur));
+      setDeleting(null);
+      toast.success("已删除方案");
     },
     onError: (err) => toast.error(describeError(err)),
   });
@@ -95,6 +109,7 @@ export function ProfilesPage({ embedded }: { embedded?: boolean } = {}) {
                 <th className={thClass}>供应商</th>
                 <th className={thClass}>电脑</th>
                 <th className={thClass}>版本</th>
+                <th className={`${thClass} text-right`}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -116,6 +131,22 @@ export function ProfilesPage({ embedded }: { embedded?: boolean } = {}) {
                   <td className={tdClass}>{item.providerCount}</td>
                   <td className={tdClass}>{item.deviceCount}</td>
                   <td className={tdClass}>{item.revision}</td>
+                  <td className={`${tdClass} text-right`}>
+                    {item.isDefault ? (
+                      <span className="text-xs text-muted-foreground">
+                        默认方案不可删
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleting(item)}
+                      >
+                        删除
+                      </Button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -123,6 +154,21 @@ export function ProfilesPage({ embedded }: { embedded?: boolean } = {}) {
         )}
       </Card>
       {openId && <ProfileEditor id={openId} />}
+      <ConfirmDialog
+        open={deleting !== null}
+        title="删除配置方案"
+        danger
+        confirmLabel="删除"
+        pending={remove.isPending}
+        message={
+          <>
+            确定删除 <b>{deleting?.name}</b>{" "}
+            吗？分到这套方案的电脑会改用默认方案。
+          </>
+        }
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
       <p className="mt-4 text-xs text-muted-foreground">
         电脑列表在{" "}
         <Link className="underline" to="/devices?tab=devices">

@@ -20,9 +20,10 @@ import {
   EmptyState,
   ErrorState,
   InlineError,
-  inputClass,
   LoadingState,
   PageHeader,
+  Select,
+  type SelectOption,
   Spinner,
   Switch,
   tableClass,
@@ -408,7 +409,7 @@ export function MarketPage({
 export function publisherLabel(
   user: Pick<User, "displayName" | "username">,
 ): string {
-  return user.displayName.trim() || user.username;
+  return user.username;
 }
 
 export function PublisherSelect({
@@ -423,33 +424,43 @@ export function PublisherSelect({
   onChange(userId: string): void;
 }) {
   if (!users) {
-    return <span>{item.publishedByName ?? "—"}</span>;
+    return (
+      <span className="text-xs text-muted-foreground">
+        {item.publishedByName ?? "—"}
+      </span>
+    );
   }
   const known = users.some((u) => u.id === item.publishedBy);
+  const options: SelectOption[] = [
+    { value: "", label: "未指定" },
+    ...users.map((u) => ({
+      value: u.id,
+      label: publisherLabel(u),
+    })),
+    ...(item.publishedBy && !known
+      ? [
+          {
+            value: item.publishedBy,
+            label: item.publishedByName ?? item.publishedBy,
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <select
-      className={`${inputClass} w-full min-w-0`}
+    <Select
+      size="sm"
+      className="w-full min-w-0"
       aria-label={`${item.name} 创建人`}
       value={item.publishedBy ?? ""}
+      placeholder="未指定"
       disabled={disabled}
-      onChange={(e) => {
-        const next = e.target.value;
+      options={options}
+      onChange={(next) => {
         if (!next || next === (item.publishedBy ?? "")) return;
         onChange(next);
       }}
-    >
-      {item.publishedBy == null && <option value="">未指定</option>}
-      {users.map((u) => (
-        <option key={u.id} value={u.id}>
-          {publisherLabel(u)}
-        </option>
-      ))}
-      {item.publishedBy && !known && (
-        <option value={item.publishedBy}>
-          {item.publishedByName ?? item.publishedBy}
-        </option>
-      )}
-    </select>
+    />
   );
 }
 

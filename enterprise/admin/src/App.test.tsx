@@ -20,6 +20,7 @@ const admin = {
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: "2026-10-01T08:00:00.000Z",
   upstreamAccountIds: [] as number[],
+  groupName: "",
 };
 
 const FIXTURES: Record<string, unknown> = {
@@ -225,7 +226,7 @@ const tabNames = () => screen.queryAllByRole("tab").map((t) => t.textContent);
 
 describe("App", () => {
   it.each([
-    ["/users", "用户管理", "管理员甲"],
+    ["/users", "用户管理", "admin"],
     ["/devices", "设备管理", "还没有电脑上报"],
     ["/devices?tab=profiles", "设备管理", "还没有配置方案"],
     ["/devices?tab=providers", "设备管理", "openai-main"],
