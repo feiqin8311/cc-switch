@@ -420,6 +420,8 @@ export const UsageRowSchema = z.object({
   date: z.string(),
   userId: z.string(),
   username: z.string(),
+  /** The user's current group; empty when ungrouped. */
+  groupName: z.string().default(""),
   providerId: z.string(),
   model: z.string(),
   requests: z.number().int(),
@@ -1138,10 +1140,16 @@ export type DeviceUsageUploadRequest = z.infer<
   typeof DeviceUsageUploadRequestSchema
 >;
 
+/** One row per device, user and provider; the admin console sums them per device. */
 export const DeviceUsageRowSchema = z.object({
   deviceId: z.string().uuid(),
   deviceName: z.string(),
+  userId: z.string().uuid(),
   username: z.string(),
+  /** The user's current group; empty when ungrouped. */
+  groupName: z.string().default(""),
+  /** Provider id as reported by the desktop. */
+  providerId: z.string().default(""),
   requests: z.number().int(),
   inputTokens: z.number().int(),
   outputTokens: z.number().int(),

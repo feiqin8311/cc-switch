@@ -267,7 +267,10 @@ export async function fleetRoutes(
       .select({
         deviceId: deviceUsageDaily.deviceId,
         deviceName: devices.name,
+        userId: deviceUsageDaily.userId,
         username: users.username,
+        groupName: users.groupName,
+        providerId: deviceUsageDaily.providerId,
         requests: sql<number>`sum(${deviceUsageDaily.requests})::int`,
         inputTokens: sql<number>`sum(${deviceUsageDaily.inputTokens})::int`,
         outputTokens: sql<number>`sum(${deviceUsageDaily.outputTokens})::int`,
@@ -282,12 +285,22 @@ export async function fleetRoutes(
           lt(deviceUsageDaily.date, nextDay(query.to)),
         ),
       )
-      .groupBy(deviceUsageDaily.deviceId, devices.name, users.username);
+      .groupBy(
+        deviceUsageDaily.deviceId,
+        devices.name,
+        deviceUsageDaily.userId,
+        users.username,
+        users.groupName,
+        deviceUsageDaily.providerId,
+      );
     const res: DeviceUsageResponse = {
       items: rows.map((row) => ({
         deviceId: row.deviceId,
         deviceName: row.deviceName,
+        userId: row.userId,
         username: row.username,
+        groupName: row.groupName,
+        providerId: row.providerId,
         requests: row.requests,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,

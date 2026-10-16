@@ -363,6 +363,167 @@ export function Select({
   );
 }
 
+/**
+ * Checkbox dropdown. An empty `value` means "no filter"; the trigger then
+ * shows `allLabel`.
+ */
+export function MultiSelect({
+  value,
+  onChange,
+  options,
+  allLabel,
+  unit = "项",
+  disabled = false,
+  className = "",
+  "aria-label": ariaLabel,
+}: {
+  value: readonly string[];
+  onChange: (value: string[]) => void;
+  options: readonly SelectOption[];
+  allLabel: string;
+  /** Counter word in the trigger, e.g. "已选 3 个用户". */
+  unit?: string;
+  disabled?: boolean;
+  className?: string;
+  "aria-label"?: string;
+}) {
+  const [search, setSearch] = useState("");
+  const menu = useFloatingMenu(disabled);
+  const { open, containerRef, menuRef, menuStyle } = menu;
+
+  const selected = useMemo(() => new Set(value), [value]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        o.description?.toLowerCase().includes(q),
+    );
+  }, [options, search]);
+
+  const display =
+    value.length === 0
+      ? allLabel
+      : value.length === 1
+        ? (options.find((o) => o.value === value[0])?.label ?? value[0])
+        : `已选 ${value.length} ${unit}`;
+
+  const toggleValue = (v: string) =>
+    onChange(selected.has(v) ? value.filter((x) => x !== v) : [...value, v]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative inline-block ${className || "w-full"}`}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => {
+          menu.toggle();
+          setSearch("");
+        }}
+        className={`flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-border/80 bg-card px-2.5 text-xs text-foreground shadow-2xs outline-none transition-all hover:bg-muted/40 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${
+          open ? "border-zinc-400 ring-1 ring-zinc-400/20" : ""
+        }`}
+      >
+        <span
+          className={`min-w-0 flex-1 truncate text-left ${
+            value.length === 0 ? "text-muted-foreground" : ""
+          }`}
+        >
+          {display}
+        </span>
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${
+            open ? "rotate-180 text-foreground" : ""
+          }`}
+        />
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={ariaLabel}
+            style={menuStyle}
+            className="fixed z-[60] w-max max-w-xs rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg backdrop-blur-md"
+          >
+            {options.length > 7 && (
+              <div className="mb-1 border-b border-border/40 p-1">
+                <div className="relative">
+                  <Search
+                    aria-hidden
+                    className="pointer-events-none absolute start-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    className="h-6 w-full rounded-md bg-muted/60 ps-6 pe-2 text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                    placeholder="搜索选项..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="max-h-56 overflow-y-auto space-y-0.5">
+              {filtered.length === 0 ? (
+                <div className="px-2.5 py-3 text-center text-xs text-muted-foreground">
+                  {options.length === 0 ? "暂无选项" : "未找到匹配项"}
+                </div>
+              ) : (
+                filtered.map((opt) => {
+                  const isSelected = selected.has(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => toggleValue(opt.value)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted/60 cursor-pointer"
+                    >
+                      <span
+                        aria-hidden
+                        className={`flex size-3.5 shrink-0 items-center justify-center rounded border ${
+                          isSelected
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border"
+                        }`}
+                      >
+                        {isSelected && <Check className="size-2.5" />}
+                      </span>
+                      <span className="min-w-0 truncate">{opt.label}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {value.length > 0 && (
+              <div className="mt-1 border-t border-border/40 pt-1">
+                <button
+                  type="button"
+                  onClick={() => onChange([])}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground cursor-pointer"
+                >
+                  清空选择
+                </button>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Feedback
 // ---------------------------------------------------------------------------

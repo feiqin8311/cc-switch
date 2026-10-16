@@ -123,6 +123,17 @@ const FIXTURES: Record<string, unknown> = {
         inputTokens: 1200,
         outputTokens: 300,
       },
+      {
+        date: "2026-10-12",
+        userId: leaver.id,
+        username: "bob",
+        groupName: "研发",
+        providerId: "yida-sub2api",
+        model: "gpt-5.6-terra",
+        requests: 5,
+        inputTokens: 4000,
+        outputTokens: 100,
+      },
     ],
   },
   "/admin/retention-policy": { enabled: true },
@@ -272,6 +283,37 @@ describe("App", () => {
     renderAt(path, permissionsForRole("admin"));
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
     expect((await screen.findAllByText(content)).length).toBeGreaterThan(0);
+  });
+
+  it("filters usage by user, group and provider", async () => {
+    renderAt("/usage", permissionsForRole("admin"));
+    expect(
+      (await screen.findAllByText("gpt-5.6-terra")).length,
+    ).toBeGreaterThan(0);
+    const requests = () =>
+      screen.getByText("请求数", { selector: "div" }).nextElementSibling
+        ?.textContent;
+    expect(requests()).toBe("8");
+
+    fireEvent.click(screen.getByRole("button", { name: "按组筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "研发" }));
+    expect(requests()).toBe("5");
+    expect(screen.queryAllByText("gpt-5")).toHaveLength(0);
+
+    // Ungrouped admin + 研发 bob, then narrow to one provider.
+    fireEvent.click(screen.getByRole("option", { name: "未分组" }));
+    expect(requests()).toBe("8");
+    fireEvent.click(screen.getByRole("button", { name: "按供应商筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "openai-main" }));
+    expect(requests()).toBe("3");
+
+    fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "bob" }));
+    expect(await screen.findByText("没有符合筛选条件的用量")).toBeTruthy();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "清空筛选" })[0] as HTMLElement,
+    );
+    expect((await screen.findAllByText("gpt-5")).length).toBeGreaterThan(0);
   });
 
   it("offboards a user instead of deleting them", async () => {
