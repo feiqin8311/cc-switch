@@ -319,8 +319,10 @@ export const AdminProviderSchema = z.object({
   apiKeyHint: z.string(),
   models: z.array(ManagedModelSchema),
   defaultModel: z.string(),
-  /** Roles allowed to use it (the user also needs `models.use`). */
-  allowedRoles: z.array(RoleSchema),
+  /** Users explicitly allowed to use it. */
+  allowedUserIds: z.array(z.string().uuid()).default([]),
+  /** Groups allowed to use it. */
+  allowedGroups: z.array(GroupNameSchema).default([]),
   dailyTokenLimitPerUser: z.number().int().nullable(),
   enabled: z.boolean(),
   createdAt: z.string(),
@@ -341,7 +343,8 @@ const providerFields = {
   apiKey: z.string().min(1).max(512),
   models: ModelListSchema,
   defaultModel: z.string().min(1),
-  allowedRoles: z.array(RoleSchema).min(1),
+  allowedUserIds: z.array(z.string().uuid()).default([]),
+  allowedGroups: z.array(z.string().trim().min(1).max(64)).default([]),
   dailyTokenLimitPerUser: z.number().int().positive().nullable().default(null),
   enabled: z.boolean().default(true),
 };
@@ -368,7 +371,8 @@ export const UpdateProviderRequestSchema = z
     apiKey: providerFields.apiKey.optional(),
     models: providerFields.models.optional(),
     defaultModel: z.string().min(1).optional(),
-    allowedRoles: providerFields.allowedRoles.optional(),
+    allowedUserIds: z.array(z.string().uuid()).optional(),
+    allowedGroups: z.array(z.string().trim().min(1).max(64)).optional(),
     dailyTokenLimitPerUser: z.number().int().positive().nullable().optional(),
     enabled: z.boolean().optional(),
   })

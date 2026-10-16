@@ -99,8 +99,8 @@ describe("accountFromSub2Api", () => {
       },
       undefined,
     );
-    expect(acc.windows[0].usedPercent).toBe(12.5);
-    expect(acc.windows[1].usedPercent).toBe(40);
+    expect(acc.windows[0]!.usedPercent).toBe(12.5);
+    expect(acc.windows[1]!.usedPercent).toBe(40);
     expect(acc.currentConcurrency).toBe(0);
     expect(acc.maxConcurrency).toBe(0);
   });

@@ -1,15 +1,12 @@
 import {
   type AdminProvider,
   GATEWAY_PREFIX,
-  type Role,
-  RoleSchema,
   type WireApi,
 } from "@ccse/contracts";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useMemo, useRef, useState } from "react";
 import { Button, Field, inputClass, Switch } from "../components/ui";
-import { ROLE_LABELS } from "../lib/format";
+import { useUsers } from "./UsersPage";
 
-const ROLES = RoleSchema.options;
 const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
 export interface ModelRow {
@@ -26,9 +23,8 @@ export interface ProviderFormValues {
   apiKey: string;
   models: ModelRow[];
   defaultModel: string;
-  allowedRoles: Role[];
-  /** Empty = unlimited. */
-  dailyLimit: string;
+  allowedUserIds: string[];
+  allowedGroups: string[];
   enabled: boolean;
 }
 
@@ -41,8 +37,8 @@ export interface ProviderPayload {
   apiKey?: string;
   models: { id: string; displayName: string }[];
   defaultModel: string;
-  allowedRoles: Role[];
-  dailyTokenLimitPerUser: number | null;
+  allowedUserIds: string[];
+  allowedGroups: string[];
   enabled: boolean;
 }
 
@@ -98,13 +94,6 @@ export function validateProvider(
   else if (!v.models.some((m) => m.id.trim() === v.defaultModel))
     errors.defaultModel = "默认模型必须是模型列表中的一项";
 
-  if (v.allowedRoles.length === 0) errors.allowedRoles = "至少选择一个角色";
-
-  const limit = v.dailyLimit.trim();
-  if (limit && !/^[1-9]\d*$/.test(limit))
-    errors.dailyTokenLimitPerUser = "请输入正整数，留空表示不限";
-  else if (limit && !Number.isSafeInteger(Number(limit)))
-    errors.dailyTokenLimitPerUser = "数值过大";
   return errors;
 }
 
@@ -113,7 +102,6 @@ export function toPayload(
   mode: ProviderFormMode,
 ): ProviderPayload {
   const apiKey = v.apiKey.trim();
-  const limit = v.dailyLimit.trim();
   return {
     id: v.id.trim(),
     name: v.name.trim(),
@@ -125,8 +113,8 @@ export function toPayload(
       displayName: m.displayName.trim(),
     })),
     defaultModel: v.defaultModel,
-    allowedRoles: ROLES.filter((r) => v.allowedRoles.includes(r)),
-    dailyTokenLimitPerUser: limit ? Number(limit) : null,
+    allowedUserIds: v.allowedUserIds,
+    allowedGroups: v.allowedGroups,
     enabled: v.enabled,
   };
 }
@@ -144,8 +132,8 @@ function initialValues(
       apiKey: "",
       models: [{ key: nextKey(), id: "", displayName: "" }],
       defaultModel: "",
-      allowedRoles: ["admin", "member"],
-      dailyLimit: "",
+      allowedUserIds: [],
+      allowedGroups: [],
       enabled: true,
     };
   }
@@ -157,11 +145,8 @@ function initialValues(
     apiKey: "",
     models: provider.models.map((m) => ({ key: nextKey(), ...m })),
     defaultModel: provider.defaultModel,
-    allowedRoles: [...provider.allowedRoles],
-    dailyLimit:
-      provider.dailyTokenLimitPerUser === null
-        ? ""
-        : String(provider.dailyTokenLimitPerUser),
+    allowedUserIds: [...provider.allowedUserIds],
+    allowedGroups: [...provider.allowedGroups],
     enabled: provider.enabled,
   };
 }
@@ -221,12 +206,27 @@ export function ProviderForm({
   const removeModel = (key: number) =>
     setValues((v) => ({ ...v, models: v.models.filter((m) => m.key !== key) }));
 
-  const toggleRole = (role: Role, on: boolean) =>
+  const { data: usersData } = useUsers();
+  const users = usersData?.items ?? [];
+  const groupOptions = useMemo(
+    () => [...new Set(users.map((u) => u.groupName).filter(Boolean))].sort(),
+    [users],
+  );
+
+  const toggleGroup = (group: string, on: boolean) =>
     setValues((v) => ({
       ...v,
-      allowedRoles: on
-        ? [...v.allowedRoles, role]
-        : v.allowedRoles.filter((r) => r !== role),
+      allowedGroups: on
+        ? [...v.allowedGroups, group]
+        : v.allowedGroups.filter((g) => g !== group),
+    }));
+
+  const toggleUser = (userId: string, on: boolean) =>
+    setValues((v) => ({
+      ...v,
+      allowedUserIds: on
+        ? [...v.allowedUserIds, userId]
+        : v.allowedUserIds.filter((id) => id !== userId),
     }));
 
   const handleSubmit = (e: FormEvent) => {
@@ -428,48 +428,76 @@ export function ProviderForm({
           ))}
         </select>
       </Field>
-      <Field
-        label="每用户每日额度（tokens）"
-        htmlFor="pf-limit"
-        error={errors.dailyTokenLimitPerUser}
-        hint="输入 + 输出 token，按 UTC 自然日计；留空 = 不限"
-      >
-        <input
-          id="pf-limit"
-          inputMode="numeric"
-          className={inputClass}
-          aria-invalid={!!errors.dailyTokenLimitPerUser}
-          placeholder="不限"
-          value={values.dailyLimit}
-          onChange={(e) => set("dailyLimit", e.target.value)}
-        />
-      </Field>
-      <fieldset className="flex flex-col gap-1">
-        <legend className="mb-1 text-xs font-semibold text-foreground">
-          允许角色<span className="ml-0.5 text-destructive">*</span>
-        </legend>
-        <div className="flex h-8 items-center gap-4">
-          {ROLES.map((r) => (
-            <label key={r} className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={values.allowedRoles.includes(r)}
-                onChange={(e) => toggleRole(r, e.target.checked)}
-                className="size-3.5 rounded border-input text-brand focus:ring-brand/20"
-              />
-              {ROLE_LABELS[r]}
-            </label>
-          ))}
+      <fieldset className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <legend className="text-xs font-semibold text-foreground">
+            允许访问的组与成员
+          </legend>
+          <span className="text-[11px] text-muted-foreground">
+            {values.allowedGroups.length === 0 && values.allowedUserIds.length === 0
+              ? "未勾选（全员不可用）"
+              : `已选 ${values.allowedGroups.length} 个组、${values.allowedUserIds.length} 位成员`}
+          </span>
         </div>
-        {errors.allowedRoles ? (
-          <p role="alert" className="text-xs text-destructive">
-            {errors.allowedRoles}
-          </p>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">
-            用户还需具备「使用模型」权限
-          </p>
-        )}
+        <p className="text-[11px] text-muted-foreground">
+          仅所选组或成员可使用此模型服务。未勾选时全员不可用（包括管理员）。
+        </p>
+
+        <div className="space-y-1.5">
+          <div className="text-[12px] font-medium text-foreground">部门 / 组</div>
+          {groupOptions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">暂无可选的用户组</p>
+          ) : (
+            <div className="max-h-32 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+              {groupOptions.map((g) => (
+                <label
+                  key={g}
+                  className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:bg-muted/30 px-1 py-0.5 rounded"
+                >
+                  <input
+                    type="checkbox"
+                    className="size-3.5 rounded border-input text-brand focus:ring-brand/20"
+                    checked={values.allowedGroups.includes(g)}
+                    onChange={(e) => toggleGroup(g, e.target.checked)}
+                  />
+                  <span>{g}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="text-[12px] font-medium text-foreground">指定成员</div>
+          {users.length === 0 ? (
+            <p className="text-xs text-muted-foreground">暂无用户</p>
+          ) : (
+            <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+              {users.map((u) => (
+                <label
+                  key={u.id}
+                  className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:bg-muted/30 px-1 py-0.5 rounded"
+                >
+                  <input
+                    type="checkbox"
+                    className="size-3.5 rounded border-input text-brand focus:ring-brand/20"
+                    checked={values.allowedUserIds.includes(u.id)}
+                    onChange={(e) => toggleUser(u.id, e.target.checked)}
+                  />
+                  <span>{u.username}</span>
+                  {u.displayName && u.displayName !== u.username ? (
+                    <span className="text-muted-foreground">({u.displayName})</span>
+                  ) : null}
+                  {u.groupName ? (
+                    <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded ml-auto">
+                      {u.groupName}
+                    </span>
+                  ) : null}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       </fieldset>
       <Field label="状态" htmlFor="pf-enabled">
         <div className="flex h-8 items-center gap-2">

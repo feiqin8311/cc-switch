@@ -179,7 +179,8 @@ async function createProvider(overrides: Record<string, unknown> = {}) {
         { id: "gpt-error", displayName: "Always fails" },
       ],
       defaultModel: "gpt-5",
-      allowedRoles: ["admin", "member"],
+      allowedGroups: ["test-group"],
+      allowedUserIds: [],
       ...overrides,
     },
   });
@@ -199,6 +200,7 @@ async function patchProvider(id: string, payload: Record<string, unknown>) {
 async function loginAs(
   role: "admin" | "member" | "viewer",
   username = `${role}-user`,
+  groupName: string | null = "test-group",
 ): Promise<SessionResponse> {
   const res = await ctx.app.inject({
     method: "POST",
@@ -209,6 +211,7 @@ async function loginAs(
       displayName: username,
       password: "password-123",
       role,
+      groupName: groupName ?? "",
     },
   });
   expect(res.statusCode).toBe(201);
@@ -321,7 +324,7 @@ describe("gateway keys", () => {
   });
 
   it("a viewer's key (role changed after issue) is forbidden", async () => {
-    await createProvider({ allowedRoles: ["admin", "member", "viewer"] });
+    await createProvider();
     const member = await loginAs("member");
     const key = await issueKey(member.accessToken);
     // Demote without revoking sessions, to exercise the gateway's own check.
@@ -336,7 +339,7 @@ describe("gateway keys", () => {
 });
 
 describe("gateway authorization", () => {
-  it("403 when the provider is disabled or the role is not allowed; 404 when unknown", async () => {
+  it("403 when empty, group/user mismatch, or disabled; 404 when unknown; admin also forbidden unless allowed", async () => {
     await createProvider();
     const member = await loginAs("member");
     const key = await issueKey(member.accessToken);
@@ -345,18 +348,44 @@ describe("gateway authorization", () => {
       (await callResponses(key, { model: "gpt-5" }, "nope")).statusCode,
     ).toBe(404);
 
-    await patchProvider("openai-main", { allowedRoles: ["admin"] });
-    const notAllowed = await callResponses(key, { model: "gpt-5" });
-    expect(notAllowed.statusCode).toBe(403);
+    // 1. Empty allowedUserIds and allowedGroups -> 403 (全员不可用)
+    await patchProvider("openai-main", { allowedUserIds: [], allowedGroups: [] });
+    const emptyNotAllowed = await callResponses(key, { model: "gpt-5" });
+    expect(emptyNotAllowed.statusCode).toBe(403);
+    expect(errorCode(emptyNotAllowed)).toBe("forbidden");
 
+    // 2. Admin is also not allowed when empty or not matching ("admin也不允许")
+    const adminUser = await loginAs("admin", "admin-for-gw", "other-group");
+    const adminKey = await issueKey(adminUser.accessToken);
+    const adminBlocked = await callResponses(adminKey, { model: "gpt-5" });
+    expect(adminBlocked.statusCode).toBe(403);
+    expect(errorCode(adminBlocked)).toBe("forbidden");
+
+    // 3. Different group -> 403
     await patchProvider("openai-main", {
-      allowedRoles: ["member"],
+      allowedUserIds: [],
+      allowedGroups: ["finance"],
+    });
+    const notInGroup = await callResponses(key, { model: "gpt-5" });
+    expect(notInGroup.statusCode).toBe(403);
+
+    // 4. Allowed by user ID -> succeeds
+    await patchProvider("openai-main", {
+      allowedUserIds: [member.user.id],
+      allowedGroups: [],
+    });
+    const userAllowed = await callResponses(key, { model: "gpt-5" });
+    expect(userAllowed.statusCode).toBe(200);
+
+    // 5. Disabled -> 403 even if user ID is in allowedUserIds
+    await patchProvider("openai-main", {
+      allowedUserIds: [member.user.id],
       enabled: false,
     });
     const disabled = await callResponses(key, { model: "gpt-5" });
     expect(disabled.statusCode).toBe(403);
     expect(errorCode(disabled)).toBe("forbidden");
-    expect(upstream.received).toHaveLength(0);
+    expect(upstream.received).toHaveLength(1);
   });
 
   it("400 for models outside the allowlist or malformed bodies", async () => {
@@ -640,7 +669,11 @@ describe("gateway forwarding", () => {
 describe("client config", () => {
   it("lists usable providers with today's usage", async () => {
     await createProvider({ dailyTokenLimitPerUser: 1000 });
-    await createProvider({ id: "admins-only", allowedRoles: ["admin"] });
+    await createProvider({
+      id: "other-group-only",
+      allowedGroups: ["other-group"],
+      allowedUserIds: [],
+    });
     await createProvider({ id: "off", enabled: false });
     const member = await loginAs("member");
     const key = await issueKey(member.accessToken);

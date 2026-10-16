@@ -103,9 +103,14 @@ export const providers = pgTable("providers", {
     .$type<{ id: string; displayName: string }[]>()
     .notNull(),
   defaultModel: text("default_model").notNull(),
-  allowedRoles: jsonb("allowed_roles")
-    .$type<("admin" | "member" | "viewer")[]>()
-    .notNull(),
+  allowedUserIds: uuid("allowed_user_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::uuid[]`),
+  allowedGroups: text("allowed_groups")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
   dailyTokenLimitPerUser: integer("daily_token_limit_per_user"),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: createdAt(),

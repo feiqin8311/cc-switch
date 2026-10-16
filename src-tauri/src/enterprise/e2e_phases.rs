@@ -231,6 +231,7 @@ async fn seed(env: &Env) {
         .json(&json!({
             "username": env.member, "displayName": MEMBER_DISPLAY,
             "password": env.member_password, "role": "member",
+            "groupName": "e2e",
         }))
         .send()
         .await
@@ -251,7 +252,8 @@ async fn seed(env: &Env) {
             { "id": MODEL_B, "displayName": "GPT E2E Mini" },
         ],
         "defaultModel": MODEL_A,
-        "allowedRoles": ["member", "admin"],
+        "allowedGroups": ["e2e"],
+        "allowedUserIds": [],
         "dailyTokenLimitPerUser": DAILY_LIMIT,
         "enabled": true,
     });

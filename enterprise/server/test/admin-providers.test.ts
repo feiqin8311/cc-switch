@@ -35,7 +35,8 @@ const basePayload = {
     { id: "gpt-5-mini", displayName: "GPT-5 mini" },
   ],
   defaultModel: "gpt-5",
-  allowedRoles: ["admin", "member"],
+  allowedUserIds: [],
+  allowedGroups: ["技术部"],
 };
 
 function api(
@@ -160,6 +161,28 @@ describe("admin providers", () => {
     expect(
       (await api("PATCH", "/admin/providers/openai-main", {})).statusCode,
     ).toBe(400);
+  });
+
+  it("validates allowedUserIds exist when creating or updating", async () => {
+    const nonexistent = "00000000-0000-0000-0000-000000000000";
+    const res = await api("POST", "/admin/providers", {
+      ...basePayload,
+      id: "invalid-user",
+      allowedUserIds: [nonexistent],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("bad_request");
+
+    const member = await createMember("member", "validuser");
+    const ok = await api("POST", "/admin/providers", {
+      ...basePayload,
+      id: "valid-user",
+      allowedUserIds: [member.user.id],
+      allowedGroups: ["研发部"],
+    });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().allowedUserIds).toEqual([member.user.id]);
+    expect(ok.json().allowedGroups).toEqual(["研发部"]);
   });
 
   it("forbids members and viewers", async () => {
