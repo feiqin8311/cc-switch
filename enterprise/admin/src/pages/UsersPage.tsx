@@ -1,6 +1,7 @@
 import {
   type CreateUserRequest,
   ListUsersResponseSchema,
+  OffboardUserResponseSchema,
   type Role,
   RoleSchema,
   type UpdateUserRequest,
@@ -64,19 +65,24 @@ export function UsersPage() {
   const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [deleting, setDeleting] = useState<User | null>(null);
+  const [offboarding, setOffboarding] = useState<User | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
 
-  const remove = useMutation({
+  const offboard = useMutation({
     mutationFn: (user: User) =>
-      client.request(`/admin/users/${user.id}`, { method: "DELETE" }),
-    onSuccess: (_data, user) => {
+      client.request(`/admin/users/${user.id}/offboard`, {
+        method: "POST",
+        schema: OffboardUserResponseSchema,
+      }),
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: USERS_KEY });
-      toast.success(`已删除用户 ${user.username}`);
-      setDeleting(null);
+      toast.success(
+        `已为 ${res.user.username} 办理离职：注销 ${res.revokedSessions} 个会话，禁用 ${res.disabledDevices} 台设备`,
+      );
+      setOffboarding(null);
     },
-    onError: (err) => toast.error(`删除失败：${describeError(err)}`),
+    onError: (err) => toast.error(`离职处理失败：${describeError(err)}`),
   });
 
   return (
@@ -87,7 +93,7 @@ export function UsersPage() {
         </h1>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
           <p className="min-w-0 max-w-2xl text-sm leading-6 text-muted-foreground">
-            创建员工账号、分配角色、重置密码、禁用或删除账号。禁用、改角色、重置密码或删除会立即注销该用户的所有会话。
+            创建员工账号、分配角色、重置密码、禁用账号或办理离职。禁用、改角色、重置密码或离职会立即注销该用户的所有会话；离职会保留其用量和对话记录。
           </p>
           <div className="flex shrink-0 items-center gap-2">
             <Button
@@ -207,10 +213,24 @@ export function UsersPage() {
                       <span
                         aria-hidden
                         className={`size-1.5 rounded-full ${
-                          u.disabled ? "bg-destructive" : "bg-emerald-600"
+                          u.offboardedAt
+                            ? "bg-muted-foreground"
+                            : u.disabled
+                              ? "bg-destructive"
+                              : "bg-emerald-600"
                         }`}
                       />
-                      {u.disabled ? "已禁用" : "正常"}
+                      {u.offboardedAt ? (
+                        <span
+                          title={`${formatDateTime(u.offboardedAt)} 由 ${u.offboardedBy ?? "—"} 办理`}
+                        >
+                          已离职
+                        </span>
+                      ) : u.disabled ? (
+                        "已禁用"
+                      ) : (
+                        "正常"
+                      )}
                     </span>
                   </td>
                   <td
@@ -232,13 +252,13 @@ export function UsersPage() {
                       >
                         编辑
                       </button>
-                      {u.id !== session.user.id && (
+                      {u.id !== session.user.id && !u.offboardedAt && (
                         <button
                           type="button"
-                          onClick={() => setDeleting(u)}
+                          onClick={() => setOffboarding(u)}
                           className="rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         >
-                          删除
+                          离职
                         </button>
                       )}
                     </div>
@@ -271,19 +291,19 @@ export function UsersPage() {
         />
       )}
       <ConfirmDialog
-        open={deleting !== null}
-        title="删除用户"
+        open={offboarding !== null}
+        title="办理离职"
         danger
-        confirmLabel="删除"
-        pending={remove.isPending}
+        confirmLabel="确认离职"
+        pending={offboard.isPending}
         message={
           <>
-            确定删除 <b>{deleting?.username}</b>
-            吗？该账号会立即退出登录，其设备、用量和已留存的对话一并删除，此操作不可撤销。
+            确定为 <b>{offboarding?.username}</b>
+            办理离职吗？该账号会被禁用并立即退出所有设备，其名下设备也会被禁用；用量和已留存的对话会保留，操作会记入审计。如需恢复，可在编辑中重新启用账号。
           </>
         }
-        onCancel={() => setDeleting(null)}
-        onConfirm={() => deleting && remove.mutate(deleting)}
+        onCancel={() => setOffboarding(null)}
+        onConfirm={() => offboarding && offboard.mutate(offboarding)}
       />
     </div>
   );
@@ -663,7 +683,9 @@ function AccountChecklist({
       {accounts.isPending ? (
         <p className="text-xs text-muted-foreground">正在加载账号列表…</p>
       ) : accounts.isError || !accounts.data?.configured ? (
-        <p className="text-xs text-muted-foreground">无法加载上游账号，稍后再试。</p>
+        <p className="text-xs text-muted-foreground">
+          无法加载上游账号，稍后再试。
+        </p>
       ) : accounts.data.items.length === 0 ? (
         <p className="text-xs text-muted-foreground">还没有上游账号。</p>
       ) : (

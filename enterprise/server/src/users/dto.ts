@@ -12,5 +12,7 @@ export function toUserDto(row: UserRow): User {
     lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
     upstreamAccountIds: row.upstreamAccountIds ?? [],
     groupName: row.groupName ?? "",
+    offboardedAt: row.offboardedAt?.toISOString() ?? null,
+    offboardedBy: row.offboardedBy ?? null,
   };
 }

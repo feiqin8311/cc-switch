@@ -40,6 +40,10 @@ export const users = pgTable("users", {
     .default(sql`'{}'::integer[]`),
   /** Org group label. Empty means ungrouped. */
   groupName: text("group_name").notNull().default(""),
+  /** Set by the offboard action; cleared when the user is re-enabled. */
+  offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
+  /** Username of the admin who offboarded the user. */
+  offboardedBy: text("offboarded_by"),
 });
 
 /** One row per login (device). Revoking it invalidates its access and refresh tokens. */
@@ -364,3 +368,26 @@ export const marketItems = pgTable("market_items", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Append-only log of admin actions on accounts. Usernames are copied so an
+ * event stays readable after either user is deleted.
+ */
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    action: text("action").notNull(),
+    actorId: uuid("actor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    actorUsername: text("actor_username").notNull(),
+    targetUserId: uuid("target_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    targetUsername: text("target_username").notNull(),
+    detail: jsonb("detail").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [index("audit_events_target_user_id_idx").on(t.targetUserId)],
+);

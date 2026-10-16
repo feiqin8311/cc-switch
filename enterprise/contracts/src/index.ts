@@ -117,6 +117,10 @@ export const UserSchema = z.object({
   upstreamAccountIds: z.array(z.number().int()).default([]),
   /** Empty when the user is not in a group. */
   groupName: GroupNameSchema.default(""),
+  /** Set when an admin offboarded the user; cleared again if they are re-enabled. */
+  offboardedAt: z.string().nullable().default(null),
+  /** Username of the admin who offboarded the user. */
+  offboardedBy: z.string().nullable().default(null),
 });
 export type User = z.infer<typeof UserSchema>;
 
@@ -187,11 +191,17 @@ export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 /**
  * PATCH /admin/users/:id → 200 User
  * Disabling a user or changing their password/role revokes all their sessions.
+ * Re-enabling an offboarded user clears `offboardedAt`.
  * An admin cannot disable or demote themselves.
+ *
+ * POST /admin/users/:id/offboard → 200 OffboardUserResponse
+ * For departing staff: disables the account, revokes all its sessions,
+ * disables its devices and writes an audit event. Usage and retained
+ * conversations are kept. 409 when already offboarded; not allowed on yourself.
  *
  * DELETE /admin/users/:id → 204
  * Removes the account. Sessions, devices, usage and retained conversations
- * cascade. An admin cannot delete themselves.
+ * cascade, so the admin console offboards instead. An admin cannot delete themselves.
  */
 export const UpdateUserRequestSchema = z
   .object({
@@ -206,6 +216,13 @@ export const UpdateUserRequestSchema = z
     message: "At least one field is required",
   });
 export type UpdateUserRequest = z.infer<typeof UpdateUserRequestSchema>;
+
+export const OffboardUserResponseSchema = z.object({
+  user: UserSchema,
+  revokedSessions: z.number().int(),
+  disabledDevices: z.number().int(),
+});
+export type OffboardUserResponse = z.infer<typeof OffboardUserResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Desktop client
