@@ -192,6 +192,8 @@ export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
  * PATCH /admin/users/:id → 200 User
  * Disabling a user or changing their password/role revokes all their sessions.
  * Re-enabling an offboarded user clears `offboardedAt`.
+ * Renaming keeps the user's sessions; a display name that still equals the
+ * old username follows the rename. 409 when the username is taken.
  * An admin cannot disable or demote themselves.
  *
  * POST /admin/users/:id/offboard → 200 OffboardUserResponse
@@ -205,6 +207,7 @@ export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
  */
 export const UpdateUserRequestSchema = z
   .object({
+    username: UsernameSchema.optional(),
     displayName: DisplayNameSchema.optional(),
     role: RoleSchema.optional(),
     disabled: z.boolean().optional(),

@@ -97,10 +97,17 @@ export async function adminUserRoutes(
       .limit(1);
     if (!existing) throw notFound("User not found");
 
+    const renamed =
+      body.username !== undefined && body.username !== existing.username;
     const [row] = await db
       .update(users)
       .set({
-        displayName: body.displayName,
+        username: renamed ? body.username : undefined,
+        displayName:
+          body.displayName ??
+          (renamed && existing.displayName === existing.username
+            ? body.username
+            : undefined),
         role: body.role,
         disabled: body.disabled,
         passwordHash:
@@ -118,7 +125,13 @@ export async function adminUserRoutes(
         updatedAt: new Date(),
       })
       .where(eq(users.id, id))
-      .returning();
+      .returning()
+      .catch((err: unknown) => {
+        if (isUniqueViolation(err)) {
+          throw new AppError(409, "conflict", "Username already exists");
+        }
+        throw err;
+      });
     if (!row) throw notFound("User not found");
 
     const securityChanged =
