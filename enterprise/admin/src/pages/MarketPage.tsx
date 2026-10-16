@@ -176,6 +176,7 @@ export function MarketPage({
   const toast = useToast();
   const [uploading, setUploading] = useState<MarketItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<MarketItem | null>(null);
+  const [audience, setAudience] = useState<MarketItem | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const users = useUsers();
 
@@ -204,6 +205,14 @@ export function MarketPage({
             ? `已将 ${item.name} 的创建人改为 ${item.publishedByName}`
             : `已清除 ${item.name} 的创建人`,
         );
+        return;
+      }
+      if (
+        vars.body.visibleUserIds !== undefined ||
+        vars.body.visibleGroups !== undefined
+      ) {
+        toast.success(`已更新 ${item.name} 的可见范围`);
+        setAudience(null);
         return;
       }
       toast.success(
@@ -285,6 +294,7 @@ export function MarketPage({
                 <th className={thClass}>创建人</th>
                 <th className={thClass}>版本</th>
                 <th className={thClass}>必装</th>
+                <th className={thClass}>可见</th>
                 <th className={`${thClass} text-right`}>大小</th>
                 <th className={thClass}>更新时间</th>
                 <th className={`${thClass} text-right`}>操作</th>
@@ -335,6 +345,15 @@ export function MarketPage({
                       />
                       {togglingId === item.id && <Spinner className="size-3" />}
                     </div>
+                  </td>
+                  <td className={tdClass}>
+                    <button
+                      type="button"
+                      className="text-left text-sm underline decoration-border underline-offset-2 hover:decoration-foreground"
+                      onClick={() => setAudience(item)}
+                    >
+                      {audienceText(item)}
+                    </button>
                   </td>
                   <td
                     className={`${tdClass} text-right whitespace-nowrap tabular-nums`}
@@ -387,6 +406,21 @@ export function MarketPage({
           onClose={() => setUploading(null)}
         />
       )}
+      {audience && (
+        <AudienceDialog
+          key={audience.id}
+          item={audience}
+          users={users.data?.items ?? []}
+          pending={patch.isPending}
+          onClose={() => setAudience(null)}
+          onSave={(visibleUserIds, visibleGroups) =>
+            patch.mutate({
+              id: audience.id,
+              body: { visibleUserIds, visibleGroups },
+            })
+          }
+        />
+      )}
       <ConfirmDialog
         open={deleting !== null}
         title="删除市场条目"
@@ -403,6 +437,112 @@ export function MarketPage({
         onConfirm={() => deleting && remove.mutate(deleting.id)}
       />
     </div>
+  );
+}
+
+function audienceText(item: MarketItem): string {
+  const people = item.visibleUserIds ?? [];
+  const groups = item.visibleGroups ?? [];
+  if (people.length === 0 && groups.length === 0) return "所有人";
+  const parts: string[] = [];
+  if (groups.length > 0) parts.push(groups.join("、"));
+  if (people.length > 0) parts.push(`${people.length} 人`);
+  return parts.join(" · ");
+}
+
+function toggleId(ids: string[], id: string, on: boolean): string[] {
+  return on ? [...ids, id] : ids.filter((x) => x !== id);
+}
+
+function AudienceDialog({
+  item,
+  users,
+  pending,
+  onClose,
+  onSave,
+}: {
+  item: MarketItem;
+  users: User[];
+  pending: boolean;
+  onClose(): void;
+  onSave(userIds: string[], groups: string[]): void;
+}) {
+  const [people, setPeople] = useState(item.visibleUserIds ?? []);
+  const [groups, setGroups] = useState(item.visibleGroups ?? []);
+  const groupOptions = [
+    ...new Set(users.map((u) => u.groupName).filter((g) => g)),
+  ].sort();
+
+  return (
+    <Dialog
+      open
+      title={`谁可以看见 ${item.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose} disabled={pending}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            disabled={pending}
+            onClick={() => onSave(people, groups)}
+          >
+            {pending && <Spinner className="size-3" />}
+            保存
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-xs text-muted-foreground">
+        不勾选表示所有人可见。勾选后，只有这些组里的人，或单独勾选的人，能在客户端看到并安装。
+      </p>
+      <fieldset className="mb-3">
+        <legend className="mb-1 text-xs font-semibold">组</legend>
+        {groupOptions.length === 0 ? (
+          <p className="text-xs text-muted-foreground">还没有用户被分到组。</p>
+        ) : (
+          <div className="max-h-32 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+            {groupOptions.map((g) => (
+              <label key={g} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-foreground"
+                  checked={groups.includes(g)}
+                  onChange={(e) =>
+                    setGroups(toggleId(groups, g, e.target.checked))
+                  }
+                />
+                {g}
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
+      <fieldset>
+        <legend className="mb-1 text-xs font-semibold">人</legend>
+        <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+          {users.map((u) => (
+            <label key={u.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-3.5 accent-foreground"
+                checked={people.includes(u.id)}
+                onChange={(e) =>
+                  setPeople(toggleId(people, u.id, e.target.checked))
+                }
+              />
+              {u.username}
+              {u.groupName ? (
+                <span className="text-xs text-muted-foreground">
+                  {u.groupName}
+                </span>
+              ) : null}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </Dialog>
   );
 }
 

@@ -14,10 +14,13 @@ import {
   PromptDefinitionSchema,
   ProviderIdSchema,
 } from "@ccse/contracts";
+import { inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
 import { authOf, requirePermission } from "../auth/guard.ts";
+import type { Db } from "../db/client.ts";
+import { users } from "../db/schema.ts";
 import {
   AppError,
   forbidden,
@@ -26,6 +29,7 @@ import {
   unauthorized,
 } from "../errors.ts";
 import {
+  canSeeMarketItem,
   deleteMarketItem,
   findMarketItem,
   getMarketPackage,
@@ -38,6 +42,17 @@ import {
 import { validateMarketPackage } from "../market/validate.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
+
+async function assertUsersExist(db: Db, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.id, ids));
+  if (rows.length !== ids.length) {
+    throw new AppError(400, "bad_request", "User not found");
+  }
+}
 
 /** Member skill publish: no mandatory flag, kind is skill only. */
 const MemberSkillPublishSchema = z.object({
@@ -147,8 +162,13 @@ export async function marketRoutes(
     preHandler: [authenticate, requirePermission("market.manage")],
   };
 
-  app.get("/market/items", readGuard, async () => {
-    const res: ListMarketItemsResponse = { items: await listMarketItems(db) };
+  app.get("/market/items", readGuard, async (req) => {
+    const actor = authOf(req);
+    let items = await listMarketItems(db);
+    if (!actor.permissions.includes("market.manage")) {
+      items = items.filter((item) => canSeeMarketItem(item, actor.user));
+    }
+    const res: ListMarketItemsResponse = { items };
     return res;
   });
 
@@ -214,6 +234,13 @@ export async function marketRoutes(
     const { id } = parseBody(IdParamSchema, req.params);
     const pkg = await getMarketPackage(db, id);
     if (!pkg) throw notFound("Market item not found");
+    const actor = authOf(req);
+    if (
+      !actor.permissions.includes("market.manage") &&
+      !canSeeMarketItem(pkg.item, actor.user)
+    ) {
+      throw notFound("Market item not found");
+    }
     const isJson = isJsonKind(pkg.item.kind);
     const ext = isJson ? "json" : "zip";
     const filename = `${pkg.item.id}-${safeFilenamePart(pkg.item.version)}.${ext}`;
@@ -301,6 +328,13 @@ export async function marketRoutes(
   app.patch("/admin/market/items/:id", manageGuard, async (req) => {
     const { id } = parseBody(IdParamSchema, req.params);
     const patch = parseBody(MarketItemPatchSchema, req.body);
+    const visibleUserIds = patch.visibleUserIds && [
+      ...new Set(patch.visibleUserIds),
+    ];
+    if (visibleUserIds) await assertUsersExist(db, visibleUserIds);
+    const visibleGroups = patch.visibleGroups && [
+      ...new Set(patch.visibleGroups),
+    ];
     if (patch.publishedBy) {
       const name = await publisherNameOf(db, patch.publishedBy);
       if (name === null) {
@@ -309,7 +343,11 @@ export async function marketRoutes(
         ]);
       }
     }
-    const row = await patchMarketItem(db, id, patch);
+    const row = await patchMarketItem(db, id, {
+      ...patch,
+      visibleUserIds,
+      visibleGroups,
+    });
     if (!row) throw notFound("Market item not found");
     req.log.info(
       { actor: authOf(req).user.id, itemId: id },

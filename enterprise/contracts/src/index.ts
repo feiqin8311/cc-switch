@@ -655,6 +655,13 @@ export const MarketItemSchema = z.object({
   publishedBy: z.string().uuid().nullable(),
   /** Display name of the publisher; null if the user was deleted. */
   publishedByName: z.string().nullable(),
+  /**
+   * Allowlist. Both empty means every member with market.install can see the
+   * item. Otherwise the caller must be in `visibleUserIds` or their group
+   * must be in `visibleGroups`. Admins always see every item.
+   */
+  visibleUserIds: z.array(z.string().uuid()).default([]),
+  visibleGroups: z.array(z.string()).default([]),
 });
 export type MarketItem = z.infer<typeof MarketItemSchema>;
 
@@ -703,6 +710,9 @@ export const MarketItemPatchSchema = z
     mandatory: z.boolean().optional(),
     /** Reassign (or clear) the publisher. Unknown user ids are 400. */
     publishedBy: z.string().uuid().nullable().optional(),
+    /** Empty array plus empty groups means everyone. Unknown user ids are 400. */
+    visibleUserIds: z.array(z.string().uuid()).optional(),
+    visibleGroups: z.array(z.string().trim().min(1).max(64)).optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "At least one field is required",

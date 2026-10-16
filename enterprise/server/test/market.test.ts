@@ -750,3 +750,85 @@ describe("member skill publish", () => {
     expect(clash.statusCode).toBe(409);
   });
 });
+
+describe("market visibility", () => {
+  it("shows a restricted skill only to the chosen person or group", async () => {
+    const buf = zip({ "SKILL.md": SKILL_MD });
+    expect((await upload("secret-skill", buf)).statusCode).toBe(200);
+
+    const users = ListUsersResponseSchema.parse(
+      (
+        await ctx.app.inject({
+          url: "/api/v1/admin/users",
+          headers: bearer(adminToken),
+        })
+      ).json(),
+    ).items;
+    const mem = users.find((u) => u.username === "mem");
+    if (!mem) throw new Error("missing member");
+
+    const otherToken = await createAndLogin("member", "other");
+    const hidden = await ctx.app.inject({
+      method: "PATCH",
+      url: "/api/v1/admin/market/items/secret-skill",
+      headers: bearer(adminToken),
+      payload: { visibleUserIds: [mem.id], visibleGroups: [] },
+    });
+    expect(hidden.statusCode).toBe(200);
+    expect(MarketItemSchema.parse(hidden.json()).visibleUserIds).toEqual([
+      mem.id,
+    ]);
+
+    const seenBy = async (token: string) =>
+      ListMarketItemsResponseSchema.parse(
+        (
+          await ctx.app.inject({
+            url: "/api/v1/market/items",
+            headers: bearer(token),
+          })
+        ).json(),
+      ).items.map((i) => i.id);
+
+    expect(await seenBy(memberToken)).toContain("secret-skill");
+    expect(await seenBy(otherToken)).not.toContain("secret-skill");
+    expect(await seenBy(adminToken)).toContain("secret-skill");
+
+    const denied = await ctx.app.inject({
+      url: "/api/v1/market/items/secret-skill/package",
+      headers: bearer(otherToken),
+    });
+    expect(denied.statusCode).toBe(404);
+
+    const others = ListUsersResponseSchema.parse(
+      (
+        await ctx.app.inject({
+          url: "/api/v1/admin/users",
+          headers: bearer(adminToken),
+        })
+      ).json(),
+    ).items.find((u) => u.username === "other");
+    if (!others) throw new Error("missing other");
+    expect(
+      (
+        await ctx.app.inject({
+          method: "PATCH",
+          url: `/api/v1/admin/users/${others.id}`,
+          headers: bearer(adminToken),
+          payload: { groupName: "Libraton组" },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await ctx.app.inject({
+          method: "PATCH",
+          url: "/api/v1/admin/market/items/secret-skill",
+          headers: bearer(adminToken),
+          payload: { visibleUserIds: [], visibleGroups: ["Libraton组"] },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(await seenBy(otherToken)).toContain("secret-skill");
+    expect(await seenBy(memberToken)).not.toContain("secret-skill");
+  });
+});
