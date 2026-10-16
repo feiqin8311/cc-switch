@@ -137,7 +137,7 @@ export function ConversationsPage({ embedded }: { embedded?: boolean } = {}) {
                 <option value="">全部用户</option>
                 {users.data?.items.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.displayName}（{u.username}）
+                    {u.username}
                   </option>
                 ))}
               </select>
@@ -243,17 +243,16 @@ export function ConversationsPage({ embedded }: { embedded?: boolean } = {}) {
                     onClick={() => setSelected(c.id)}
                   >
                     <td className={`${tdClass} whitespace-nowrap`}>
-                      <div className="font-medium">{c.user.displayName}</div>
                       <button
                         type="button"
-                        className="text-xs text-muted-foreground hover:text-brand hover:underline cursor-pointer"
+                        className="font-medium hover:text-brand hover:underline cursor-pointer"
                         title="只看此用户"
                         onClick={(e) => {
                           e.stopPropagation();
                           filterByUser(c);
                         }}
                       >
-                        @{c.user.username}
+                        {c.user.username}
                       </button>
                     </td>
                     <td className={`${tdClass} max-w-72`}>
@@ -396,7 +395,7 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose(): void }) {
               <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-0.5 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <User className="size-3 opacity-60" />
-                  {c.user.displayName} (@{c.user.username})
+                  {c.user.username}
                 </span>
                 {c.deviceName && <span>· 设备：{c.deviceName}</span>}
                 {c.model && (

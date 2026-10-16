@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Monitor, Moon, Sun } from "lucide-react";
+import { ChevronRight, LogOut, Monitor, Moon, Sun } from "lucide-react";
 import type { SettingsFormState } from "@/hooks/useSettings";
 import { useTheme } from "@/components/theme-provider";
 import { SegmentedControl } from "@/components/ui/segmented-control";
@@ -20,6 +20,8 @@ import {
   SettingsSwitchRow,
 } from "@/components/settings/SettingsLayout";
 import { CODEX_ONLY } from "@/config/edition";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/lib/toast";
 
 type Language = SettingsFormState["language"];
 
@@ -43,9 +45,45 @@ export function GeneralSection({
 }: GeneralSectionProps) {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
+  const { state, logout } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      toast.error(String(err));
+    }
+  };
 
   return (
     <>
+      {state.loggedIn && state.user && (
+        <SettingsBlock title={t("enterprise.account")}>
+          <SettingsCard>
+            <SettingsRow
+              label={state.user.username}
+              description={
+                <>
+                  {t(`enterprise.role.${state.user.role}`)}
+                  <br />
+                  {state.offline ? t("enterprise.offline") : state.serverUrl}
+                </>
+              }
+              control={
+                <Button
+                  variant="neutral"
+                  size="compact"
+                  onClick={() => void handleLogout()}
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  {t("enterprise.logout")}
+                </Button>
+              }
+            />
+          </SettingsCard>
+        </SettingsBlock>
+      )}
+
       <SettingsBlock title={t("settings.general.appearance")}>
         <SettingsCard>
           <SettingsRow

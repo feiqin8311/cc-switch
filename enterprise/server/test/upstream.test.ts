@@ -15,6 +15,7 @@ function user(role: UserRow["role"], ids: number[]): UserRow {
     updatedAt: new Date(),
     lastLoginAt: null,
     upstreamAccountIds: ids,
+    groupName: "",
   };
 }
 

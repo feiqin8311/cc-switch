@@ -40,25 +40,25 @@ export function Layout() {
 
   return (
     <div className="flex h-screen min-w-[1024px] overflow-hidden bg-background text-foreground">
-      {/* Sidebar (exact match to claude-front sidebar) */}
+      {/* Sidebar (Claude minimalist aesthetic) */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         {/* Top Header / Brand */}
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border/60 px-4">
+        <div className="flex h-13 shrink-0 items-center gap-2 border-b border-sidebar-border/60 px-4">
           <BrandMark className="size-4.5 text-brand" />
           <span className="font-serif text-sm font-medium tracking-tight text-foreground">
             CC Switch
           </span>
-          <span className="rounded-full bg-brand/10 px-1.5 py-0.2 text-[9px] font-medium text-brand">
+          <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium text-brand">
             Enterprise
           </span>
         </div>
 
         {/* Navigation list */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-3">
-          <div className="px-2 pb-1.5 text-[11px] font-medium text-muted-foreground tracking-tight">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 py-3">
+          <div className="px-2 pb-2 text-[11px] font-medium text-muted-foreground/75 tracking-tight">
             管理菜单
           </div>
-          <nav aria-label="主导航" className="flex flex-col gap-0.5">
+          <nav aria-label="主导航" className="flex flex-col gap-1">
             {items.map((item) => {
               const Icon = NAV_ICONS[item.path] ?? Users;
               return (
@@ -66,10 +66,10 @@ export function Layout() {
                   key={item.path}
                   to={item.path}
                   className={({ isActive }) =>
-                    `flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-sm transition-colors cursor-pointer ${
+                    `flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm transition-colors cursor-pointer outline-none focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 ${
                       isActive
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                        ? "bg-sidebar-accent font-medium text-foreground border border-sidebar-border/70 shadow-2xs"
+                        : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground"
                     }`
                   }
                 >
@@ -81,25 +81,24 @@ export function Layout() {
           </nav>
         </div>
 
-        {/* User Card in Sidebar Bottom (exact match to claude-front line 682) */}
-        <div className="flex h-12 shrink-0 items-center gap-2 border-t border-sidebar-border px-3">
+        {/* User Card in Sidebar Bottom (Claude style) */}
+        <div className="flex h-14 shrink-0 items-center gap-2 border-t border-sidebar-border/80 px-3">
           <div
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left"
-            title={`${session.user.displayName} · ${ROLE_LABELS[session.user.role]}`}
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 text-left"
+            title={`${session.user.username} · ${ROLE_LABELS[session.user.role]}`}
           >
             <span
               aria-hidden="true"
-              className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-[10px] font-medium text-sidebar-foreground"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted border border-border/80 text-xs font-medium text-foreground"
             >
-              {session.user.displayName.slice(0, 1) || "U"}
+              {session.user.username.slice(0, 1) || "U"}
             </span>
             <div className="min-w-0 flex-1 truncate">
-              <span className="truncate text-xs font-medium text-sidebar-foreground">
-                {session.user.displayName}
-                <span className="text-[11px] text-muted-foreground font-normal">
-                  {" · "}
-                  {ROLE_LABELS[session.user.role]}
-                </span>
+              <span className="block truncate text-xs font-medium text-foreground">
+                {session.user.username}
+              </span>
+              <span className="block truncate text-[11px] text-muted-foreground font-normal">
+                {ROLE_LABELS[session.user.role]}
               </span>
             </div>
           </div>
@@ -108,17 +107,19 @@ export function Layout() {
             onClick={onLogout}
             title="退出登录"
             aria-label="退出登录"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground cursor-pointer"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground cursor-pointer outline-none focus:outline-none"
           >
-            <LogOut className="size-3.5" />
+            <LogOut className="size-4" />
           </button>
         </div>
       </aside>
 
       {/* Main Content Area */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-8">
-          <Outlet />
+        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-9">
+          <div className="mx-auto w-full max-w-6xl">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

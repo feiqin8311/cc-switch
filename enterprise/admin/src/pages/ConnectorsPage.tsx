@@ -5,7 +5,7 @@ import {
   MarketItemSchema,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Upload, X } from "lucide-react";
+import { Cable, Plus, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useToast } from "../components/Toast";
 import {
@@ -14,7 +14,6 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorState,
-  inputClass,
   LoadingState,
   PageHeader,
   Spinner,
@@ -33,8 +32,7 @@ import {
 import { useUsers } from "./UsersPage";
 
 /**
- * Connectors admin page — list chrome mirrors the desktop MCP panel
- * (search + count, rounded panel, sticky name header, compact rows).
+ * Connectors admin page — Claude-inspired card grid with full administrative controls.
  */
 export function ConnectorsPage() {
   const client = useApi();
@@ -143,9 +141,13 @@ export function ConnectorsPage() {
         title="连接器"
         description="把公司系统接到 Codex。员工在桌面端「连接器」安装；钉钉登录需本人扫码。"
         actions={
-          <Button variant="primary" onClick={() => setUploading("new")}>
-            <Upload className="size-4" />
-            上传
+          <Button
+            variant="primary"
+            className="h-9 rounded-full px-4 shadow-none"
+            onClick={() => setUploading("new")}
+          >
+            <Plus className="size-4" />
+            上传连接器
           </Button>
         }
       />
@@ -155,29 +157,29 @@ export function ConnectorsPage() {
       ) : items.isError ? (
         <ErrorState error={items.error} onRetry={() => items.refetch()} />
       ) : connectors.length === 0 ? (
-        <div className="rounded-xl border border-border/80 bg-card shadow-sm">
+        <div className="rounded-2xl border border-border/80 bg-card p-12">
           <EmptyState
-            icon={<Upload className="size-6 stroke-[1.5]" />}
+            icon={<Cable className="size-8 stroke-[1.5]" />}
             title="还没有连接器"
           >
-            点击右上角「上传」发布第一个连接器。
+            点击右上角「上传连接器」发布第一个连接器。
           </EmptyState>
         </div>
       ) : (
         <>
-          {/* Search row — same rhythm as desktop MCP (h-14, 320px field, caption count) */}
-          <div className="mb-3 flex h-10 items-center gap-3">
-            <div className="relative w-[320px] min-w-[180px] shrink">
+          {/* Claude-style search pill & count */}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            <div className="relative w-full max-w-sm">
               <Search
                 aria-hidden
-                className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 strokeWidth={1.5}
               />
               <input
-                className={`${inputClass} ps-8 pe-8`}
+                className="h-10 w-full rounded-full border border-border/80 bg-card ps-10 pe-9 text-sm text-foreground outline-none placeholder:text-muted-foreground transition-all focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 shadow-2xs"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索名称、说明或发布人"
+                placeholder="搜索连接器..."
                 aria-label="搜索连接器"
                 autoComplete="off"
                 spellCheck={false}
@@ -186,126 +188,120 @@ export function ConnectorsPage() {
                 <button
                   type="button"
                   aria-label="清除搜索"
-                  className="absolute end-1 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="absolute end-3 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
                   onClick={() => setSearchQuery("")}
                 >
                   <X className="size-3.5" strokeWidth={1.5} />
                 </button>
               )}
             </div>
-            <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
               {normalized
-                ? `${filtered.length} / ${connectors.length} 个连接器`
-                : `${connectors.length} 个连接器`}
+                ? `显示 ${filtered.length} / 共 ${connectors.length} 个连接器`
+                : `共 ${connectors.length} 个连接器`}
             </span>
           </div>
 
-          {/* List panel — mirrors desktop MCP rounded-panel + sticky header */}
-          <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
-            <div className="sticky top-0 z-10 flex h-11 items-center border-b border-border/60 bg-muted/40 pe-2 ps-4">
-              <span className="min-w-0 flex-1 text-xs font-semibold text-muted-foreground">
-                名称
-              </span>
-              <span className="w-[7.5rem] shrink-0 text-xs font-semibold text-muted-foreground">
-                必装
-              </span>
-              <span className="w-56 shrink-0 text-xs font-semibold text-muted-foreground">
-                创建人
-              </span>
-              <span
-                aria-hidden
-                className="w-[11.5rem] shrink-0"
-              />
+          {filtered.length === 0 ? (
+            <div className="rounded-2xl border border-border/80 bg-card p-12">
+              <EmptyState
+                icon={<Cable className="size-8 stroke-[1.5]" />}
+                title="未找到匹配的连接器"
+              >
+                没有匹配「{searchQuery.trim()}」的连接器，请尝试其他关键词。
+              </EmptyState>
             </div>
-
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
-                <span className="text-sm text-muted-foreground">
-                  没有匹配「{searchQuery.trim()}」的连接器
-                </span>
-                <Button size="sm" onClick={() => setSearchQuery("")}>
-                  清除搜索
-                </Button>
-              </div>
-            ) : (
-              <ul aria-label="连接器列表" className="m-0 list-none p-0">
-                {filtered.map((item, index) => (
-                  <li
-                    key={item.id}
-                    className={`flex min-h-14 items-center gap-3 pe-2 ps-4 py-2.5 transition-colors hover:bg-muted/40 ${
-                      index > 0 ? "border-t border-border/40" : ""
-                    }`}
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col pe-2">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filtered.map((item) => (
+                <div
+                  key={item.id}
+                  className="group flex flex-col justify-between rounded-2xl border border-border/80 bg-card p-5 transition-all hover:border-zinc-300 dark:hover:border-zinc-700 shadow-2xs"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/50 text-foreground">
+                      <Cable className="size-6 stroke-[1.5]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3
                           title={item.name}
-                          className="min-w-0 truncate text-sm font-medium text-foreground"
+                          className="truncate text-base font-medium text-foreground tracking-tight"
                         >
                           {item.name}
-                        </span>
+                        </h3>
                         <Badge tone="blue">{item.id}</Badge>
                         {item.mandatory && <Badge tone="amber">必装</Badge>}
                       </div>
-                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                        <span
-                          title={item.description || undefined}
-                          className="min-w-0 truncate"
-                        >
-                          {item.description || item.id}
+                      <p
+                        title={item.description || undefined}
+                        className="mt-1 line-clamp-2 text-sm text-muted-foreground leading-relaxed"
+                      >
+                        {item.description || "暂无说明"}
+                      </p>
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>
+                          by{" "}
+                          <strong className="font-medium text-foreground/80">
+                            {item.publishedByName || "系统"}
+                          </strong>
                         </span>
-                        <span className="shrink-0 font-mono tabular-nums">
-                          {item.version}
-                        </span>
-                        <span className="shrink-0 tabular-nums">
-                          {formatBytes(item.sizeBytes)}
-                        </span>
-                        <span className="shrink-0">
-                          {formatDateTime(item.updatedAt)}
-                        </span>
+                        <span className="text-border">•</span>
+                        <span className="font-mono">{item.version}</span>
+                        <span className="text-border">•</span>
+                        <span>{formatBytes(item.sizeBytes)}</span>
+                        <span className="text-border">•</span>
+                        <span>{formatDateTime(item.updatedAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">必装</span>
+                        <Switch
+                          label={`${item.name} 必装`}
+                          checked={item.mandatory}
+                          disabled={togglingId === item.id}
+                          onChange={(mandatory) =>
+                            patch.mutate({ id: item.id, body: { mandatory } })
+                          }
+                        />
+                        {togglingId === item.id && <Spinner className="size-3" />}
+                      </div>
+                      <div className="w-36">
+                        <PublisherSelect
+                          item={item}
+                          users={users.data?.items}
+                          disabled={togglingId === item.id}
+                          onChange={(publishedBy) =>
+                            patch.mutate({
+                              id: item.id,
+                              body: { publishedBy },
+                            })
+                          }
+                        />
                       </div>
                     </div>
 
-                    <div className="flex w-[7.5rem] shrink-0 items-center gap-1.5">
-                      <Switch
-                        label={`${item.name} 必装`}
-                        checked={item.mandatory}
-                        disabled={togglingId === item.id}
-                        onChange={(mandatory) =>
-                          patch.mutate({ id: item.id, body: { mandatory } })
-                        }
-                      />
-                      {togglingId === item.id && (
-                        <Spinner className="size-3" />
-                      )}
-                    </div>
-
-                    <div className="w-56 shrink-0">
-                      <PublisherSelect
-                        item={item}
-                        users={users.data?.items}
-                        disabled={togglingId === item.id}
-                        onChange={(publishedBy) =>
-                          patch.mutate({
-                            id: item.id,
-                            body: { publishedBy },
-                          })
-                        }
-                      />
-                    </div>
-
-                    <div className="flex w-[11.5rem] shrink-0 justify-end gap-1">
+                    <div className="flex items-center gap-1.5">
                       <Button
                         size="sm"
                         disabled={downloadingId === item.id}
                         onClick={() => void download(item)}
+                        title="下载安装包"
                       >
                         {downloadingId === item.id && (
                           <Spinner className="size-3" />
                         )}
                         下载
                       </Button>
-                      <Button size="sm" onClick={() => setUploading(item)}>
+                      <Button
+                        size="sm"
+                        onClick={() => setUploading(item)}
+                        title="上传新版本"
+                      >
                         新版本
                       </Button>
                       <Button
@@ -313,15 +309,16 @@ export function ConnectorsPage() {
                         variant="ghost"
                         className="text-destructive hover:bg-destructive/10"
                         onClick={() => setDeleting(item)}
+                        title="删除连接器"
                       >
                         删除
                       </Button>
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 

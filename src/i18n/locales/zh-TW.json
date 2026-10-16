@@ -4811,6 +4811,7 @@
     "password": "密碼",
     "loggingIn": "登入中...",
     "loginFailed": "登入失敗",
+    "account": "企業帳號",
     "logout": "登出",
     "refresh": "同步企業設定",
     "offline": "離線（使用上次同步的設定）",
@@ -4895,7 +4896,7 @@
     "loading": "正在讀取上游帳號…",
     "unconfigured": "企業伺服器未設定 Sub2API",
     "empty": "沒有上游帳號",
-    "capacityLabel": "容量",
+    "capacityLabel": "使用容量",
     "expiresAt": "到期 {{time}}"
   },
   "enterpriseRetention": {

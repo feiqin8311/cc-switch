@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, LayoutGrid, RefreshCw } from "lucide-react";
+import { Gauge, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { UpstreamAccount, UpstreamWindow } from "../../../enterprise/contracts/src/index.ts";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
@@ -78,11 +78,18 @@ function AccountCard({ acc }: { acc: UpstreamAccount }) {
           </span>
           {acc.groups[0] && <span className="text-fg-3">{acc.groups[0]}</span>}
           <span
-            className={`inline-flex items-center gap-1 tabular-nums ${capacityClass(acc.currentConcurrency ?? 0, acc.maxConcurrency ?? 0)}`}
+            className="inline-flex items-center gap-1.5 tabular-nums"
             title={t("upstream.capacityLabel")}
           >
-            <LayoutGrid className="h-3 w-3" strokeWidth={2} />
-            {acc.currentConcurrency ?? 0} / {acc.maxConcurrency ?? 0}
+            <span className="text-fg-3">{t("upstream.capacityLabel")}</span>
+            <span
+              className={capacityClass(
+                acc.currentConcurrency ?? 0,
+                acc.maxConcurrency ?? 0,
+              )}
+            >
+              {acc.currentConcurrency ?? 0} / {acc.maxConcurrency ?? 0}
+            </span>
           </span>
         </div>
       </div>
