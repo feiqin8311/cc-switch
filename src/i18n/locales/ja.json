@@ -4878,6 +4878,8 @@
     "listLabel": "コネクタ一覧",
     "noMatch": "「{{query}}」に一致するコネクタはありません",
     "clearSearch": "検索をクリア",
+    "emptyInstalled": "インストール済みのコネクタはありません",
+    "browseMarket": "企業マーケットでインストール",
     "install": "インストール",
     "installing": "DingTalk Workspace CLI と Codex Skill をインストールしています…",
     "installed": "インストール済み",

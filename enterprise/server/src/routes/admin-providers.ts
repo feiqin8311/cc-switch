@@ -212,6 +212,7 @@ export async function adminProviderRoutes(
           date,
           userId: usageRecords.userId,
           username: users.username,
+          groupName: users.groupName,
           providerId: usageRecords.providerId,
           model: usageRecords.model,
           requests: count(),
@@ -236,6 +237,7 @@ export async function adminProviderRoutes(
           date,
           usageRecords.userId,
           users.username,
+          users.groupName,
           usageRecords.providerId,
           usageRecords.model,
         )

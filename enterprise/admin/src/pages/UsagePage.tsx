@@ -5,7 +5,13 @@ import {
 } from "@ccse/contracts";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { BarChart3, Search } from "lucide-react";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Button,
   Card,
@@ -15,7 +21,9 @@ import {
   InlineError,
   inputClass,
   LoadingState,
+  MultiSelect,
   PageHeader,
+  type SelectOption,
   Spinner,
   tableClass,
   tdClass,
@@ -63,6 +71,43 @@ function aggregate(
   );
 }
 
+interface Filters {
+  userIds: string[];
+  groups: string[];
+  providerIds: string[];
+}
+
+const NO_FILTERS: Filters = { userIds: [], groups: [], providerIds: [] };
+
+/** Fields shared by gateway and device usage rows that the filters look at. */
+interface Filterable {
+  userId: string;
+  groupName: string;
+  providerId: string;
+}
+
+function matches(f: Filters, r: Filterable): boolean {
+  return (
+    (f.userIds.length === 0 || f.userIds.includes(r.userId)) &&
+    (f.groups.length === 0 || f.groups.includes(r.groupName)) &&
+    (f.providerIds.length === 0 || f.providerIds.includes(r.providerId))
+  );
+}
+
+const groupLabel = (g: string) => g || "未分组";
+
+/** Sorted options for every distinct key, keeping already selected ones. */
+function optionsOf(
+  keys: Map<string, string>,
+  selected: readonly string[],
+): SelectOption[] {
+  const all = new Map(keys);
+  for (const v of selected) if (!all.has(v)) all.set(v, v);
+  return [...all]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+}
+
 const num = `${tdClass} text-right tabular-nums`;
 const numTh = `${thClass} text-right`;
 
@@ -94,7 +139,86 @@ export function UsagePage() {
     placeholderData: keepPreviousData,
   });
 
-  const rows = usage.data?.items ?? [];
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const filtering =
+    filters.userIds.length +
+      filters.groups.length +
+      filters.providerIds.length >
+    0;
+  // Remembers usernames so a selected user keeps its label in a range where
+  // they have no usage.
+  const usernames = useRef(new Map<string, string>());
+
+  const allRows = usage.data?.items ?? [];
+  const deviceRows = byDevice.data?.items ?? [];
+  const options = useMemo(() => {
+    const users = new Map<string, string>();
+    const groups = new Map<string, string>();
+    const providers = new Map<string, string>();
+    for (const r of [...allRows, ...deviceRows]) {
+      users.set(r.userId, r.username);
+      usernames.current.set(r.userId, r.username);
+      groups.set(r.groupName, groupLabel(r.groupName));
+      if (r.providerId) providers.set(r.providerId, r.providerId);
+    }
+    for (const id of filters.userIds) {
+      const name = usernames.current.get(id);
+      if (name && !users.has(id)) users.set(id, name);
+    }
+    return {
+      users: optionsOf(users, filters.userIds),
+      groups: optionsOf(groups, filters.groups).map((o) => ({
+        ...o,
+        label: groupLabel(o.value),
+      })),
+      providers: optionsOf(providers, filters.providerIds),
+    };
+  }, [allRows, deviceRows, filters]);
+
+  const rows = useMemo(
+    () => allRows.filter((r) => matches(filters, r)),
+    [allRows, filters],
+  );
+  const devicesShown = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        deviceId: string;
+        deviceName: string;
+        usernames: string[];
+        requests: number;
+        inputTokens: number;
+        outputTokens: number;
+        costUsd: number;
+      }
+    >();
+    for (const r of deviceRows) {
+      if (!matches(filters, r)) continue;
+      let d = map.get(r.deviceId);
+      if (!d) {
+        d = {
+          deviceId: r.deviceId,
+          deviceName: r.deviceName,
+          usernames: [],
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+        };
+        map.set(r.deviceId, d);
+      }
+      if (!d.usernames.includes(r.username)) d.usernames.push(r.username);
+      d.requests += r.requests;
+      d.inputTokens += r.inputTokens;
+      d.outputTokens += r.outputTokens;
+      d.costUsd += r.costUsd;
+    }
+    return [...map.values()].sort(
+      (a, b) =>
+        b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
+    );
+  }, [deviceRows, filters]);
+
   const byUser = useMemo(
     () =>
       aggregate(
@@ -112,7 +236,9 @@ export function UsagePage() {
         (r) => (
           <>
             <span className="font-mono">{r.model}</span>
-            <span className="ml-1 text-xs text-muted-foreground">{r.providerId}</span>
+            <span className="ml-1 text-xs text-muted-foreground">
+              {r.providerId}
+            </span>
           </>
         ),
       ),
@@ -165,7 +291,9 @@ export function UsagePage() {
               type="date"
               className={`${inputClass} w-40`}
               value={draft.from}
-              onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, from: e.target.value }))
+              }
             />
           </Field>
           <Field label="结束日期（UTC）" htmlFor="usage-to">
@@ -183,6 +311,48 @@ export function UsagePage() {
           </Button>
           {usage.isFetching && !usage.isPending && <Spinner className="mb-2" />}
         </div>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <Field label="用户">
+            <MultiSelect
+              className="w-44"
+              aria-label="按用户筛选"
+              allLabel="全部用户"
+              unit="个用户"
+              options={options.users}
+              value={filters.userIds}
+              onChange={(userIds) => setFilters((f) => ({ ...f, userIds }))}
+            />
+          </Field>
+          <Field label="组">
+            <MultiSelect
+              className="w-44"
+              aria-label="按组筛选"
+              allLabel="全部组"
+              unit="个组"
+              options={options.groups}
+              value={filters.groups}
+              onChange={(groups) => setFilters((f) => ({ ...f, groups }))}
+            />
+          </Field>
+          <Field label="供应商">
+            <MultiSelect
+              className="w-44"
+              aria-label="按供应商筛选"
+              allLabel="全部供应商"
+              unit="个供应商"
+              options={options.providers}
+              value={filters.providerIds}
+              onChange={(providerIds) =>
+                setFilters((f) => ({ ...f, providerIds }))
+              }
+            />
+          </Field>
+          {filtering && (
+            <Button variant="ghost" onClick={() => setFilters(NO_FILTERS)}>
+              清空筛选
+            </Button>
+          )}
+        </div>
         {rangeError && (
           <div className="mt-3">
             <InlineError>{rangeError}</InlineError>
@@ -190,9 +360,11 @@ export function UsagePage() {
         )}
       </form>
 
-      {byDevice.data && byDevice.data.items.length > 0 && (
+      {devicesShown.length > 0 && (
         <Card className="overflow-x-auto">
-          <h2 className="px-4 pt-4 text-sm font-medium">按设备（客户端上报）</h2>
+          <h2 className="px-4 pt-4 text-sm font-medium">
+            按设备（客户端上报）
+          </h2>
           <table className={tableClass}>
             <thead>
               <tr>
@@ -205,10 +377,10 @@ export function UsagePage() {
               </tr>
             </thead>
             <tbody>
-              {byDevice.data.items.map((row) => (
+              {devicesShown.map((row) => (
                 <tr key={row.deviceId} className={trClass}>
                   <td className={tdClass}>{row.deviceName}</td>
-                  <td className={tdClass}>{row.username}</td>
+                  <td className={tdClass}>{row.usernames.join("、")}</td>
                   <td className={num}>{formatNumber(row.requests)}</td>
                   <td className={num}>{formatNumber(row.inputTokens)}</td>
                   <td className={num}>{formatNumber(row.outputTokens)}</td>
@@ -227,6 +399,17 @@ export function UsagePage() {
       ) : usage.isError ? (
         <Card>
           <ErrorState error={usage.error} onRetry={() => usage.refetch()} />
+        </Card>
+      ) : rows.length === 0 && filtering && allRows.length > 0 ? (
+        <Card>
+          <EmptyState
+            icon={<BarChart3 className="size-5 stroke-[1.5]" />}
+            title="没有符合筛选条件的用量"
+          >
+            <Button variant="ghost" onClick={() => setFilters(NO_FILTERS)}>
+              清空筛选
+            </Button>
+          </EmptyState>
         </Card>
       ) : rows.length === 0 ? (
         <Card>

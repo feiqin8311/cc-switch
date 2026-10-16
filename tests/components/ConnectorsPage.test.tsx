@@ -18,8 +18,7 @@ vi.mock("@/lib/api/dws", () => ({
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
-    hasPermission: (p: string) =>
-      p === "market.install" && canInstallMarket(),
+    hasPermission: (p: string) => p === "market.install" && canInstallMarket(),
   }),
 }));
 
@@ -78,6 +77,35 @@ describe("ConnectorsPage", () => {
     fireEvent.click(
       screen.getByRole("tab", {
         name: /enterpriseMarket\.title|企业市场/,
+      }),
+    );
+    expect(await screen.findByTestId("enterprise-market")).toHaveTextContent(
+      "connector",
+    );
+  });
+
+  it("lists dws under installed only once it is installed", async () => {
+    canInstallMarket.mockReturnValue(true);
+    status.mockResolvedValue({
+      installed: false,
+      version: null,
+      path: null,
+      loggedIn: false,
+    });
+    renderWithQueryClient(<ConnectorsPage />);
+    expect(
+      await screen.findByText(/connectors\.emptyInstalled|还没有安装连接器/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("list", { name: /connectors\.listLabel|连接器列表/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /connectors\.install$|^安装$/ }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /connectors\.browseMarket|去企业市场安装/,
       }),
     );
     expect(await screen.findByTestId("enterprise-market")).toHaveTextContent(

@@ -21,10 +21,29 @@ const admin = {
   lastLoginAt: "2026-10-01T08:00:00.000Z",
   upstreamAccountIds: [] as number[],
   groupName: "",
+  offboardedAt: null,
+  offboardedBy: null,
+};
+
+const leaver = {
+  ...admin,
+  id: "22222222-2222-4222-8222-222222222222",
+  username: "bob",
+  displayName: "Bob",
+  role: "member" as const,
+};
+const departed = {
+  ...leaver,
+  id: "33333333-3333-4333-8333-333333333333",
+  username: "carol",
+  displayName: "Carol",
+  disabled: true,
+  offboardedAt: "2026-10-10T08:00:00.000Z",
+  offboardedBy: "admin",
 };
 
 const FIXTURES: Record<string, unknown> = {
-  "/admin/users": { items: [admin] },
+  "/admin/users": { items: [admin, leaver, departed] },
   "/admin/fleet": {
     revision: 0,
     mode: "direct",
@@ -104,6 +123,17 @@ const FIXTURES: Record<string, unknown> = {
         inputTokens: 1200,
         outputTokens: 300,
       },
+      {
+        date: "2026-10-12",
+        userId: leaver.id,
+        username: "bob",
+        groupName: "研发",
+        providerId: "yida-sub2api",
+        model: "gpt-5.6-terra",
+        requests: 5,
+        inputTokens: 4000,
+        outputTokens: 100,
+      },
     ],
   },
   "/admin/retention-policy": { enabled: true },
@@ -182,11 +212,25 @@ function sessionFor(permissions: Permission[]): SessionResponse {
 }
 
 function renderAt(path: string, permissions: Permission[]) {
-  const fetchMock = async (input: RequestInfo | URL) => {
+  const posts: string[] = [];
+  const fetchMock = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const route = url.pathname.replace(/^\/api\/v1/, "");
     if (route === "/auth/refresh") {
       return Response.json(sessionFor(permissions));
+    }
+    if (init?.method === "POST") posts.push(route);
+    if (route === `/admin/users/${leaver.id}/offboard`) {
+      return Response.json({
+        user: {
+          ...leaver,
+          disabled: true,
+          offboardedAt: "2026-10-16T00:00:00.000Z",
+          offboardedBy: "admin",
+        },
+        revokedSessions: 2,
+        disabledDevices: 1,
+      });
     }
     const body = FIXTURES[route];
     return body
@@ -207,6 +251,7 @@ function renderAt(path: string, permissions: Permission[]) {
       </MemoryRouter>
     </AppProviders>,
   );
+  return { posts };
 }
 
 let consoleError: ReturnType<typeof vi.spyOn>;
@@ -238,6 +283,56 @@ describe("App", () => {
     renderAt(path, permissionsForRole("admin"));
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
     expect((await screen.findAllByText(content)).length).toBeGreaterThan(0);
+  });
+
+  it("filters usage by user, group and provider", async () => {
+    renderAt("/usage", permissionsForRole("admin"));
+    expect(
+      (await screen.findAllByText("gpt-5.6-terra")).length,
+    ).toBeGreaterThan(0);
+    const requests = () =>
+      screen.getByText("请求数", { selector: "div" }).nextElementSibling
+        ?.textContent;
+    expect(requests()).toBe("8");
+
+    fireEvent.click(screen.getByRole("button", { name: "按组筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "研发" }));
+    expect(requests()).toBe("5");
+    expect(screen.queryAllByText("gpt-5")).toHaveLength(0);
+
+    // Ungrouped admin + 研发 bob, then narrow to one provider.
+    fireEvent.click(screen.getByRole("option", { name: "未分组" }));
+    expect(requests()).toBe("8");
+    fireEvent.click(screen.getByRole("button", { name: "按供应商筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "openai-main" }));
+    expect(requests()).toBe("3");
+
+    fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "bob" }));
+    expect(await screen.findByText("没有符合筛选条件的用量")).toBeTruthy();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "清空筛选" })[0] as HTMLElement,
+    );
+    expect((await screen.findAllByText("gpt-5")).length).toBeGreaterThan(0);
+  });
+
+  it("offboards a user instead of deleting them", async () => {
+    const { posts } = renderAt("/users", permissionsForRole("admin"));
+    expect(await screen.findByText("bob")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    // Only bob gets the action: not yourself, not someone already offboarded.
+    const buttons = screen.getAllByRole("button", { name: "离职" });
+    expect(buttons).toHaveLength(1);
+    expect(screen.getByText("已离职")).toBeTruthy();
+
+    fireEvent.click(buttons[0] as HTMLElement);
+    fireEvent.click(await screen.findByRole("button", { name: "确认离职" }));
+    expect(
+      await screen.findByText(
+        /已为 bob 办理离职：注销 2 个会话，禁用 1 台设备/,
+      ),
+    ).toBeTruthy();
+    expect(posts).toContain(`/admin/users/${leaver.id}/offboard`);
   });
 
   it("lists only the page's kinds in the market pages", async () => {

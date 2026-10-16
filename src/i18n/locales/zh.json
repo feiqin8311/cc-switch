@@ -4878,6 +4878,8 @@
     "listLabel": "连接器列表",
     "noMatch": "没有匹配「{{query}}」的连接器",
     "clearSearch": "清除搜索",
+    "emptyInstalled": "还没有安装连接器",
+    "browseMarket": "去企业市场安装",
     "install": "安装",
     "installing": "正在下载并安装 DingTalk Workspace CLI 和 Codex Skill，请稍候…",
     "installed": "已安装",

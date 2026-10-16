@@ -1,16 +1,17 @@
 import {
   CreateUserRequestSchema,
   type ListUsersResponse,
+  type OffboardUserResponse,
   UpdateUserRequestSchema,
 } from "@ccse/contracts";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
 import { authOf, requirePermission } from "../auth/guard.ts";
 import { hashPassword } from "../auth/password.ts";
 import { revokeAllUserSessions } from "../auth/sessions.ts";
-import { users } from "../db/schema.ts";
+import { auditEvents, devices, sessions, users } from "../db/schema.ts";
 import { AppError, forbidden, notFound, parseBody } from "../errors.ts";
 import { toUserDto } from "../users/dto.ts";
 
@@ -111,6 +112,9 @@ export async function adminUserRoutes(
             ? uniqueAccountIds(body.upstreamAccountIds)
             : undefined,
         groupName: body.groupName,
+        ...(body.disabled === false && existing.offboardedAt
+          ? { offboardedAt: null, offboardedBy: null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(users.id, id))
@@ -136,6 +140,76 @@ export async function adminUserRoutes(
       "user updated",
     );
     return toUserDto(row);
+  });
+
+  app.post("/admin/users/:id/offboard", guard, async (req) => {
+    const { id } = parseBody(IdParamSchema, req.params);
+    const actor = authOf(req).user;
+    if (id === actor.id) throw forbidden("You cannot offboard yourself");
+
+    const res = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      if (!existing) throw notFound("User not found");
+      if (existing.offboardedAt) {
+        throw new AppError(409, "conflict", "User is already offboarded");
+      }
+
+      const now = new Date();
+      const [row] = await tx
+        .update(users)
+        .set({
+          disabled: true,
+          offboardedAt: now,
+          offboardedBy: actor.username,
+          updatedAt: now,
+        })
+        .where(eq(users.id, id))
+        .returning();
+      if (!row) throw notFound("User not found");
+      // Revoking the sessions also invalidates their gateway keys.
+      const revoked = await tx
+        .update(sessions)
+        .set({ revokedAt: now })
+        .where(and(eq(sessions.userId, id), isNull(sessions.revokedAt)))
+        .returning({ id: sessions.id });
+      const disabledDevices = await tx
+        .update(devices)
+        .set({ disabled: true })
+        .where(and(eq(devices.userId, id), eq(devices.disabled, false)))
+        .returning({ id: devices.id });
+      await tx.insert(auditEvents).values({
+        action: "user.offboard",
+        actorId: actor.id,
+        actorUsername: actor.username,
+        targetUserId: id,
+        targetUsername: existing.username,
+        detail: {
+          revokedSessions: revoked.length,
+          disabledDeviceIds: disabledDevices.map((d) => d.id),
+        },
+      });
+      const out: OffboardUserResponse = {
+        user: toUserDto(row),
+        revokedSessions: revoked.length,
+        disabledDevices: disabledDevices.length,
+      };
+      return out;
+    });
+
+    req.log.info(
+      {
+        actor: actor.id,
+        userId: id,
+        revokedSessions: res.revokedSessions,
+        disabledDevices: res.disabledDevices,
+      },
+      "user offboarded",
+    );
+    return res;
   });
 
   app.delete("/admin/users/:id", guard, async (req, reply) => {

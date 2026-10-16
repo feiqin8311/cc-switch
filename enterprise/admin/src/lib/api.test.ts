@@ -14,6 +14,8 @@ const user = {
   lastLoginAt: null,
   upstreamAccountIds: [] as number[],
   groupName: "",
+  offboardedAt: null,
+  offboardedBy: null,
 };
 
 function session(n: number): SessionResponse {

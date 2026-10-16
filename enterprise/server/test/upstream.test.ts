@@ -16,6 +16,8 @@ function user(role: UserRow["role"], ids: number[]): UserRow {
     lastLoginAt: null,
     upstreamAccountIds: ids,
     groupName: "",
+    offboardedAt: null,
+    offboardedBy: null,
   };
 }
 

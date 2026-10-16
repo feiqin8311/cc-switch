@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Inbox, Search, X } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type ReactNode,
   useEffect,
   useId,
@@ -8,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { describeError } from "../lib/format";
 
 // ---------------------------------------------------------------------------
@@ -138,6 +140,66 @@ export interface SelectOption {
   description?: string;
 }
 
+/**
+ * Open state and placement of a dropdown menu. The menu is portaled to
+ * <body> with fixed positioning so cards and dialogs with `overflow:
+ * hidden/auto` (e.g. table wrappers) cannot clip it.
+ */
+function useFloatingMenu(disabled: boolean) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const inside = (target: EventTarget | null) =>
+      target instanceof Node &&
+      (containerRef.current?.contains(target) ||
+        menuRef.current?.contains(target));
+    const handleDown = (e: MouseEvent) => {
+      if (!inside(e.target)) setOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    // A fixed menu would drift away from its trigger; close it instead.
+    const handleScroll = (e: Event) => {
+      if (!inside(e.target)) setOpen(false);
+    };
+    const handleResize = () => setOpen(false);
+    document.addEventListener("mousedown", handleDown);
+    document.addEventListener("keydown", handleKey);
+    document.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      document.removeEventListener("mousedown", handleDown);
+      document.removeEventListener("keydown", handleKey);
+      document.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (disabled) return;
+    if (!open && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const upwards = spaceBelow < 260 && rect.top > 260;
+      setMenuStyle({
+        left: rect.left,
+        minWidth: rect.width,
+        ...(upwards
+          ? { bottom: window.innerHeight - rect.top + 4 }
+          : { top: rect.bottom + 4 }),
+      });
+    }
+    setOpen((v) => !v);
+  };
+
+  return { open, setOpen, toggle, containerRef, menuRef, menuStyle };
+}
+
 export function Select({
   id,
   value,
@@ -159,31 +221,9 @@ export function Select({
   size?: "sm" | "md";
   "aria-label"?: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [openUpwards, setOpenUpwards] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleDown = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", handleDown);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleDown);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [open]);
+  const menu = useFloatingMenu(disabled);
+  const { open, setOpen, containerRef, menuRef, menuStyle } = menu;
 
   const selectedOption = options.find((o) => o.value === value);
   const displayLabel = selectedOption ? selectedOption.label : placeholder;
@@ -199,13 +239,7 @@ export function Select({
   }, [options, search]);
 
   const toggleOpen = () => {
-    if (disabled) return;
-    if (!open && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      setOpenUpwards(spaceBelow < 260 && rect.top > 260);
-    }
-    setOpen((v) => !v);
+    menu.toggle();
     setSearch("");
   };
 
@@ -262,67 +296,230 @@ export function Select({
       </button>
 
       {/* Floating Popover Menu */}
-      {open && (
-        <div
-          role="listbox"
-          className={`absolute start-0 z-50 min-w-full w-max max-w-xs rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg backdrop-blur-md ${
-            openUpwards ? "bottom-full mb-1" : "top-full mt-1"
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            style={menuStyle}
+            className="fixed z-[60] w-max max-w-xs rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg backdrop-blur-md"
+          >
+            {options.length > 7 && (
+              <div className="mb-1 border-b border-border/40 p-1">
+                <div className="relative">
+                  <Search
+                    aria-hidden
+                    className="pointer-events-none absolute start-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    className="h-6 w-full rounded-md bg-muted/60 ps-6 pe-2 text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                    placeholder="搜索选项..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="max-h-56 overflow-y-auto space-y-0.5">
+              {filtered.length === 0 ? (
+                <div className="px-2.5 py-3 text-center text-xs text-muted-foreground">
+                  未找到匹配项
+                </div>
+              ) : (
+                filtered.map((opt) => {
+                  const isSelected = opt.value === value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => {
+                        onChange(opt.value);
+                        setOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-left cursor-pointer transition-colors ${
+                        isSelected
+                          ? "bg-muted font-medium text-foreground"
+                          : "text-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      <span className="min-w-0 truncate">{opt.label}</span>
+                      {isSelected && (
+                        <Check className="size-3.5 shrink-0 text-foreground" />
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+/**
+ * Checkbox dropdown. An empty `value` means "no filter"; the trigger then
+ * shows `allLabel`.
+ */
+export function MultiSelect({
+  value,
+  onChange,
+  options,
+  allLabel,
+  unit = "项",
+  disabled = false,
+  className = "",
+  "aria-label": ariaLabel,
+}: {
+  value: readonly string[];
+  onChange: (value: string[]) => void;
+  options: readonly SelectOption[];
+  allLabel: string;
+  /** Counter word in the trigger, e.g. "已选 3 个用户". */
+  unit?: string;
+  disabled?: boolean;
+  className?: string;
+  "aria-label"?: string;
+}) {
+  const [search, setSearch] = useState("");
+  const menu = useFloatingMenu(disabled);
+  const { open, containerRef, menuRef, menuStyle } = menu;
+
+  const selected = useMemo(() => new Set(value), [value]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        o.description?.toLowerCase().includes(q),
+    );
+  }, [options, search]);
+
+  const display =
+    value.length === 0
+      ? allLabel
+      : value.length === 1
+        ? (options.find((o) => o.value === value[0])?.label ?? value[0])
+        : `已选 ${value.length} ${unit}`;
+
+  const toggleValue = (v: string) =>
+    onChange(selected.has(v) ? value.filter((x) => x !== v) : [...value, v]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative inline-block ${className || "w-full"}`}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => {
+          menu.toggle();
+          setSearch("");
+        }}
+        className={`flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-border/80 bg-card px-2.5 text-xs text-foreground shadow-2xs outline-none transition-all hover:bg-muted/40 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${
+          open ? "border-zinc-400 ring-1 ring-zinc-400/20" : ""
+        }`}
+      >
+        <span
+          className={`min-w-0 flex-1 truncate text-left ${
+            value.length === 0 ? "text-muted-foreground" : ""
           }`}
         >
-          {options.length > 7 && (
-            <div className="mb-1 border-b border-border/40 p-1">
-              <div className="relative">
-                <Search
-                  aria-hidden
-                  className="pointer-events-none absolute start-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
-                />
-                <input
-                  className="h-6 w-full rounded-md bg-muted/60 ps-6 pe-2 text-xs text-foreground placeholder:text-muted-foreground outline-none"
-                  placeholder="搜索选项..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-              </div>
-            </div>
-          )}
+          {display}
+        </span>
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${
+            open ? "rotate-180 text-foreground" : ""
+          }`}
+        />
+      </button>
 
-          <div className="max-h-56 overflow-y-auto space-y-0.5">
-            {filtered.length === 0 ? (
-              <div className="px-2.5 py-3 text-center text-xs text-muted-foreground">
-                未找到匹配项
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={ariaLabel}
+            style={menuStyle}
+            className="fixed z-[60] w-max max-w-xs rounded-xl border border-border/80 bg-popover p-1 text-popover-foreground shadow-lg backdrop-blur-md"
+          >
+            {options.length > 7 && (
+              <div className="mb-1 border-b border-border/40 p-1">
+                <div className="relative">
+                  <Search
+                    aria-hidden
+                    className="pointer-events-none absolute start-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    className="h-6 w-full rounded-md bg-muted/60 ps-6 pe-2 text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                    placeholder="搜索选项..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
               </div>
-            ) : (
-              filtered.map((opt) => {
-                const isSelected = opt.value === value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => {
-                      onChange(opt.value);
-                      setOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between gap-2.5 rounded-lg px-2.5 py-1.5 text-xs text-left cursor-pointer transition-colors ${
-                      isSelected
-                        ? "bg-muted font-medium text-foreground"
-                        : "text-foreground hover:bg-muted/60"
-                    }`}
-                  >
-                    <span className="min-w-0 truncate">{opt.label}</span>
-                    {isSelected && (
-                      <Check className="size-3.5 shrink-0 text-foreground" />
-                    )}
-                  </button>
-                );
-              })
             )}
-          </div>
-        </div>
-      )}
+
+            <div className="max-h-56 overflow-y-auto space-y-0.5">
+              {filtered.length === 0 ? (
+                <div className="px-2.5 py-3 text-center text-xs text-muted-foreground">
+                  {options.length === 0 ? "暂无选项" : "未找到匹配项"}
+                </div>
+              ) : (
+                filtered.map((opt) => {
+                  const isSelected = selected.has(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => toggleValue(opt.value)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted/60 cursor-pointer"
+                    >
+                      <span
+                        aria-hidden
+                        className={`flex size-3.5 shrink-0 items-center justify-center rounded border ${
+                          isSelected
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border"
+                        }`}
+                      >
+                        {isSelected && <Check className="size-2.5" />}
+                      </span>
+                      <span className="min-w-0 truncate">{opt.label}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {value.length > 0 && (
+              <div className="mt-1 border-t border-border/40 pt-1">
+                <button
+                  type="button"
+                  onClick={() => onChange([])}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground cursor-pointer"
+                >
+                  清空选择
+                </button>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
