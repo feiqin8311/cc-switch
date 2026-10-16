@@ -67,8 +67,17 @@ export function ConnectorsPage() {
       .toLowerCase();
     return hay.includes(normalizedQuery);
   }, [normalizedQuery, t]);
-  const shownCount = dwsVisible ? 1 : 0;
-  const totalCount = 1;
+  // With the enterprise market tab this is the "installed" view, so dws only
+  // shows once it is on the machine; without it, this page is where it installs.
+  const listed = !showEnterprise || status.isLoading || !!dws?.installed;
+  const totalCount = showEnterprise ? (dws?.installed ? 1 : 0) : 1;
+  const shownCount = listed && dwsVisible ? 1 : 0;
+
+  const changeView = (next: ConnectorView) => {
+    // The market may have installed dws meanwhile.
+    if (next === "installed") void qc.invalidateQueries({ queryKey: DWS_KEY });
+    setView(next);
+  };
 
   const subtitle = dws?.installed
     ? [dws.version, dws.path].filter(Boolean).join(" · ") ||
@@ -92,7 +101,7 @@ export function ConnectorsPage() {
             idPrefix="connectors-view"
             className="h-11"
             value={view}
-            onValueChange={setView}
+            onValueChange={changeView}
             items={[
               {
                 value: "installed",
@@ -132,9 +141,7 @@ export function ConnectorsPage() {
             placeholder={t("connectors.searchPlaceholder")}
             ariaLabel={t("connectors.searchAriaLabel")}
             status={
-              normalizedQuery
-                ? t("appMatrix.found", { count: shownCount })
-                : ""
+              normalizedQuery ? t("appMatrix.found", { count: shownCount }) : ""
             }
           />
           <span className="shrink-0 whitespace-nowrap text-caption tabular-nums text-fg-2">
@@ -156,7 +163,21 @@ export function ConnectorsPage() {
               <span aria-hidden="true" className="w-28 shrink-0" />
             </div>
 
-            {!dwsVisible ? (
+            {!listed ? (
+              <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
+                <span className="text-body text-fg-2">
+                  {t("connectors.emptyInstalled")}
+                </span>
+                <Button
+                  type="button"
+                  variant="neutral"
+                  size="regular"
+                  onClick={() => changeView("enterprise")}
+                >
+                  {t("connectors.browseMarket")}
+                </Button>
+              </div>
+            ) : !dwsVisible ? (
               <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
                 <span className="text-body text-fg-2">
                   {t("connectors.noMatch", { query: searchQuery.trim() })}

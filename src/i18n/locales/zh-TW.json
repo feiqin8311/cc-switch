@@ -4879,6 +4879,8 @@
     "listLabel": "連接器列表",
     "noMatch": "沒有符合「{{query}}」的連接器",
     "clearSearch": "清除搜尋",
+    "emptyInstalled": "尚未安裝連接器",
+    "browseMarket": "前往企業市集安裝",
     "install": "安裝",
     "installing": "正在下載並安裝 DingTalk Workspace CLI 與 Codex Skill…",
     "installed": "已安裝",

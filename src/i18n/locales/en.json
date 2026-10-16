@@ -4878,6 +4878,8 @@
     "listLabel": "Connectors",
     "noMatch": "No connectors matching “{{query}}”",
     "clearSearch": "Clear search",
+    "emptyInstalled": "No connectors installed yet",
+    "browseMarket": "Browse the enterprise market",
     "install": "Install",
     "installing": "Downloading DingTalk Workspace CLI and Codex skills…",
     "installed": "Installed",
