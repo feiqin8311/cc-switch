@@ -31,7 +31,21 @@ export function toMarketItemDto(
     updatedAt: row.updatedAt.toISOString(),
     publishedBy: row.publishedBy,
     publishedByName,
+    visibleUserIds: row.visibleUserIds ?? [],
+    visibleGroups: row.visibleGroups ?? [],
   };
+}
+
+/** Empty allowlists are public. Otherwise the user or their group must match. */
+export function canSeeMarketItem(
+  item: { visibleUserIds: string[]; visibleGroups: string[] },
+  user: { id: string; groupName: string },
+): boolean {
+  const people = item.visibleUserIds;
+  const groups = item.visibleGroups;
+  if (people.length === 0 && groups.length === 0) return true;
+  if (people.includes(user.id)) return true;
+  return user.groupName !== "" && groups.includes(user.groupName);
 }
 
 export async function publisherNameOf(
@@ -172,6 +186,8 @@ export async function patchMarketItem(
     description?: string;
     mandatory?: boolean;
     publishedBy?: string | null;
+    visibleUserIds?: string[];
+    visibleGroups?: string[];
   },
 ): Promise<MarketItemRow | null> {
   const [row] = await db
@@ -181,6 +197,8 @@ export async function patchMarketItem(
       description: patch.description,
       mandatory: patch.mandatory,
       publishedBy: patch.publishedBy,
+      visibleUserIds: patch.visibleUserIds,
+      visibleGroups: patch.visibleGroups,
       updatedAt: new Date(),
     })
     .where(eq(marketItems.id, id))

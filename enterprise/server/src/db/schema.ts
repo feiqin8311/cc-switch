@@ -350,6 +350,15 @@ export const marketItems = pgTable("market_items", {
   publishedBy: uuid("published_by").references(() => users.id, {
     onDelete: "set null",
   }),
+  /** Empty together with visibleGroups means every member can see the item. */
+  visibleUserIds: uuid("visible_user_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::uuid[]`),
+  visibleGroups: text("visible_groups")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

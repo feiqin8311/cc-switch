@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { openDatabase } from "./db/client.ts";
-import { startRetentionJobs } from "./retention/jobs.ts";
 import { seedBuiltinConnectors, seedInitialAdmin } from "./seed.ts";
 import { registerAdminStatic } from "./static.ts";
 
@@ -30,11 +29,8 @@ if (await seedBuiltinConnectors(database.db)) {
   app.log.info('Seeded built-in connector "钉钉 Workspace CLI" (dws)');
 }
 
-const stopJobs = startRetentionJobs(database.db);
-
 const shutdown = async (signal: string) => {
   app.log.info(`${signal} received, shutting down`);
-  stopJobs();
   await app.close();
   await database.close();
   process.exit(0);

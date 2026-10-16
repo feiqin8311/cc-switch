@@ -147,6 +147,8 @@ describe("MarketUploadForm", () => {
           updatedAt: new Date(0).toISOString(),
           publishedBy: null,
           publishedByName: null,
+          visibleUserIds: [],
+          visibleGroups: [],
         }}
         initialDefinition={current}
         onSubmit={onSubmit}
@@ -259,6 +261,8 @@ describe("MarketUploadForm", () => {
           updatedAt: new Date(0).toISOString(),
           publishedBy: null,
           publishedByName: null,
+          visibleUserIds: [],
+          visibleGroups: [],
         }}
         initialDefinition="# 旧内容"
         onSubmit={onSubmit}

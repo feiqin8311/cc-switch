@@ -28,7 +28,7 @@ export async function clientRoutes(
         : [],
       retention: {
         enabled: retention.enabled,
-        noticeText: retention.noticeText,
+        noticeText: "",
       },
       serverTime: new Date().toISOString(),
     };

@@ -39,10 +39,7 @@ use sha2::{Digest, Sha256};
 use super::client::endpoint;
 use super::market::{self, MarketItemKind, MarketPaths};
 use super::providers::{apply_sync, enterprise_meta, managed_card_id, DesiredGateway};
-use super::retention::{
-    ack_key, file_sig, prepare_candidate, save_store, select_candidates, state_file_path,
-    RetentionService, RetentionStore,
-};
+use super::retention::{file_sig, prepare_candidate, select_candidates, RetentionService};
 use super::session::EnterpriseSession;
 use crate::app_config::AppType;
 use crate::database::Database;
@@ -55,7 +52,6 @@ const MEMBER_DISPLAY: &str = "E2E Member";
 const MODEL_A: &str = "gpt-e2e";
 const MODEL_B: &str = "gpt-e2e-mini";
 const DAILY_LIMIT: u64 = 1_000_000;
-const NOTICE: &str = "E2E: Codex conversations are retained by the company.";
 const SKILL_ID: &str = "e2e-skill";
 const PLUGIN_ID: &str = "e2e-plugin";
 
@@ -296,7 +292,7 @@ async fn seed(env: &Env) {
     let resp = c
         .put(endpoint(&env.server, "/admin/retention-policy"))
         .bearer_auth(&token)
-        .json(&json!({ "enabled": true, "noticeText": NOTICE, "retentionDays": 30 }))
+        .json(&json!({ "enabled": true }))
         .send()
         .await
         .unwrap();
@@ -673,13 +669,10 @@ async fn e2e_retention_mapping_and_upload() {
     let state = session.state().await;
     let policy = &state.config.as_ref().unwrap().retention;
     assert!(policy.enabled);
-    assert_eq!(policy.notice_text, NOTICE);
-    let server_url = state.server_url.clone().unwrap();
     let user_id = state.user.as_ref().unwrap().id.clone();
 
-    // Ack 60 min ago; A and B start after it, C before it. All files idle.
+    // A and B are recent, C is old history (synced too). All files idle.
     let now = Utc::now();
-    let ack = now - chrono::Duration::minutes(60);
     let idle = SystemTime::now() - Duration::from_secs(20 * 60);
     let (id_a, id_b, id_c) = (
         uuid::Uuid::new_v4().to_string(),
@@ -703,13 +696,12 @@ async fn e2e_retention_mapping_and_upload() {
     write_rollout(
         &home,
         &id_c,
-        now - chrono::Duration::minutes(90),
-        "before the ack",
+        now - chrono::Duration::days(30),
+        "old history",
         idle,
     );
 
     // Candidate selection over the (test-home) Codex sessions.
-    let ack_ms = ack.timestamp_millis();
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -717,17 +709,14 @@ async fn e2e_retention_mapping_and_upload() {
     let sessions = tokio::task::spawn_blocking(codex::scan_sessions)
         .await
         .unwrap();
-    let candidates = select_candidates(sessions, ack_ms, &BTreeMap::new(), now_ms, &file_sig);
+    let candidates = select_candidates(sessions, &BTreeMap::new(), now_ms, &file_sig);
     let find = |id: &str| candidates.iter().find(|c| c.session_id == id).cloned();
-    let (cand_a, cand_b) = (
+    let (cand_a, cand_b, cand_c) = (
         find(&id_a).expect("A selected"),
         find(&id_b).expect("B selected"),
+        find(&id_c).expect("old history is synced too"),
     );
-    assert!(
-        find(&id_c).is_none(),
-        "a session started before the ack is never sent"
-    );
-    assert!(cand_a.idle && cand_b.idle);
+    assert!(cand_a.idle && cand_b.idle && cand_c.idle);
 
     // Mapping: injected AGENTS.md dropped, block-level split, all settled.
     let chunks_a = prepare_candidate(&cand_a).expect("prepare A");
@@ -771,20 +760,18 @@ async fn e2e_retention_mapping_and_upload() {
     eprintln!("[e2e-ret] A: accepted {n_a}, re-upload → duplicates {n_a}");
 
     // The background service (real pass: scan → prepare → batch → upload).
-    let store = RetentionStore {
-        acks: BTreeMap::from([(ack_key(&server_url, &user_id), rfc3339(ack))]),
-        ..Default::default()
-    };
-    save_store(&state_file_path(dir.path()), &store).unwrap();
+    // A fresh state file has no last sync, so the first pass is due at once.
     let service = RetentionService::new(session.clone(), dir.path().to_path_buf());
     let status = service.status().await;
-    assert!(status.enabled && status.acknowledged, "{status:?}");
-    assert_eq!(status.notice_text, NOTICE);
+    assert!(
+        status.enabled && status.last_sync_at.is_none(),
+        "{status:?}"
+    );
     service.trigger();
     let task = tokio::spawn(service.clone().run_loop());
     let mut status = service.status().await;
     for _ in 0..150 {
-        if status.last_upload_at.is_some() || status.last_error.is_some() {
+        if status.last_sync_at.is_some() || status.last_error.is_some() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -796,11 +783,9 @@ async fn e2e_retention_mapping_and_upload() {
         "service uploaded: {status:?}"
     );
     assert_eq!(
-        status.uploaded_sessions, 2,
-        "A and B have cursors: {status:?}"
+        status.uploaded_sessions, 3,
+        "A, B and C have cursors: {status:?}"
     );
-    let stored = std::fs::read_to_string(state_file_path(dir.path())).unwrap();
-    assert!(stored.contains(&id_a) && stored.contains(&id_b) && !stored.contains(&id_c));
 
     // A second pass finds nothing new (cursors are current).
     let first_upload = status.last_upload_at.clone();
@@ -811,13 +796,13 @@ async fn e2e_retention_mapping_and_upload() {
     assert!(status.last_error.is_none());
     task.abort();
 
-    // Admin view: A once (no duplicated messages), B present, C absent.
+    // Admin view: A once (no duplicated messages), B and C present.
     let admin = admin_token(&env).await;
     let items = conversations_of(&env, &admin, &user_id).await;
     let by_session = |id: &str| items.iter().find(|c| c["clientSessionId"] == id).cloned();
     let conv_a = by_session(&id_a).expect("A retained");
     let conv_b = by_session(&id_b).expect("B retained");
-    assert!(by_session(&id_c).is_none(), "C must never be uploaded");
+    assert!(by_session(&id_c).is_some(), "C (old history) retained");
     assert_eq!(conv_a["messageCount"].as_i64(), Some(n_a));
     assert_eq!(conv_b["messageCount"].as_i64(), Some(n_b));
     assert_eq!(conv_a["user"]["username"], env.member.as_str());
@@ -837,7 +822,7 @@ async fn e2e_retention_mapping_and_upload() {
     assert_eq!(messages[0]["content"], "list files");
     assert_eq!(messages[2]["kind"], "tool_call");
     assert_eq!(messages[3]["toolName"], "exec_command");
-    eprintln!("[e2e-ret] admin sees A ({n_a} msgs) and B ({n_b} msgs), not C; all steps passed");
+    eprintln!("[e2e-ret] admin sees A ({n_a} msgs), B ({n_b} msgs) and C; all steps passed");
     session.logout().await;
 }
 

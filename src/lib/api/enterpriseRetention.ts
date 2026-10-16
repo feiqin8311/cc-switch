@@ -4,12 +4,10 @@ import { useAuth } from "@/contexts/AuthContext";
 
 /** Mirrors the Rust `enterprise::RetentionStatus`. */
 export interface RetentionStatus {
-  /** Signed in and the server policy is enabled. */
+  /** Signed in and the server policy is enabled: this device syncs once a day. */
   enabled: boolean;
-  noticeText: string;
-  /** This device has a retention cutoff for the current server + user. */
-  acknowledged: boolean;
-  acknowledgedAt: string | null;
+  /** End of the last complete daily sync. */
+  lastSyncAt: string | null;
   lastUploadAt: string | null;
   lastError: string | null;
   uploadedSessions: number;
@@ -17,8 +15,6 @@ export interface RetentionStatus {
 
 export const enterpriseRetentionApi = {
   status: () => invoke<RetentionStatus>("enterprise_retention_status"),
-  acknowledge: () =>
-    invoke<RetentionStatus>("enterprise_retention_acknowledge"),
 };
 
 const POLL_INTERVAL_MS = 60 * 1000;

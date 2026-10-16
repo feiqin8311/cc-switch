@@ -1548,7 +1548,6 @@ pub fn run() {
             commands::enterprise_market_uninstall,
             commands::enterprise_market_publish_skill,
             commands::enterprise_retention_status,
-            commands::enterprise_retention_acknowledge,
             commands::enterprise_upstream_accounts,
             commands::dws_status,
             commands::dws_install,

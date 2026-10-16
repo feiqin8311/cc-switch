@@ -4900,7 +4900,7 @@
   },
   "enterpriseRetention": {
     "statusLabel": "Conversation retention: {{status}}",
-    "statusOn": "On",
+    "statusOn": "On, syncs daily",
     "statusOff": "Off"
   }
 }

@@ -4901,7 +4901,7 @@
   },
   "enterpriseRetention": {
     "statusLabel": "對話留存：{{status}}",
-    "statusOn": "已開啟",
+    "statusOn": "已開啟，每天同步一次",
     "statusOff": "未開啟"
   }
 }

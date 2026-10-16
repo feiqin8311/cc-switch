@@ -5,10 +5,7 @@ import {
   type RetainedMessage,
   RetentionUploadResponseSchema,
 } from "@ccse/contracts";
-import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { conversations } from "../src/db/schema.ts";
-import { purgeExpired } from "../src/retention/jobs.ts";
 import { ADMIN, bearer, login, setup, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext;
@@ -51,7 +48,7 @@ async function loginMember(username: string, deviceName?: string) {
 
 async function putPolicy(
   token: string,
-  policy = { enabled: true, noticeText: "We keep chats", retentionDays: 30 },
+  policy: Record<string, unknown> = { enabled: true },
 ) {
   return ctx.app.inject({
     method: "PUT",
@@ -127,11 +124,7 @@ describe("retention policy", () => {
       headers: bearer(adminToken),
     });
     expect(initial.statusCode).toBe(200);
-    expect(initial.json()).toEqual({
-      enabled: false,
-      noticeText: "",
-      retentionDays: 180,
-    });
+    expect(initial.json()).toEqual({ enabled: false });
 
     expect((await putPolicy(member)).statusCode).toBe(403);
     const memberGet = await ctx.app.inject({
@@ -140,16 +133,13 @@ describe("retention policy", () => {
     });
     expect(memberGet.statusCode).toBe(403);
 
-    const bad = await putPolicy(adminToken, {
-      enabled: true,
-      noticeText: "x",
-      retentionDays: 0,
-    });
+    const bad = await putPolicy(adminToken, { enabled: "yes" });
     expect(bad.statusCode).toBe(400);
 
     const put = await putPolicy(adminToken);
     expect(put.statusCode).toBe(200);
-    // Upsert: a second PUT replaces the stored value.
+    // Upsert: a second PUT replaces the stored value. Fields from older
+    // admin consoles (noticeText / retentionDays) are accepted and dropped.
     await putPolicy(adminToken, {
       enabled: true,
       noticeText: "Updated notice",
@@ -159,21 +149,15 @@ describe("retention policy", () => {
       url: "/api/v1/admin/retention-policy",
       headers: bearer(adminToken),
     });
-    expect(after.json()).toEqual({
-      enabled: true,
-      noticeText: "Updated notice",
-      retentionDays: 90,
-    });
+    expect(after.json()).toEqual({ enabled: true });
 
     const cfg = await ctx.app.inject({
       url: "/api/v1/client/config",
       headers: bearer(member),
     });
     expect(cfg.statusCode).toBe(200);
-    expect(cfg.json().retention).toEqual({
-      enabled: true,
-      noticeText: "Updated notice",
-    });
+    // noticeText stays for desktop builds that still require it.
+    expect(cfg.json().retention).toEqual({ enabled: true, noticeText: "" });
   });
 });
 
@@ -424,35 +408,5 @@ describe("admin conversation browsing", () => {
       headers: bearer(member),
     });
     expect(detail.statusCode).toBe(403);
-  });
-});
-
-describe("purgeExpired", () => {
-  it("deletes only conversations idle longer than retentionDays", async () => {
-    await createMember("alice");
-    const member = await loginMember("alice");
-    await putPolicy(adminToken); // retentionDays: 30
-    const now = new Date("2026-03-01T00:00:00.000Z");
-    await upload(member, [
-      conv("old", [msg(0, { timestamp: "2026-01-15T00:00:00.000Z" })]),
-      conv("new", [msg(0, { timestamp: "2026-02-15T00:00:00.000Z" })]),
-    ]);
-
-    expect(await purgeExpired(ctx.db, now)).toBe(1);
-    const rows = await ctx.db
-      .select({ clientSessionId: conversations.clientSessionId })
-      .from(conversations);
-    expect(rows.map((r) => r.clientSessionId)).toEqual(["new"]);
-    expect(await purgeExpired(ctx.db, now)).toBe(0);
-
-    const [left] = await ctx.db
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(eq(conversations.clientSessionId, "new"));
-    const detail = await ctx.app.inject({
-      url: `/api/v1/admin/conversations/${left?.id}`,
-      headers: bearer(adminToken),
-    });
-    expect(detail.json().messages).toHaveLength(1);
   });
 });

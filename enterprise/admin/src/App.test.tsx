@@ -106,11 +106,7 @@ const FIXTURES: Record<string, unknown> = {
       },
     ],
   },
-  "/admin/retention-policy": {
-    enabled: true,
-    noticeText: "对话将被留存用于审计",
-    retentionDays: 180,
-  },
+  "/admin/retention-policy": { enabled: true },
   "/admin/conversations": {
     items: [
       {
@@ -237,7 +233,7 @@ describe("App", () => {
     ["/connectors", "连接器", "钉钉 Workspace CLI"],
     ["/prompts", "提示词", "团队约定"],
     ["/conversations", "会话", "修复登录问题"],
-    ["/conversations?tab=retention", "会话", "对话将被留存用于审计"],
+    ["/conversations?tab=retention", "会话", "已开启：客户端每天同步一次对话"],
   ])("renders %s for an admin", async (path, title, content) => {
     renderAt(path, permissionsForRole("admin"));
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
@@ -262,7 +258,7 @@ describe("App", () => {
   it.each([
     ["/providers", "设备管理", "模型与网关", "openai-main"],
     ["/profiles", "设备管理", "配置方案", "还没有配置方案"],
-    ["/retention", "会话", "留存策略", "对话将被留存用于审计"],
+    ["/retention", "会话", "留存策略", "已开启：客户端每天同步一次对话"],
   ])("redirects %s to its tab", async (path, title, tab, content) => {
     renderAt(path, permissionsForRole("admin"));
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
