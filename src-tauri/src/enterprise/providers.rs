@@ -17,7 +17,7 @@ use std::time::Duration;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
-use toml_edit::{value, DocumentMut};
+use toml_edit::{value, DocumentMut, Item, Value as TomlValue};
 
 use super::client::EnterpriseError;
 use super::session::{EnterpriseSession, SessionEvent};
@@ -142,7 +142,10 @@ pub(crate) fn build_config_toml(provider_name: &str, base_url: &str, model: &str
     custom["name"] = value(provider_name);
     custom["base_url"] = value(base_url);
     custom["wire_api"] = value("responses");
-    custom["requires_openai_auth"] = value(true);
+    custom["requires_openai_auth"] = value(false);
+    let mut headers = toml_edit::InlineTable::new();
+    headers.insert("x-openai-actor-authorization", "local-image-extension".into());
+    custom["http_headers"] = Item::Value(TomlValue::InlineTable(headers));
     let mut providers = toml_edit::Table::new();
     providers.set_implicit(true);
     providers.insert("custom", toml_edit::Item::Table(custom));
@@ -601,7 +604,11 @@ mod tests {
             Some("https://ent.example.com/gateway/a/v1")
         );
         assert_eq!(custom["wire_api"].as_str(), Some("responses"));
-        assert_eq!(custom["requires_openai_auth"].as_bool(), Some(true));
+        assert_eq!(custom["requires_openai_auth"].as_bool(), Some(false));
+        assert_eq!(
+            custom["http_headers"]["x-openai-actor-authorization"].as_str(),
+            Some("local-image-extension")
+        );
         assert!(text.contains("[model_providers.custom]"));
         assert_eq!(config_model(&text).as_deref(), Some("gpt-5"));
     }
