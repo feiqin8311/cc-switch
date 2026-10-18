@@ -552,7 +552,11 @@ export function ProviderCard({
             presentation={presentation}
             onEdit={() => onEdit(provider)}
             onDelete={() => onDelete(provider)}
-            onDuplicate={onDuplicate ? () => onDuplicate(provider) : undefined}
+            onDuplicate={
+              isEnterpriseManaged || isFleetManaged || !onDuplicate
+                ? undefined
+                : () => onDuplicate(provider)
+            }
             onTest={
               // 连通检测对第三方/自定义/Copilot/Codex-OAuth 供应商开放。官方供应商一律不给：
               // 它们 base_url 故意留空、走客户端默认/OAuth 端点，没有可靠的探测目标。
@@ -572,7 +576,8 @@ export function ProviderCard({
             onOpenTerminal={
               onOpenTerminal ? () => onOpenTerminal(provider) : undefined
             }
-            readOnly={isEnterpriseManaged || isFleetManaged}
+            readOnly={isFleetManaged}
+            allowDelete={!isEnterpriseManaged}
           />
         </div>
       </div>

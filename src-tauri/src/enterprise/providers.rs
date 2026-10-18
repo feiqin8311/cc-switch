@@ -2,10 +2,12 @@
 //!
 //! After every successful login / config fetch the managed providers offered by
 //! the enterprise server (`GET /client/config` → `providers`) are mirrored into
-//! the Codex providers table as read-only cards (`meta.enterprise`). Each card
-//! talks to the server's gateway (`<serverUrl><gatewayPath>`, OpenAI Responses
-//! API) with the gateway key of the current login session as `OPENAI_API_KEY`.
-//! Logging out (or losing the session) removes the cards again.
+//! the Codex providers table as cards (`meta.enterprise`). Each card talks to
+//! the server's gateway (`<serverUrl><gatewayPath>`, OpenAI Responses API) with
+//! the gateway key of the current login session as `OPENAI_API_KEY`. Logging out
+//! (or losing the session) removes the cards again. Desktop edits to name and
+//! extra `config.toml` keys are kept; gateway URL, key, and catalog still come
+//! from the server.
 //!
 //! The planning part ([`plan_sync`], [`build_config_toml`], [`apply_model_change`])
 //! is pure; [`run_sync`] applies a plan through the regular `ProviderService`
@@ -144,12 +146,97 @@ pub(crate) fn build_config_toml(provider_name: &str, base_url: &str, model: &str
     custom["wire_api"] = value("responses");
     custom["requires_openai_auth"] = value(false);
     let mut headers = toml_edit::InlineTable::new();
-    headers.insert("x-openai-actor-authorization", "local-image-extension".into());
+    headers.insert(
+        "x-openai-actor-authorization",
+        "local-image-extension".into(),
+    );
     custom["http_headers"] = Item::Value(TomlValue::InlineTable(headers));
     let mut providers = toml_edit::Table::new();
     providers.set_implicit(true);
     providers.insert("custom", toml_edit::Item::Table(custom));
     doc["model_providers"] = toml_edit::Item::Table(providers);
+    doc.to_string()
+}
+
+/// Keep extra keys the user edited on an existing card (reasoning, headers, …)
+/// while forcing gateway name / URL / model. Old cards missing local image_gen
+/// get the two defaults filled in.
+fn managed_config_toml(
+    existing: Option<&str>,
+    provider_name: &str,
+    base_url: &str,
+    model: &str,
+) -> String {
+    let fresh = || build_config_toml(provider_name, base_url, model);
+    let Some(text) = existing.map(str::trim).filter(|s| !s.is_empty()) else {
+        return fresh();
+    };
+    let mut doc = match text.parse::<DocumentMut>() {
+        Ok(doc) => doc,
+        Err(_) => return fresh(),
+    };
+    doc["model"] = value(model);
+    if doc.get("model_provider").and_then(Item::as_str).is_none() {
+        doc["model_provider"] = value("custom");
+    }
+    let id = doc
+        .get("model_provider")
+        .and_then(Item::as_str)
+        .unwrap_or("custom")
+        .to_string();
+    if doc
+        .get("model_providers")
+        .and_then(Item::as_table_like)
+        .is_none()
+    {
+        let mut providers = toml_edit::Table::new();
+        providers.set_implicit(true);
+        doc["model_providers"] = Item::Table(providers);
+    }
+    let Some(providers) = doc["model_providers"].as_table_mut() else {
+        return fresh();
+    };
+    if providers.get(&id).is_none() {
+        providers.insert(&id, Item::Table(toml_edit::Table::new()));
+    }
+    let Some(custom) = providers.get_mut(&id).and_then(Item::as_table_like_mut) else {
+        return fresh();
+    };
+    custom.insert("name", value(provider_name));
+    custom.insert("base_url", value(base_url));
+    custom.insert("wire_api", value("responses"));
+    if custom
+        .get("requires_openai_auth")
+        .and_then(Item::as_bool)
+        .is_none()
+    {
+        custom.insert("requires_openai_auth", value(false));
+    }
+    let has_actor = custom
+        .get("http_headers")
+        .and_then(Item::as_table_like)
+        .and_then(|headers| headers.get("x-openai-actor-authorization"))
+        .is_some();
+    if !has_actor {
+        let mut headers = toml_edit::InlineTable::new();
+        headers.insert(
+            "x-openai-actor-authorization",
+            "local-image-extension".into(),
+        );
+        let header_item = Item::Value(TomlValue::InlineTable(headers));
+        if let Some(item) = custom.get_mut("http_headers") {
+            if let Some(table) = item.as_table_like_mut() {
+                table.insert(
+                    "x-openai-actor-authorization",
+                    value("local-image-extension"),
+                );
+            } else {
+                *item = header_item;
+            }
+        } else {
+            custom.insert("http_headers", header_item);
+        }
+    }
     doc.to_string()
 }
 
@@ -192,9 +279,9 @@ fn settings_config_text(provider: &Provider) -> &str {
         .unwrap_or("")
 }
 
-/// The card a managed provider should be, keeping the user's model choice and
-/// the local-only fields (sort order, failover queue, icon, other meta) of
-/// `existing`.
+/// The card a managed provider should be, keeping the user's model choice,
+/// display name, extra `config.toml` keys, and local-only fields (sort order,
+/// failover queue, icon, other meta) of `existing`.
 fn desired_card(
     gateway: &DesiredGateway<'_>,
     managed: &ManagedProvider,
@@ -204,11 +291,17 @@ fn desired_card(
     let models = offered_models(managed);
     let current_model = existing.and_then(|p| config_model(settings_config_text(p)));
     let model = choose_model(current_model.as_deref(), managed, &models);
-    let name = if managed.name.trim().is_empty() {
-        managed.id.clone()
-    } else {
-        managed.name.trim().to_string()
-    };
+    let name = existing
+        .map(|p| p.name.trim())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if managed.name.trim().is_empty() {
+                managed.id.clone()
+            } else {
+                managed.name.trim().to_string()
+            }
+        });
     let base_url = gateway_base_url(gateway.server_url, managed);
     let catalog: Vec<Value> = models
         .iter()
@@ -216,7 +309,12 @@ fn desired_card(
         .collect();
     let settings_config = json!({
         "auth": { "OPENAI_API_KEY": gateway.gateway_key },
-        "config": build_config_toml(&name, &base_url, &model),
+        "config": managed_config_toml(
+            existing.map(settings_config_text),
+            &name,
+            &base_url,
+            &model,
+        ),
         "modelCatalog": { "models": catalog },
     });
 
@@ -694,6 +792,54 @@ mod tests {
             config_model(plan.update[0].settings_config["config"].as_str().unwrap()).as_deref(),
             Some("m1")
         );
+    }
+
+    #[test]
+    fn plan_keeps_user_toml_keys_and_fills_image_gen() {
+        let providers = [managed("p", &["m1"], "m1")];
+        let first = plan_sync(&IndexMap::new(), Some(&gateway(&providers, "gk_1")), 1);
+        let mut card = first.create[0].clone();
+        card.name = "My name".into();
+        let mut doc: DocumentMut = card.settings_config["config"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        doc["model_reasoning_effort"] = value("low");
+        doc["model_providers"]["custom"]
+            .as_table_mut()
+            .unwrap()
+            .remove("http_headers");
+        doc["model_providers"]["custom"]
+            .as_table_mut()
+            .unwrap()
+            .remove("requires_openai_auth");
+        card.settings_config["config"] = Value::String(doc.to_string());
+        let existing = table(vec![card]);
+
+        let plan = plan_sync(&existing, Some(&gateway(&providers, "gk_1")), 2);
+        assert_eq!(plan.update.len(), 1);
+        let updated = &plan.update[0];
+        assert_eq!(updated.name, "My name");
+        let parsed: toml::Value = updated.settings_config["config"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(parsed["model_reasoning_effort"].as_str(), Some("low"));
+        let custom = &parsed["model_providers"]["custom"];
+        assert_eq!(custom["requires_openai_auth"].as_bool(), Some(false));
+        assert_eq!(
+            custom["http_headers"]["x-openai-actor-authorization"].as_str(),
+            Some("local-image-extension")
+        );
+
+        let plan = plan_sync(
+            &table(vec![updated.clone()]),
+            Some(&gateway(&providers, "gk_1")),
+            3,
+        );
+        assert!(plan.is_empty(), "{plan:?}");
     }
 
     #[test]

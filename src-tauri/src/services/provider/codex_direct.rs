@@ -35,9 +35,9 @@ use crate::live::engine::{digest, read_current, DeviceStore, LiveFile};
 use crate::live::patch::toml::{value_text, TomlDocPatch, TomlSteps};
 use crate::live::patch::{Guarded, LivePatch, WholeFile};
 use crate::live::project::codex::{
-    official_mirror_table, proxy_route_table, requires_openai_auth, row_catalog_pointer,
-    without_row_catalog, CodexConfigPatch, CodexProjection, KnownTable, Route, RouteAuth,
-    RouteWrite, RowInput, ROUTE_ID, WEB_SEARCH_DISABLED,
+    official_mirror_table, requires_openai_auth, row_catalog_pointer,
+    third_party_proxy_route_table, without_row_catalog, CodexConfigPatch, CodexProjection,
+    KnownTable, Route, RouteAuth, RouteWrite, RowInput, ROUTE_ID, WEB_SEARCH_DISABLED,
 };
 use crate::mode::contract::CONTRACT_VERSION;
 use crate::mode::operation::{AppWrite, FileChange, OperationReport};
@@ -610,7 +610,7 @@ pub(crate) fn plan(
                 )
             } else {
                 (
-                    RouteWrite::Custom(proxy_route_table(ROUTE_ID, base_url, false)),
+                    RouteWrite::Custom(third_party_proxy_route_table(ROUTE_ID, base_url)),
                     Some(RouteAuth::Bearer),
                     AuthGoal::KeepNative,
                 )

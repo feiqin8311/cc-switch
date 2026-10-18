@@ -175,4 +175,29 @@ describe("ProviderCardActions — read-only cards", () => {
     );
     expect(items).toEqual(["provider.connectivityCheck"]);
   });
+
+  it("shows edit on an enterprise card and hides delete", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderCardActions
+        providerName="Yida-Sub2api"
+        presentation={{ buttons: [], chips: [] }}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onTest={vi.fn()}
+        allowDelete={false}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "providerCard.action.edit" }),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "providerCard.action.more" }),
+    );
+    const items = (await screen.findAllByRole("menuitem")).map(
+      (item) => item.textContent,
+    );
+    expect(items).toEqual(["provider.connectivityCheck"]);
+  });
 });

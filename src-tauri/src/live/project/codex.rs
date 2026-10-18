@@ -517,6 +517,20 @@ pub fn proxy_route_table(name: &str, base_url: &str, requires_openai_auth: bool)
     table
 }
 
+/// Third-party proxy / stack live table: register Codex's local `image_gen`
+/// instead of ChatGPT hosted storage under `/mnt/data`.
+pub fn third_party_proxy_route_table(name: &str, base_url: &str) -> Table {
+    let mut table = proxy_route_table(name, base_url, false);
+    table.insert("requires_openai_auth", toml_edit::value(false));
+    let mut headers = InlineTable::new();
+    headers.insert(
+        "x-openai-actor-authorization",
+        "local-image-extension".into(),
+    );
+    table.insert("http_headers", Item::Value(TomlValue::InlineTable(headers)));
+    table
+}
+
 /// 一张能证明是 CC Switch 写进去的 provider 表：id 和地址都对得上某个供应商行的投影。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnownTable {
@@ -1114,6 +1128,19 @@ mod tests {
     }
 
     const PROXY: &str = "http://127.0.0.1:15721/v1";
+
+    #[test]
+    fn third_party_proxy_route_registers_local_image_gen() {
+        let table = third_party_proxy_route_table("X", PROXY);
+        assert_eq!(table["requires_openai_auth"].as_bool(), Some(false));
+        assert_eq!(
+            table["http_headers"]["x-openai-actor-authorization"].as_str(),
+            Some("local-image-extension")
+        );
+        assert_eq!(table["base_url"].as_str(), Some(PROXY));
+        let dormant = proxy_route_table(ROUTE_ID, PROXY, false);
+        assert!(dormant.get("http_headers").is_none());
+    }
 
     fn official_proxy(unified: bool) -> RouteWrite {
         RouteWrite::OfficialProxy {
