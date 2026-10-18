@@ -67,8 +67,10 @@ interface ProviderCardActionsProps {
   isTesting?: boolean;
   onConfigureUsage?: () => void;
   onOpenTerminal?: () => void;
-  /** Read-only card (e.g. enterprise-managed): no edit / duplicate / delete. */
+  /** Fully locked card (fleet): no edit / duplicate / delete. */
   readOnly?: boolean;
+  /** Hide delete. Enterprise cards stay on the machine; sync would recreate them. */
+  allowDelete?: boolean;
 }
 
 /**
@@ -88,6 +90,7 @@ export function ProviderCardActions({
   onConfigureUsage,
   onOpenTerminal,
   readOnly = false,
+  allowDelete = true,
 }: ProviderCardActionsProps) {
   const { t } = useTranslation();
   const { status, buttons, move, menuItems = [] } = presentation;
@@ -214,10 +217,11 @@ export function ProviderCardActions({
             </DropdownMenuItem>
           )}
           {!readOnly &&
+            allowDelete &&
             (duplicate || onTest || onConfigureUsage || onOpenTerminal) && (
               <DropdownMenuSeparator />
             )}
-          {!readOnly && (
+          {!readOnly && allowDelete && (
             <DropdownMenuItem
               disabled={Boolean(presentation.deleteDisabledReason)}
               onSelect={onDelete}
