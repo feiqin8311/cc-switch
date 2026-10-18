@@ -19,7 +19,6 @@ import {
   ErrorState,
   InlineError,
   LoadingState,
-  Notice,
   PageHeader,
   Spinner,
   tableClass,
@@ -82,13 +81,6 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
           </Button>
         }
       />
-      <div className="mb-4">
-        <Notice>
-          网关地址格式：
-          <code className="font-mono">{gatewayUrl("<id>")}</code>
-          （OpenAI Responses API 兼容，客户端使用各自的网关密钥鉴权）
-        </Notice>
-      </div>
       <Card className="overflow-x-auto">
         {providers.isPending ? (
           <LoadingState />

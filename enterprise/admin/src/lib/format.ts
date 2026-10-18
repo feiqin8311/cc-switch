@@ -94,3 +94,79 @@ export function daySpan(from: string, to: string): number {
     1
   );
 }
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+export type UtcRangePreset =
+  | "today"
+  | "yesterday"
+  | "last24h"
+  | "last7d"
+  | "last14d"
+  | "last30d"
+  | "thisMonth"
+  | "lastMonth";
+
+/** UTC [from, to] for a named preset. last24h is yesterday–today (day API). */
+export function rangeForPreset(
+  preset: UtcRangePreset,
+  now = new Date(),
+): [string, string] {
+  const today = utcDate(now);
+  switch (preset) {
+    case "today":
+      return [today, today];
+    case "yesterday": {
+      const y = utcDate(new Date(now.getTime() - 86_400_000));
+      return [y, y];
+    }
+    case "last24h":
+      return lastUtcDays(2, now);
+    case "last7d":
+      return lastUtcDays(7, now);
+    case "last14d":
+      return lastUtcDays(14, now);
+    case "last30d":
+      return lastUtcDays(30, now);
+    case "thisMonth": {
+      const y = now.getUTCFullYear();
+      const m = now.getUTCMonth() + 1;
+      return [`${y}-${pad2(m)}-01`, today];
+    }
+    case "lastMonth": {
+      const y = now.getUTCFullYear();
+      const m = now.getUTCMonth();
+      const py = m === 0 ? y - 1 : y;
+      const pm = m === 0 ? 12 : m;
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      return [
+        `${py}-${pad2(pm)}-01`,
+        `${py}-${pad2(pm)}-${pad2(lastDay)}`,
+      ];
+    }
+  }
+}
+
+const PRESET_ORDER: UtcRangePreset[] = [
+  "today",
+  "yesterday",
+  "last24h",
+  "last7d",
+  "last14d",
+  "last30d",
+  "thisMonth",
+  "lastMonth",
+];
+
+/** First preset whose UTC range equals [from, to], else custom. */
+export function matchingUtcPreset(
+  from: string,
+  to: string,
+  now = new Date(),
+): UtcRangePreset | "custom" {
+  for (const p of PRESET_ORDER) {
+    const [a, b] = rangeForPreset(p, now);
+    if (a === from && b === to) return p;
+  }
+  return "custom";
+}
