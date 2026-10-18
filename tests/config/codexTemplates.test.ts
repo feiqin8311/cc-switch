@@ -13,5 +13,9 @@ describe("Codex custom templates", () => {
     expect(template.auth).toEqual({ OPENAI_API_KEY: "" });
     expect(parsed.features?.goals).toBeUndefined();
     expect(parsed.model_providers?.custom).toBeDefined();
+    expect(template.config).toContain("requires_openai_auth = false");
+    expect(template.config).toContain(
+      'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }',
+    );
   });
 });

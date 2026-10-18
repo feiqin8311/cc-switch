@@ -9,6 +9,13 @@ export interface CodexTemplate {
 }
 
 /**
+ * 第三方 Codex 反代生图：走本机 image_gen，不要 ChatGPT hosted 工具。
+ * `requires_openai_auth = true` 会让 Codex 把图写到 `/mnt/data`，本机预览打不开。
+ */
+export const CODEX_THIRD_PARTY_IMAGE_GEN_TOML = `requires_openai_auth = false
+http_headers = { "x-openai-actor-authorization" = "local-image-extension" }`;
+
+/**
  * 获取 Codex 自定义模板
  * @returns Codex 模板配置
  */
@@ -21,7 +28,7 @@ disable_response_storage = true
 [model_providers.custom]
 name = "custom"
 wire_api = "responses"
-requires_openai_auth = true`;
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`;
 
   return {
     auth: { OPENAI_API_KEY: "" },

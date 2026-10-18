@@ -20,10 +20,39 @@ describe("codexProviderPresets managed OAuth snapshots", () => {
     }
   });
 
-  it("key-based third-party template keeps the fallback flag by default", () => {
+  it("key-based third-party template enables Codex local image_gen by default", () => {
+    const toml = generateThirdPartyConfig(
+      "acme",
+      "https://api.acme.dev/v1",
+      "m1",
+    );
+    expect(toml).toContain("requires_openai_auth = false");
+    expect(toml).toContain(
+      'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }',
+    );
+  });
+
+  it("can still emit the official-auth fallback when asked", () => {
     expect(
-      generateThirdPartyConfig("acme", "https://api.acme.dev/v1", "m1"),
+      generateThirdPartyConfig("acme", "https://api.acme.dev/v1", "m1", {
+        requiresOpenAiAuth: true,
+      }),
     ).toContain("requires_openai_auth = true");
+  });
+
+  it("ships local image_gen headers on third-party Codex presets", () => {
+    const thirdParty = codexProviderPresets.filter(
+      (preset) => !preset.isOfficial,
+    );
+    expect(thirdParty.length).toBeGreaterThan(0);
+    for (const preset of thirdParty) {
+      expect(preset.config, preset.name).toContain(
+        'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }',
+      );
+      expect(preset.config, preset.name).toContain(
+        "requires_openai_auth = false",
+      );
+    }
   });
 
   it("exposes GitHub Copilot as a keyless Codex provider", () => {
