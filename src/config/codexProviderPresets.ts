@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import type { PresetTheme } from "./claudeProviderPresets";
 import type { PresetFamilyFields } from "./presetFamilies";
+import { CODEX_THIRD_PARTY_IMAGE_GEN_TOML } from "./codexTemplates";
 
 // MiMo 官方 Codex 目录的系统提示词。
 // https://mimo.mi.com/docs/tokenplan/integration/codex-configuration
@@ -71,11 +72,15 @@ export function generateThirdPartyConfig(
     // 托管 OAuth 预设（requiresOAuth 卡）必须传 false：这类卡无静态 key，
     // requires_openai_auth = true 会被后端 keyless 安全闸拒绝切换
     // （provider.codex.config.official_auth_fallback）。
+    // 带 Key 的反代默认也是 false：true 会关掉 Codex 本机 image_gen。
     requiresOpenAiAuth?: boolean;
   },
 ): string {
   const tomlString = (value: string) => JSON.stringify(value);
-  const requiresOpenAiAuth = options?.requiresOpenAiAuth ?? true;
+  const requiresOpenAiAuth = options?.requiresOpenAiAuth ?? false;
+  const authToml = requiresOpenAiAuth
+    ? "requires_openai_auth = true"
+    : CODEX_THIRD_PARTY_IMAGE_GEN_TOML;
 
   return `model_provider = "custom"
 model = ${tomlString(modelName)}
@@ -86,7 +91,7 @@ disable_response_storage = true
 name = ${tomlString(providerName)}
 base_url = ${tomlString(baseUrl)}
 wire_api = "responses"
-requires_openai_auth = ${requiresOpenAiAuth}`;
+${authToml}`;
 }
 
 function modelCatalog(
@@ -487,7 +492,7 @@ disable_response_storage = true
 name = "APINebula"
 base_url = "https://apinebula.ai/v1"
 wire_api = "responses"
-requires_openai_auth = true`,
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`,
     endpointCandidates: ["https://apinebula.ai/v1"],
     apiFormat: "openai_responses",
     isPartner: true,
@@ -775,7 +780,7 @@ disable_response_storage = true
 name = "APIKEY.FUN"
 base_url = "https://api.apikey.fan/v1"
 wire_api = "responses"
-requires_openai_auth = true`,
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`,
     endpointCandidates: [
       "https://api.apikey.fan/v1",
       "https://api.apikey.fun/v1",
@@ -1328,7 +1333,7 @@ disable_response_storage = true
 name = "SudoCode"
 base_url = "https://api.sudocode.chat/v1"
 wire_api = "responses"
-requires_openai_auth = true`,
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`,
     endpointCandidates: [
       "https://api.sudocode.chat/v1",
       "https://api.sudorelay.com/v1",
@@ -1356,7 +1361,7 @@ model_verbosity = "high"
 name = "sudocode"
 base_url = "https://sudocode.us/v1"
 wire_api = "responses"
-requires_openai_auth = true`,
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`,
     endpointCandidates: ["https://sudocode.us/v1", "https://sudocode.run/v1"],
     apiFormat: "openai_responses",
     isPartner: true,
@@ -1430,7 +1435,7 @@ disable_response_storage = true
 name = "AtlasCloud"
 base_url = "https://api.atlascloud.ai/v1"
 wire_api = "responses"
-requires_openai_auth = true`,
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`,
     endpointCandidates: ["https://api.atlascloud.ai/v1"],
     apiFormat: "openai_chat",
     modelCatalog: modelCatalog([
@@ -1488,7 +1493,7 @@ base_url = "https://YOUR_RESOURCE_NAME.openai.azure.com/openai"
 env_key = "OPENAI_API_KEY"
 query_params = { "api-version" = "2025-04-01-preview" }
 wire_api = "responses"
-requires_openai_auth = true`,
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`,
     endpointCandidates: ["https://YOUR_RESOURCE_NAME.openai.azure.com/openai"],
     theme: {
       icon: "codex",
@@ -3489,7 +3494,7 @@ disable_response_storage = true
 name = "E-FlowCode"
 base_url = "https://e-flowcode.cc/v1"
 wire_api = "responses"
-requires_openai_auth = true
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}
 model_context_window = 1000000
 model_auto_compact_token_limit = 9000000`,
     category: "third_party",
@@ -3512,7 +3517,7 @@ disable_response_storage = true
 [model_providers.custom]
 name = "PIPELLM"
 wire_api = "responses"
-requires_openai_auth = true
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}
 base_url = "https://cc-api.pipellm.ai/v1"`,
     category: "aggregator",
     endpointCandidates: ["https://cc-api.pipellm.ai/v1"],

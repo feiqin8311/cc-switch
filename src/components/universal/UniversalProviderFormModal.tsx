@@ -17,6 +17,7 @@ import {
   type UniversalProviderPreset,
 } from "@/config/universalProviderPresets";
 import { deepClone } from "@/utils/deepClone";
+import { CODEX_THIRD_PARTY_IMAGE_GEN_TOML } from "@/config/codexTemplates";
 
 interface UniversalProviderFormModalProps {
   isOpen: boolean;
@@ -163,7 +164,7 @@ disable_response_storage = true
 name = "NewAPI"
 base_url = "${codexBaseUrl}"
 wire_api = "responses"
-requires_openai_auth = true`;
+${CODEX_THIRD_PARTY_IMAGE_GEN_TOML}`;
     return {
       auth: {
         OPENAI_API_KEY: apiKey,

@@ -15,7 +15,8 @@ disable_response_storage = true
 name = "opencode_go"
 base_url = "https://opencode.ai/zen/go/v1"
 wire_api = "responses"
-requires_openai_auth = true`;
+requires_openai_auth = false
+http_headers = { "x-openai-actor-authorization" = "local-image-extension" }`;
 
 describe("detectCodingPlanProvider (OpenCode Go)", () => {
   it("matches both base variants across apps", () => {
