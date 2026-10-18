@@ -4,10 +4,11 @@ import {
   type UsageRow,
 } from "@ccse/contracts";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { BarChart3, Search } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronDown, Search } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -18,7 +19,6 @@ import {
   EmptyState,
   ErrorState,
   Field,
-  InlineError,
   inputClass,
   LoadingState,
   MultiSelect,
@@ -31,7 +31,14 @@ import {
   trClass,
 } from "../components/ui";
 import { useApi } from "../lib/auth";
-import { daySpan, formatNumber, lastUtcDays } from "../lib/format";
+import {
+  daySpan,
+  formatNumber,
+  lastUtcDays,
+  matchingUtcPreset,
+  rangeForPreset,
+  type UtcRangePreset,
+} from "../lib/format";
 
 const MAX_DAYS = 92;
 
@@ -110,6 +117,155 @@ function optionsOf(
 
 const num = `${tdClass} text-right tabular-nums`;
 const numTh = `${thClass} text-right`;
+
+const RANGE_PRESETS: { id: UtcRangePreset; label: string }[] = [
+  { id: "today", label: "今天" },
+  { id: "yesterday", label: "昨天" },
+  { id: "last24h", label: "近24小时" },
+  { id: "last7d", label: "近7天" },
+  { id: "last14d", label: "近14天" },
+  { id: "last30d", label: "近30天" },
+  { id: "thisMonth", label: "本月" },
+  { id: "lastMonth", label: "上月" },
+];
+
+function slashDate(iso: string) {
+  return iso.replaceAll("-", "/");
+}
+
+function DateRangePicker({
+  from,
+  to,
+  onApply,
+  error,
+}: {
+  from: string;
+  to: string;
+  onApply: (next: { from: string; to: string }) => boolean | void;
+  error?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  const root = useRef<HTMLDivElement>(null);
+  const matched = matchingUtcPreset(from, to);
+  const triggerLabel =
+    RANGE_PRESETS.find((p) => p.id === matched)?.label ??
+    `${slashDate(from)} – ${slashDate(to)}`;
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftFrom(from);
+    setDraftTo(to);
+  }, [open, from, to]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <Field label="时间范围">
+      <div ref={root} className="relative">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          onClick={() => setOpen((v) => !v)}
+          className="flex h-8 w-52 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-sm text-foreground shadow-2xs outline-none transition-colors hover:bg-muted/40 focus:border-ring focus:ring-1 focus:ring-ring"
+        >
+          <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+          <ChevronDown
+            className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        {open && (
+          <div
+            role="dialog"
+            aria-label="选择时间范围"
+            className="absolute z-30 mt-1.5 w-[22rem] rounded-xl border border-border/80 bg-popover p-3 text-popover-foreground shadow-lg"
+          >
+            <div className="grid grid-cols-2 gap-1">
+              {RANGE_PRESETS.map((p) => {
+                const selected = matched === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      const [a, b] = rangeForPreset(p.id);
+                      if (onApply({ from: a, to: b }) !== false) setOpen(false);
+                    }}
+                    className={`h-8 rounded-lg px-2 text-sm transition-colors cursor-pointer ${
+                      selected
+                        ? "bg-muted font-medium text-foreground"
+                        : "text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex items-end gap-2 border-t border-border/60 pt-3">
+              <Field label="开始日期" htmlFor="usage-from" className="min-w-0 flex-1">
+                <input
+                  id="usage-from"
+                  type="date"
+                  className={inputClass}
+                  value={draftFrom}
+                  onChange={(e) => setDraftFrom(e.target.value)}
+                />
+              </Field>
+              <span className="mb-2 text-muted-foreground">→</span>
+              <Field label="结束日期" htmlFor="usage-to" className="min-w-0 flex-1">
+                <input
+                  id="usage-to"
+                  type="date"
+                  className={inputClass}
+                  value={draftTo}
+                  onChange={(e) => setDraftTo(e.target.value)}
+                />
+              </Field>
+            </div>
+            {error && (
+              <p className="mt-2 text-xs text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  if (onApply({ from: draftFrom, to: draftTo }) !== false)
+                    setOpen(false);
+                }}
+              >
+                应用
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Field>
+  );
+}
 
 export function UsagePage() {
   const client = useApi();
@@ -254,23 +410,29 @@ export function UsagePage() {
     [rows],
   );
 
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!draft.from || !draft.to) {
+  const applyRange = (next: { from: string; to: string }) => {
+    if (!next.from || !next.to) {
       setRangeError("请选择起止日期");
-      return;
+      return false;
     }
-    const span = daySpan(draft.from, draft.to);
+    const span = daySpan(next.from, next.to);
     if (span < 1) {
       setRangeError("开始日期不能晚于结束日期");
-      return;
+      return false;
     }
     if (span > MAX_DAYS) {
       setRangeError(`查询范围最多 ${MAX_DAYS} 天`);
-      return;
+      return false;
     }
     setRangeError(null);
-    setRange({ ...draft });
+    setDraft(next);
+    setRange(next);
+    return true;
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    applyRange(draft);
   };
 
   return (
@@ -285,33 +447,12 @@ export function UsagePage() {
         className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
       >
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="开始日期（UTC）" htmlFor="usage-from">
-            <input
-              id="usage-from"
-              type="date"
-              className={`${inputClass} w-40`}
-              value={draft.from}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, from: e.target.value }))
-              }
-            />
-          </Field>
-          <Field label="结束日期（UTC）" htmlFor="usage-to">
-            <input
-              id="usage-to"
-              type="date"
-              className={`${inputClass} w-40`}
-              value={draft.to}
-              onChange={(e) => setDraft((d) => ({ ...d, to: e.target.value }))}
-            />
-          </Field>
-          <Button type="submit" variant="primary">
-            <Search className="size-3.5" />
-            查询
-          </Button>
-          {usage.isFetching && !usage.isPending && <Spinner className="mb-2" />}
-        </div>
-        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <DateRangePicker
+            from={range.from}
+            to={range.to}
+            onApply={applyRange}
+            error={rangeError}
+          />
           <Field label="用户">
             <MultiSelect
               className="w-44"
@@ -352,12 +493,12 @@ export function UsagePage() {
               清空筛选
             </Button>
           )}
+          <Button type="submit" variant="primary">
+            <Search className="size-3.5" />
+            查询
+          </Button>
+          {usage.isFetching && !usage.isPending && <Spinner className="mb-2" />}
         </div>
-        {rangeError && (
-          <div className="mt-3">
-            <InlineError>{rangeError}</InlineError>
-          </div>
-        )}
       </form>
 
       {devicesShown.length > 0 && (
@@ -438,6 +579,7 @@ export function UsagePage() {
               </div>
             </Card>
           )}
+          {byUser.length > 0 && <UserTokenChart rows={byUser} />}
           <div className="grid grid-cols-2 gap-5">
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
             <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
@@ -487,6 +629,71 @@ export function UsagePage() {
         </div>
       )}
     </div>
+  );
+}
+
+function UserTokenChart({ rows }: { rows: Totals[] }) {
+  const data = rows.map((t) => ({
+    key: t.key,
+    name: typeof t.label === "string" ? t.label : t.key,
+    input: t.inputTokens,
+    output: t.outputTokens,
+    total: t.inputTokens + t.outputTokens,
+  }));
+  const max = Math.max(...data.map((d) => d.total), 1);
+
+  return (
+    <Card>
+      <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
+        按用户 tokens
+      </h2>
+      <div className="flex items-center gap-4 px-4 pt-3 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-sm bg-foreground/80" />
+          输入
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-sm bg-brand" />
+          输出
+        </span>
+      </div>
+      <div className="overflow-x-auto px-4 pb-4 pt-2">
+        <div
+          className="flex h-56 items-end gap-3"
+          style={{ minWidth: `${Math.max(data.length * 56, 240)}px` }}
+        >
+          {data.map((d) => {
+            const h = (d.total / max) * 100;
+            const inPct = d.total ? (d.input / d.total) * 100 : 0;
+            const outPct = 100 - inPct;
+            return (
+              <div
+                key={d.key}
+                className="flex h-full min-w-12 flex-1 flex-col items-center justify-end gap-1.5"
+              >
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {formatNumber(d.total)}
+                </span>
+                <div
+                  className="flex w-8 flex-col-reverse overflow-hidden rounded-t-md"
+                  style={{ height: `${d.total > 0 ? Math.max(h, 2) : 0}%` }}
+                  title={`${d.name}：输入 ${formatNumber(d.input)}，输出 ${formatNumber(d.output)}`}
+                >
+                  <div
+                    className="bg-foreground/80"
+                    style={{ height: `${inPct}%` }}
+                  />
+                  <div className="bg-brand" style={{ height: `${outPct}%` }} />
+                </div>
+                <span className="max-w-16 truncate text-xs" title={d.name}>
+                  {d.name}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Card>
   );
 }
 
