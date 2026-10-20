@@ -101,6 +101,20 @@ async function startUpstream(): Promise<Upstream> {
         );
         return;
       }
+      if (
+        req.url === "/v1/images/generations" ||
+        req.url === "/v1/images/edits"
+      ) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            created: 1,
+            data: [{ b64_json: "aaaa" }],
+            usage: { input_tokens: 8, output_tokens: 100 },
+          }),
+        );
+        return;
+      }
       if (req.url !== "/v1/responses") {
         res.writeHead(404).end();
         return;
@@ -720,5 +734,67 @@ describe("client config", () => {
       headers: bearer(viewer.accessToken),
     });
     expect(viewerRes.json().providers).toEqual([]);
+  });
+});
+
+describe("gateway images", () => {
+  function callImages(
+    key: string,
+    path: "generations" | "edits",
+    payload: Record<string, unknown> = { prompt: "a dog" },
+  ) {
+    return ctx.app.inject({
+      method: "POST",
+      url: `/gateway/openai-main/v1/images/${path}`,
+      headers: bearer(key),
+      payload,
+    });
+  }
+
+  it("forwards generations and edits to the upstream Images API", async () => {
+    await createProvider();
+    const key = await issueKey((await loginAs("member")).accessToken);
+
+    const gen = await callImages(key, "generations", {
+      prompt: "a dog",
+      model: "gpt-image-1",
+    });
+    expect(gen.statusCode).toBe(200);
+    expect(gen.json()).toMatchObject({
+      data: [{ b64_json: "aaaa" }],
+      usage: { input_tokens: 8, output_tokens: 100 },
+    });
+
+    const edit = await callImages(key, "edits", { prompt: "make it blue" });
+    expect(edit.statusCode).toBe(200);
+
+    expect(upstream.received.map((r) => r.url)).toEqual([
+      "/v1/images/generations",
+      "/v1/images/edits",
+    ]);
+    expect(upstream.received[0]?.headers.authorization).toBe(
+      `Bearer ${UPSTREAM_KEY}`,
+    );
+    expect(upstream.received[0]?.body).toMatchObject({
+      prompt: "a dog",
+      model: "gpt-image-1",
+    });
+
+    const rows = await usageRows();
+    expect(rows.map((r) => [r.model, r.inputTokens, r.outputTokens])).toEqual([
+      ["gpt-image-1", 8, 100],
+      ["gpt-5", 8, 100],
+    ]);
+  });
+
+  it("rejects missing keys with 401", async () => {
+    await createProvider();
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/gateway/openai-main/v1/images/generations",
+      payload: { prompt: "a dog" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(upstream.received).toHaveLength(0);
   });
 });

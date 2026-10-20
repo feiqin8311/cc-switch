@@ -78,6 +78,58 @@ export async function forwardResponses(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  const convertChat = ctx.provider.wireApi === "chat_completions";
+  await forwardRaw(
+    db,
+    secretsKey,
+    ctx,
+    model,
+    convertChat ? convertResponsesToChatRequest(body, model) : body,
+    req,
+    reply,
+    convertChat ? "/chat/completions" : "/responses",
+    convertChat,
+  );
+}
+
+/**
+ * Codex ImageGen posts to the legacy Images API (`/images/generations`,
+ * `/images/edits`). Relay those paths as-is; they are not Responses.
+ */
+export async function forwardPassthrough(
+  db: Db,
+  secretsKey: Buffer,
+  ctx: GatewayContext,
+  model: string,
+  body: unknown,
+  req: FastifyRequest,
+  reply: FastifyReply,
+  upstreamPath: string,
+): Promise<void> {
+  await forwardRaw(
+    db,
+    secretsKey,
+    ctx,
+    model,
+    body,
+    req,
+    reply,
+    upstreamPath,
+    false,
+  );
+}
+
+async function forwardRaw(
+  db: Db,
+  secretsKey: Buffer,
+  ctx: GatewayContext,
+  model: string,
+  upstreamBody: unknown,
+  req: FastifyRequest,
+  reply: FastifyReply,
+  upstreamPath: string,
+  isChatCompletions: boolean,
+): Promise<void> {
   const { provider, user } = ctx;
   const started = Date.now();
   const log = req.log.child({ providerId: provider.id, userId: user.id });
@@ -133,12 +185,6 @@ export async function forwardResponses(
     () => controller.abort(),
     UPSTREAM_HEADERS_TIMEOUT_MS,
   );
-
-  const isChatCompletions = provider.wireApi === "chat_completions";
-  const upstreamPath = isChatCompletions ? "/chat/completions" : "/responses";
-  const upstreamBody = isChatCompletions
-    ? convertResponsesToChatRequest(body, model)
-    : body;
 
   let upstream: Response;
   try {
