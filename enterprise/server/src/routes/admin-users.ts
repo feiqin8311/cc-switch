@@ -1,4 +1,5 @@
 import {
+  CODING_PLAN_ACCOUNT_ID,
   CreateUserRequestSchema,
   type ListUsersResponse,
   type OffboardUserResponse,
@@ -27,7 +28,13 @@ const GroupRoleUpdateSchema = z
 
 function uniqueAccountIds(ids: number[] | undefined): number[] {
   if (!ids) return [];
-  return [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))];
+  return [
+    ...new Set(
+      ids.filter(
+        (n) => Number.isInteger(n) && (n > 0 || n === CODING_PLAN_ACCOUNT_ID),
+      ),
+    ),
+  ];
 }
 
 function isUniqueViolation(err: unknown): boolean {

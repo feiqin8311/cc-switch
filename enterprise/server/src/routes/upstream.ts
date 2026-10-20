@@ -1,4 +1,5 @@
 import {
+  CODING_PLAN_ACCOUNT_ID,
   type UpstreamAccount,
   type UpstreamAccountsResponse,
   UpstreamAccountsResponseSchema,
@@ -22,7 +23,7 @@ export async function upstreamRoutes(
   app: FastifyInstance,
   deps: AppDeps,
 ): Promise<void> {
-  const { authenticate, config } = deps;
+  const { authenticate, config, readCodingPlan } = deps;
 
   const listAll = async () => {
     const cfg = config.sub2api;
@@ -53,15 +54,31 @@ export async function upstreamRoutes(
 
   app.get("/admin/upstream/accounts", {
     preHandler: [authenticate, requirePermission("audit.read")],
-    handler: listAll,
+    handler: async (_req, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return { ...(await listAll()), codingPlanAvailable: !!config.volcengine };
+    },
   });
   app.get("/client/upstream/accounts", {
     preHandler: [authenticate],
-    handler: async (req) => {
-      const all = await listAll();
+    handler: async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
+      const user = authOf(req).user;
+      const canSeeCodingPlan =
+        !!config.volcengine &&
+        (user.role === "admin" ||
+          user.upstreamAccountIds?.includes(CODING_PLAN_ACCOUNT_ID));
+      const [all, codingPlan] = await Promise.all([
+        listAll(),
+        canSeeCodingPlan ? readCodingPlan() : undefined,
+      ]);
       return {
         ...all,
-        items: visibleUpstreamAccounts(authOf(req).user, all.items),
+        configured: all.configured || !!codingPlan,
+        // Sub2API configuration should not obscure an assigned Coding Plan card.
+        error: !all.configured && codingPlan ? null : all.error,
+        items: visibleUpstreamAccounts(user, all.items),
+        ...(codingPlan ? { codingPlan } : {}),
       };
     },
   });

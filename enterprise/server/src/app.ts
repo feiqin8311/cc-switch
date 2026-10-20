@@ -1,4 +1,8 @@
-import { API_PREFIX, GATEWAY_PREFIX } from "@ccse/contracts";
+import {
+  API_PREFIX,
+  type CodingPlanUsageResponse,
+  GATEWAY_PREFIX,
+} from "@ccse/contracts";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { createAuthenticate } from "./auth/guard.ts";
 import type { AppConfig } from "./config.ts";
@@ -16,11 +20,13 @@ import { marketRoutes } from "./routes/market.ts";
 import { retentionRoutes } from "./routes/retention.ts";
 import { upstreamRoutes } from "./routes/upstream.ts";
 import { registerUpdates } from "./updates.ts";
+import { createCodingPlanReader } from "./volcengine.ts";
 
 export interface AppDeps {
   db: Db;
   config: AppConfig;
   authenticate: (req: FastifyRequest) => Promise<void>;
+  readCodingPlan: () => Promise<CodingPlanUsageResponse>;
 }
 
 export async function buildApp(
@@ -57,6 +63,7 @@ export async function buildApp(
     db,
     config,
     authenticate: createAuthenticate(db, config.jwtSecret),
+    readCodingPlan: createCodingPlanReader(config.volcengine),
   };
 
   await app.register(

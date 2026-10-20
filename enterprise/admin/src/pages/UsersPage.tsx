@@ -1,4 +1,5 @@
 import {
+  CODING_PLAN_ACCOUNT_ID,
   type CreateUserRequest,
   ListUsersResponseSchema,
   OffboardUserResponseSchema,
@@ -667,11 +668,11 @@ function EditUserDialog({
               <AccountChecklist
                 ids={upstreamAccountIds}
                 onChange={setUpstreamAccountIds}
-                disabled={user.role === "admin"}
+                disabled={role === "admin"}
                 hint={
-                  user.role === "admin"
+                  role === "admin"
                     ? "管理员始终能看全部上游账号"
-                    : "勾选该员工在桌面「用量窗口」里能看到的 Sub2API 账号"
+                    : "勾选该员工在桌面「用量窗口」里能看到的上游账号"
                 }
               />
             </div>
@@ -736,19 +737,31 @@ function AccountChecklist({
         signal,
       }),
   });
+  const options = [
+    ...(accounts.data?.items ?? []),
+    ...(accounts.data?.codingPlanAvailable
+      ? [
+          {
+            id: CODING_PLAN_ACCOUNT_ID,
+            name: "火山方舟 Coding Plan",
+            platform: "volcengine",
+          },
+        ]
+      : []),
+  ];
   return (
     <Field label="用量窗口" hint={hint}>
       {accounts.isPending ? (
         <p className="text-xs text-muted-foreground">正在加载账号列表…</p>
-      ) : accounts.isError || !accounts.data?.configured ? (
+      ) : accounts.isError ? (
         <p className="text-xs text-muted-foreground">
           无法加载上游账号，稍后再试。
         </p>
-      ) : accounts.data.items.length === 0 ? (
+      ) : options.length === 0 ? (
         <p className="text-xs text-muted-foreground">还没有上游账号。</p>
       ) : (
         <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
-          {accounts.data.items.map((acc) => (
+          {options.map((acc) => (
             <li key={acc.id}>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <input

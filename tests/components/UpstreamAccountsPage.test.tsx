@@ -12,6 +12,74 @@ vi.mock("@/lib/api/enterprise", () => ({
 }));
 
 describe("UpstreamAccountsPage", () => {
+  it("shows Coding Plan without Sub2API and preserves all quota windows", async () => {
+    upstreamAccounts.mockResolvedValue({
+      configured: true,
+      error: null,
+      items: [],
+      codingPlan: {
+        configured: true,
+        providerId: "volcengine-coding",
+        status: "Running",
+        fetchedAt: "2026-10-20T00:00:00Z",
+        sourceUpdatedAt: null,
+        stale: false,
+        error: null,
+        warning: null,
+        subscription: {
+          planType: "Pro",
+          status: "Running",
+          startsAt: null,
+          expiresAt: "2026-11-29T15:59:59Z",
+          autoRenew: false,
+        },
+        windows: [
+          { id: "fiveHour", usedPercent: 2.05, resetsAt: null },
+          { id: "weekly", usedPercent: 6.39, resetsAt: null },
+          { id: "monthly", usedPercent: 33.97, resetsAt: null },
+        ],
+      },
+    });
+    renderWithQueryClient(<UpstreamAccountsPage />);
+    expect(await screen.findByText("火山方舟 Coding Plan")).toBeInTheDocument();
+    expect(screen.getByText("2.05%")).toBeInTheDocument();
+    expect(screen.getByText("6.39%")).toBeInTheDocument();
+    expect(screen.getByText("33.97%")).toBeInTheDocument();
+    expect(screen.getAllByRole("progressbar")).toHaveLength(3);
+    expect(
+      screen.queryByTitle(/upstream\.capacityLabel|容量/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/账号共享额度/)).toBeInTheDocument();
+  });
+
+  it("shows missing quota data as unknown when the provider query fails", async () => {
+    upstreamAccounts.mockResolvedValue({
+      configured: true,
+      error: null,
+      items: [],
+      codingPlan: {
+        configured: true,
+        providerId: "volcengine-coding",
+        status: null,
+        fetchedAt: null,
+        sourceUpdatedAt: null,
+        stale: false,
+        error: "火山方舟查询失败",
+        warning: null,
+        subscription: null,
+        windows: [],
+      },
+    });
+    renderWithQueryClient(<UpstreamAccountsPage />);
+    expect(await screen.findByText("火山方舟 Coding Plan")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("火山方舟查询失败");
+    for (const bar of screen.getAllByRole("progressbar")) {
+      expect(bar).not.toHaveAttribute("aria-valuenow");
+      expect(bar).toHaveAttribute("aria-valuetext", "暂无数据");
+    }
+    expect(screen.queryByText(/0\.00%/)).not.toBeInTheDocument();
+  });
+
   it("shows capacity and hides query/token/cost stats", async () => {
     upstreamAccounts.mockResolvedValue({
       configured: true,

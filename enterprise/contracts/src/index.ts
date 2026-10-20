@@ -123,7 +123,7 @@ export const UserSchema = z.object({
   disabled: z.boolean(),
   createdAt: z.string(),
   lastLoginAt: z.string().nullable(),
-  /** Sub2API account ids this user may see in 用量窗口. Admins ignore this and see all. */
+  /** Sub2API ids plus CODING_PLAN_ACCOUNT_ID for 用量窗口. Admins see all. */
   upstreamAccountIds: z.array(z.number().int()).default([]),
   /** Empty when the user is not in a group. */
   groupName: GroupNameSchema.default(""),
@@ -1208,8 +1208,11 @@ export const DeviceUsageResponseSchema = z.object({
 export type DeviceUsageResponse = z.infer<typeof DeviceUsageResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Upstream Sub2API accounts (5h / 7d windows)
+// Upstream accounts and desktop usage-window assignments
 // ---------------------------------------------------------------------------
+
+/** Reserved assignment id; Sub2API account ids are positive. No credentials are stored here. */
+export const CODING_PLAN_ACCOUNT_ID = -1;
 
 export const UpstreamWindowSchema = z.object({
   id: z.enum(["5h", "7d"]),
@@ -1240,11 +1243,15 @@ export const UpstreamAccountSchema = z.object({
 });
 export type UpstreamAccount = z.infer<typeof UpstreamAccountSchema>;
 
-/** GET /admin/upstream/accounts — audit.read. */
+/** GET /admin/upstream/accounts (audit.read) and /client/upstream/accounts. */
 export const UpstreamAccountsResponseSchema = z.object({
   configured: z.boolean(),
   error: z.string().nullable(),
   items: z.array(UpstreamAccountSchema),
+  /** Admin checklist availability, independent of Sub2API connectivity. */
+  codingPlanAvailable: z.boolean().optional(),
+  /** Only returned to an admin or a user assigned CODING_PLAN_ACCOUNT_ID. */
+  codingPlan: CodingPlanUsageResponseSchema.optional(),
 });
 export type UpstreamAccountsResponse = z.infer<
   typeof UpstreamAccountsResponseSchema

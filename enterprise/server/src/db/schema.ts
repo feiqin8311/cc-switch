@@ -35,7 +35,7 @@ export const users = pgTable("users", {
     .notNull()
     .defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
-  /** Sub2API account ids visible in 用量窗口. Empty = none for members; admins see all. */
+  /** Sub2API ids and reserved CODING_PLAN_ACCOUNT_ID. Empty = none; admins see all. */
   upstreamAccountIds: integer("upstream_account_ids")
     .array()
     .notNull()

@@ -1,4 +1,5 @@
 import {
+  CODING_PLAN_ACCOUNT_ID,
   type Permission,
   permissionsForRole,
   type SessionResponse,
@@ -83,6 +84,7 @@ const FIXTURES: Record<string, unknown> = {
   "/admin/usage/devices": { items: [] },
   "/admin/upstream/accounts": {
     configured: true,
+    codingPlanAvailable: true,
     error: null,
     items: [
       {
@@ -295,6 +297,38 @@ afterEach(() => {
 const tabNames = () => screen.queryAllByRole("tab").map((t) => t.textContent);
 
 describe("App", () => {
+  it.each(["edit", "bulk"])(
+    "saves a Coding Plan usage-window assignment from %s",
+    async (mode) => {
+      const { patches } = renderAt("/users", permissionsForRole("admin"));
+      await screen.findByText("bob");
+      if (mode === "bulk") {
+        fireEvent.click(screen.getByRole("checkbox", { name: "选择 bob" }));
+        fireEvent.click(screen.getByRole("button", { name: /设置用量窗口/ }));
+      } else {
+        const row = screen.getByText("bob").closest("tr");
+        if (!row) throw new Error("Member row missing");
+        fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
+      }
+      const dialog = screen.getByRole("dialog");
+      const checkbox = await within(dialog).findByRole("checkbox", {
+        name: /火山方舟 Coding Plan/,
+      });
+      expect((checkbox as HTMLInputElement).disabled).toBe(false);
+      fireEvent.click(checkbox);
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: mode === "bulk" ? "应用到 1 个用户" : "保存",
+        }),
+      );
+      await waitFor(() =>
+        expect(patches).toEqual([
+          { upstreamAccountIds: [CODING_PLAN_ACCOUNT_ID] },
+        ]),
+      );
+    },
+  );
+
   const leader: User = {
     ...admin,
     role: "group_leader",
