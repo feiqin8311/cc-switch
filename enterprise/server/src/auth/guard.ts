@@ -55,9 +55,18 @@ export function createAuthenticate(db: Db, secret: Uint8Array) {
 }
 
 export function requirePermission(permission: Permission) {
+  return requireAnyPermission(permission);
+}
+
+export function requireAnyPermission(...permissions: Permission[]) {
   return async (req: FastifyRequest, _reply: FastifyReply): Promise<void> => {
     if (!req.auth) throw unauthorized();
-    if (!req.auth.permissions.includes(permission)) throw forbidden();
+    if (
+      !permissions.some((permission) =>
+        req.auth?.permissions.includes(permission),
+      )
+    )
+      throw forbidden();
   };
 }
 

@@ -3,6 +3,7 @@ import { ApiError } from "./api";
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "管理员",
+  group_leader: "组长",
   member: "成员",
   viewer: "只读",
 };
@@ -139,10 +140,7 @@ export function rangeForPreset(
       const py = m === 0 ? y - 1 : y;
       const pm = m === 0 ? 12 : m;
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      return [
-        `${py}-${pad2(pm)}-01`,
-        `${py}-${pad2(pm)}-${pad2(lastDay)}`,
-      ];
+      return [`${py}-${pad2(pm)}-01`, `${py}-${pad2(pm)}-${pad2(lastDay)}`];
     }
   }
 }

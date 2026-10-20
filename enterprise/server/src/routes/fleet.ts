@@ -1,29 +1,33 @@
 import {
   CreateProfileRequestSchema,
   DeviceAppliedRequestSchema,
+  type DeviceDetailResponse,
   DeviceDetailResponseSchema,
   DeviceHeartbeatRequestSchema,
+  type DeviceReported,
   DeviceReportedSchema,
+  type DeviceUsageResponse,
   DeviceUsageResponseSchema,
   DeviceUsageUploadRequestSchema,
-  type DeviceReported,
   type ListDevicesResponse,
   ListProfilesResponseSchema,
   PatchDeviceRequestSchema,
   PutFleetRequestSchema,
   UsageQuerySchema,
-  type DeviceDetailResponse,
-  type DeviceUsageResponse,
 } from "@ccse/contracts";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
-import { authOf, requirePermission } from "../auth/guard.ts";
+import {
+  authOf,
+  requireAnyPermission,
+  requirePermission,
+} from "../auth/guard.ts";
 import { revokeSession } from "../auth/sessions.ts";
 import {
-  deviceUsageDaily,
   devices,
+  deviceUsageDaily,
   gatewayKeys,
   usageRecords,
   users,
@@ -31,6 +35,8 @@ import {
 import { AppError, forbidden, notFound, parseBody } from "../errors.ts";
 import {
   copyProfileForDevice,
+  createProfile,
+  deleteProfile,
   desiredFor,
   effectiveProfile,
   ensureDefault,
@@ -41,10 +47,9 @@ import {
   profileById,
   saveDefaultFleet,
   summaryOf,
-  createProfile,
-  deleteProfile,
   updateProfile,
 } from "../fleet/store.ts";
+import { groupScope } from "../users/scope.ts";
 
 const ONLINE_MS = 2 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -83,8 +88,11 @@ export async function fleetRoutes(
   const admin = {
     preHandler: [authenticate, requirePermission("settings.manage")],
   };
-  const audit = {
-    preHandler: [authenticate, requirePermission("audit.read")],
+  const usageGuard = {
+    preHandler: [
+      authenticate,
+      requireAnyPermission("audit.read", "usage.group.read"),
+    ],
   };
 
   app.get("/admin/profiles", admin, async () => {
@@ -95,7 +103,10 @@ export async function fleetRoutes(
   app.post("/admin/profiles", admin, async (req, reply) => {
     const body = parseBody(CreateProfileRequestSchema, req.body);
     const saved = await createProfile(db, body, config.secretsKey);
-    req.log.info({ actor: authOf(req).user.id, profileId: saved.id }, "profile created");
+    req.log.info(
+      { actor: authOf(req).user.id, profileId: saved.id },
+      "profile created",
+    );
     return reply.status(201).send(saved);
   });
 
@@ -119,8 +130,13 @@ export async function fleetRoutes(
   app.get("/admin/fleet", admin, async () => {
     const row = await ensureDefault(db);
     const profile = await getProfile(db, row.id);
-    const { id: _id, name: _name, isDefault: _flag, deviceCount: _count, ...fleet } =
-      profile;
+    const {
+      id: _id,
+      name: _name,
+      isDefault: _flag,
+      deviceCount: _count,
+      ...fleet
+    } = profile;
     return fleet;
   });
 
@@ -146,11 +162,19 @@ export async function fleetRoutes(
       .select()
       .from(deviceUsageDaily)
       .where(
-        and(eq(deviceUsageDaily.deviceId, id), gte(deviceUsageDaily.date, since)),
+        and(
+          eq(deviceUsageDaily.deviceId, id),
+          gte(deviceUsageDaily.date, since),
+        ),
       );
     const days = new Map<
       string,
-      { requests: number; inputTokens: number; outputTokens: number; costUsd: number }
+      {
+        requests: number;
+        inputTokens: number;
+        outputTokens: number;
+        costUsd: number;
+      }
     >();
     const byProvider = new Map<
       string,
@@ -200,7 +224,10 @@ export async function fleetRoutes(
       })
       .from(usageRecords)
       .where(
-        and(eq(usageRecords.deviceId, id), gte(usageRecords.createdAt, gatewaySince)),
+        and(
+          eq(usageRecords.deviceId, id),
+          gte(usageRecords.createdAt, gatewaySince),
+        ),
       );
     const detail: DeviceDetailResponse = {
       device,
@@ -208,7 +235,8 @@ export async function fleetRoutes(
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, totals]) => ({ date, ...totals })),
       byProvider: [...byProvider.values()].sort(
-        (a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
+        (a, b) =>
+          b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
       ),
       gateway: {
         requests: gateway?.requests ?? 0,
@@ -253,16 +281,24 @@ export async function fleetRoutes(
 
   app.post("/admin/devices/:id/personal-profile", admin, async (req, reply) => {
     const { id } = parseBody(IdParamSchema, req.params);
-    const [device] = await db.select().from(devices).where(eq(devices.id, id)).limit(1);
+    const [device] = await db
+      .select()
+      .from(devices)
+      .where(eq(devices.id, id))
+      .limit(1);
     if (!device) throw notFound("Device not found");
     const source = await effectiveProfile(db, device.profileId);
     const copy = await copyProfileForDevice(db, device.name, source);
-    await db.update(devices).set({ profileId: copy.id }).where(eq(devices.id, id));
+    await db
+      .update(devices)
+      .set({ profileId: copy.id })
+      .where(eq(devices.id, id));
     return reply.status(201).send(await getProfile(db, copy.id));
   });
 
-  app.get("/admin/usage/devices", audit, async (req) => {
+  app.get("/admin/usage/devices", usageGuard, async (req) => {
     const query = parseBody(UsageQuerySchema, req.query);
+    const actor = authOf(req).user;
     const rows = await db
       .select({
         deviceId: deviceUsageDaily.deviceId,
@@ -282,6 +318,7 @@ export async function fleetRoutes(
       .where(
         and(
           gte(deviceUsageDaily.date, query.from),
+          actor.role === "group_leader" ? groupScope(actor) : undefined,
           lt(deviceUsageDaily.date, nextDay(query.to)),
         ),
       )
@@ -354,7 +391,9 @@ export async function fleetRoutes(
           lastSeenAt: now,
           reported: body.reported,
           sessionId: auth.sessionId,
-          ...(deviceSecret ? { secretHash: hashDeviceSecret(deviceSecret) } : {}),
+          ...(deviceSecret
+            ? { secretHash: hashDeviceSecret(deviceSecret) }
+            : {}),
           ...(userChanged
             ? { previousUserId: existing.userId, userChangedAt: now }
             : {}),
@@ -391,61 +430,81 @@ export async function fleetRoutes(
     },
   );
 
-  app.post("/devices/me/applied", { preHandler: authenticate }, async (req, reply) => {
-    const body = parseBody(DeviceAppliedRequestSchema, req.body);
-    const auth = authOf(req);
-    await requireLiveDevice(db, auth.user.id, body.deviceId, body.deviceSecret);
-    const failed = typeof body.error === "string" && body.error.length > 0;
-    await db
-      .update(devices)
-      .set(
-        failed
-          ? { applyError: body.error }
-          : {
-              appliedRevision: body.revision,
-              appliedProfileId: body.profileId,
-              applyError: null,
-              forceSyncAt: null,
-            },
-      )
-      .where(and(eq(devices.id, body.deviceId), eq(devices.userId, auth.user.id)));
-    return reply.status(204).send();
-  });
-
-  app.post("/devices/me/usage", { preHandler: authenticate }, async (req, reply) => {
-    const body = parseBody(DeviceUsageUploadRequestSchema, req.body);
-    const auth = authOf(req);
-    await requireLiveDevice(db, auth.user.id, body.deviceId, body.deviceSecret);
-    const now = new Date();
-    for (const item of body.items) {
-      const values = {
-        deviceId: body.deviceId,
-        userId: auth.user.id,
-        date: item.date,
-        providerId: item.providerId,
-        model: item.model,
-        requests: item.requests,
-        inputTokens: item.inputTokens,
-        outputTokens: item.outputTokens,
-        costMicroUsd: Math.round(item.costUsd * 1_000_000),
-        updatedAt: now,
-      };
+  app.post(
+    "/devices/me/applied",
+    { preHandler: authenticate },
+    async (req, reply) => {
+      const body = parseBody(DeviceAppliedRequestSchema, req.body);
+      const auth = authOf(req);
+      await requireLiveDevice(
+        db,
+        auth.user.id,
+        body.deviceId,
+        body.deviceSecret,
+      );
+      const failed = typeof body.error === "string" && body.error.length > 0;
       await db
-        .insert(deviceUsageDaily)
-        .values(values)
-        .onConflictDoUpdate({
-          target: [
-            deviceUsageDaily.deviceId,
-            deviceUsageDaily.userId,
-            deviceUsageDaily.date,
-            deviceUsageDaily.providerId,
-            deviceUsageDaily.model,
-          ],
-          set: values,
-        });
-    }
-    return reply.status(204).send();
-  });
+        .update(devices)
+        .set(
+          failed
+            ? { applyError: body.error }
+            : {
+                appliedRevision: body.revision,
+                appliedProfileId: body.profileId,
+                applyError: null,
+                forceSyncAt: null,
+              },
+        )
+        .where(
+          and(eq(devices.id, body.deviceId), eq(devices.userId, auth.user.id)),
+        );
+      return reply.status(204).send();
+    },
+  );
+
+  app.post(
+    "/devices/me/usage",
+    { preHandler: authenticate },
+    async (req, reply) => {
+      const body = parseBody(DeviceUsageUploadRequestSchema, req.body);
+      const auth = authOf(req);
+      await requireLiveDevice(
+        db,
+        auth.user.id,
+        body.deviceId,
+        body.deviceSecret,
+      );
+      const now = new Date();
+      for (const item of body.items) {
+        const values = {
+          deviceId: body.deviceId,
+          userId: auth.user.id,
+          date: item.date,
+          providerId: item.providerId,
+          model: item.model,
+          requests: item.requests,
+          inputTokens: item.inputTokens,
+          outputTokens: item.outputTokens,
+          costMicroUsd: Math.round(item.costUsd * 1_000_000),
+          updatedAt: now,
+        };
+        await db
+          .insert(deviceUsageDaily)
+          .values(values)
+          .onConflictDoUpdate({
+            target: [
+              deviceUsageDaily.deviceId,
+              deviceUsageDaily.userId,
+              deviceUsageDaily.date,
+              deviceUsageDaily.providerId,
+              deviceUsageDaily.model,
+            ],
+            set: values,
+          });
+      }
+      return reply.status(204).send();
+    },
+  );
 }
 
 function nextDay(day: string): string {
@@ -477,7 +536,10 @@ async function listDeviceRows(db: AppDeps["db"]) {
     .from(deviceUsageDaily)
     .where(gte(deviceUsageDaily.date, since7))
     .groupBy(deviceUsageDaily.deviceId, deviceUsageDaily.date);
-  const totals = new Map<string, { today: number; week: number; cost: number }>();
+  const totals = new Map<
+    string,
+    { today: number; week: number; cost: number }
+  >();
   for (const row of usage) {
     const item = totals.get(row.deviceId) ?? { today: 0, week: 0, cost: 0 };
     item.week += row.tokens;
@@ -511,7 +573,11 @@ async function listDeviceRows(db: AppDeps["db"]) {
       appliedRevision: row.device.appliedRevision,
       applyError: row.device.applyError,
       desiredRevision: profile.revision,
-      sync: row.device.applyError ? ("failed" as const) : synced ? ("synced" as const) : ("pending" as const),
+      sync: row.device.applyError
+        ? ("failed" as const)
+        : synced
+          ? ("synced" as const)
+          : ("pending" as const),
       userChangedAt: row.device.userChangedAt?.toISOString() ?? null,
       tokensToday: stat.today,
       tokens7d: stat.week,
@@ -534,7 +600,11 @@ async function requireLiveDevice(
     .limit(1);
   if (!row) throw notFound("Device not found");
   if (row.disabled) throw forbidden("Device is disabled");
-  if (!row.secretHash || !secret || hashDeviceSecret(secret) !== row.secretHash) {
+  if (
+    !row.secretHash ||
+    !secret ||
+    hashDeviceSecret(secret) !== row.secretHash
+  ) {
     throw new AppError(401, "unauthorized", "Invalid device secret");
   }
   return row;

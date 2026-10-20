@@ -13,14 +13,25 @@ import { and, asc, count, eq, gte, lt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
-import { authOf, requirePermission } from "../auth/guard.ts";
-import { devices, gatewayKeys, providers, usageRecords, users } from "../db/schema.ts";
-import { hashDeviceSecret } from "../fleet/store.ts";
+import {
+  authOf,
+  requireAnyPermission,
+  requirePermission,
+} from "../auth/guard.ts";
+import {
+  devices,
+  gatewayKeys,
+  providers,
+  usageRecords,
+  users,
+} from "../db/schema.ts";
 import { AppError, notFound, parseBody } from "../errors.ts";
+import { hashDeviceSecret } from "../fleet/store.ts";
 import type { ProviderRow } from "../gateway/auth.ts";
 import { generateGatewayKey, hashGatewayKey } from "../gateway/keys.ts";
 import { encryptSecret, secretHint } from "../secrets.ts";
 import { assertUsersExist } from "../users/dto.ts";
+import { groupScope } from "../users/scope.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
 const DAY_MS = 86_400_000;
@@ -218,9 +229,15 @@ export async function adminProviderRoutes(
 
   app.get(
     "/admin/usage",
-    { preHandler: [authenticate, requirePermission("audit.read")] },
+    {
+      preHandler: [
+        authenticate,
+        requireAnyPermission("audit.read", "usage.group.read"),
+      ],
+    },
     async (req) => {
       const query = parseBody(UsageQuerySchema, req.query);
+      const actor = authOf(req).user;
       const from = parseUtcDate(query.from);
       const to = parseUtcDate(query.to);
       if (!from || !to) throw badRequest("Invalid date");
@@ -253,6 +270,7 @@ export async function adminProviderRoutes(
         .where(
           and(
             gte(usageRecords.createdAt, from),
+            actor.role === "group_leader" ? groupScope(actor) : undefined,
             lt(usageRecords.createdAt, new Date(to.getTime() + DAY_MS)),
           ),
         )
@@ -288,7 +306,10 @@ export async function adminProviderRoutes(
           .select()
           .from(devices)
           .where(
-            and(eq(devices.id, body.deviceId), eq(devices.userId, auth.user.id)),
+            and(
+              eq(devices.id, body.deviceId),
+              eq(devices.userId, auth.user.id),
+            ),
           )
           .limit(1);
         if (

@@ -10,8 +10,8 @@ import {
   UserSchema,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
 import { Plus, Users as UsersIcon } from "lucide-react";
+import { type FormEvent, useState } from "react";
 import { useToast } from "../components/Toast";
 import {
   Button,
@@ -59,6 +59,7 @@ export function useUsers(enabled = true) {
 
 export function UsersPage() {
   const session = useSession();
+  const isAdmin = session.permissions.includes("users.manage");
   const users = useUsers();
   const client = useApi();
   const qc = useQueryClient();
@@ -93,26 +94,30 @@ export function UsersPage() {
         </h1>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
           <p className="min-w-0 max-w-2xl text-sm leading-6 text-muted-foreground">
-            创建员工账号、分配角色、重置密码、禁用账号或办理离职。禁用、改角色、重置密码或离职会立即注销该用户的所有会话；离职会保留其用量和对话记录。
+            {isAdmin
+              ? "创建员工账号、分配角色、重置密码、禁用账号或办理离职。禁用、改角色、重置密码或离职会立即注销该用户的所有会话；离职会保留其用量和对话记录。"
+              : "查看本组用户，可将本组成员的角色设置为成员或只读。修改角色会立即注销该用户的所有会话。"}
           </p>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              className="font-normal shadow-none"
-              disabled={selected.length === 0}
-              onClick={() => setBulkOpen(true)}
-            >
-              设置用量窗口
-              {selected.length > 0 ? ` (${selected.length})` : ""}
-            </Button>
-            <Button
-              variant="primary"
-              className="shadow-none"
-              onClick={() => setCreating(true)}
-            >
-              <Plus className="size-3.5" />
-              新建用户
-            </Button>
-          </div>
+          {isAdmin && (
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                className="font-normal shadow-none"
+                disabled={selected.length === 0}
+                onClick={() => setBulkOpen(true)}
+              >
+                设置用量窗口
+                {selected.length > 0 ? ` (${selected.length})` : ""}
+              </Button>
+              <Button
+                variant="primary"
+                className="shadow-none"
+                onClick={() => setCreating(true)}
+              >
+                <Plus className="size-3.5" />
+                新建用户
+              </Button>
+            </div>
+          )}
         </div>
       </div>
       <div className="overflow-x-auto rounded-xl border border-border/80 bg-card">
@@ -131,24 +136,26 @@ export function UsersPage() {
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-border/70">
-                <th className={`${userTh} w-10`}>
-                  <input
-                    type="checkbox"
-                    className="size-3.5 accent-foreground"
-                    aria-label="全选"
-                    checked={
-                      users.data.items.length > 0 &&
-                      selected.length === users.data.items.length
-                    }
-                    onChange={(e) =>
-                      setSelected(
-                        e.target.checked
-                          ? users.data.items.map((u) => u.id)
-                          : [],
-                      )
-                    }
-                  />
-                </th>
+                {isAdmin && (
+                  <th className={`${userTh} w-10`}>
+                    <input
+                      type="checkbox"
+                      className="size-3.5 accent-foreground"
+                      aria-label="全选"
+                      checked={
+                        users.data.items.length > 0 &&
+                        selected.length === users.data.items.length
+                      }
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? users.data.items.map((u) => u.id)
+                            : [],
+                        )
+                      }
+                    />
+                  </th>
+                )}
                 <th className={userTh}>用户名</th>
                 <th className={userTh}>组</th>
                 <th className={userTh}>角色</th>
@@ -162,21 +169,23 @@ export function UsersPage() {
             <tbody>
               {users.data.items.map((u) => (
                 <tr key={u.id} className={userTr}>
-                  <td className={userTd}>
-                    <input
-                      type="checkbox"
-                      className="size-3.5 accent-foreground"
-                      aria-label={`选择 ${u.username}`}
-                      checked={selected.includes(u.id)}
-                      onChange={(e) =>
-                        setSelected((prev) =>
-                          e.target.checked
-                            ? [...prev, u.id]
-                            : prev.filter((id) => id !== u.id),
-                        )
-                      }
-                    />
-                  </td>
+                  {isAdmin && (
+                    <td className={userTd}>
+                      <input
+                        type="checkbox"
+                        className="size-3.5 accent-foreground"
+                        aria-label={`选择 ${u.username}`}
+                        checked={selected.includes(u.id)}
+                        onChange={(e) =>
+                          setSelected((prev) =>
+                            e.target.checked
+                              ? [...prev, u.id]
+                              : prev.filter((id) => id !== u.id),
+                          )
+                        }
+                      />
+                    </td>
+                  )}
                   <td className={`${userTd} font-medium`}>
                     {u.username}
                     {u.id === session.user.id && (
@@ -245,22 +254,28 @@ export function UsersPage() {
                   </td>
                   <td className={`${userTd} text-right whitespace-nowrap`}>
                     <div className="inline-flex items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(u)}
-                        className="rounded-lg px-2 py-1 text-sm text-foreground hover:bg-muted"
-                      >
-                        编辑
-                      </button>
-                      {u.id !== session.user.id && !u.offboardedAt && (
+                      {(isAdmin ||
+                        u.role === "member" ||
+                        u.role === "viewer") && (
                         <button
                           type="button"
-                          onClick={() => setOffboarding(u)}
-                          className="rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setEditing(u)}
+                          className="rounded-lg px-2 py-1 text-sm text-foreground hover:bg-muted"
                         >
-                          离职
+                          编辑
                         </button>
                       )}
+                      {isAdmin &&
+                        u.id !== session.user.id &&
+                        !u.offboardedAt && (
+                          <button
+                            type="button"
+                            onClick={() => setOffboarding(u)}
+                            className="rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            离职
+                          </button>
+                        )}
                     </div>
                   </td>
                 </tr>
@@ -287,6 +302,7 @@ export function UsersPage() {
           key={editing.id}
           user={editing}
           isSelf={editing.id === session.user.id}
+          roleOnly={!isAdmin}
           onClose={() => setEditing(null)}
         />
       )}
@@ -314,13 +330,15 @@ function RoleSelect({
   value,
   onChange,
   disabled,
+  roles = ROLES,
 }: {
   id: string;
   value: Role;
   onChange(role: Role): void;
   disabled?: boolean;
+  roles?: readonly Role[];
 }) {
-  const options = ROLES.map((r) => ({
+  const options = roles.map((r) => ({
     value: r,
     label: ROLE_LABELS[r],
   }));
@@ -488,10 +506,12 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
 function EditUserDialog({
   user,
   isSelf,
+  roleOnly = false,
   onClose,
 }: {
   user: User;
   isSelf: boolean;
+  roleOnly?: boolean;
   onClose(): void;
 }) {
   const client = useApi();
@@ -535,6 +555,11 @@ function EditUserDialog({
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (roleOnly) {
+      if (role === user.role) onClose();
+      else update.mutate({ role });
+      return;
+    }
     const next: Record<string, string> = {};
     if (!USERNAME_RE.test(username.trim()))
       next.username = "2-32 位，中文或字母数字，可含 '.'、'_'、'-'";
@@ -592,7 +617,9 @@ function EditUserDialog({
           label="用户名"
           htmlFor="eu-username"
           error={errors.username}
-          hint="员工用新用户名登录，已登录的设备不受影响"
+          hint={
+            roleOnly ? undefined : "员工用新用户名登录，已登录的设备不受影响"
+          }
           className="col-span-2"
         >
           <input
@@ -601,6 +628,7 @@ function EditUserDialog({
             aria-invalid={!!errors.username}
             autoComplete="off"
             value={username}
+            readOnly={roleOnly}
             onChange={(e) => setUsername(e.target.value)}
           />
         </Field>
@@ -608,13 +636,14 @@ function EditUserDialog({
           label="组"
           htmlFor="eu-group"
           error={errors.groupName}
-          hint="留空表示不分组"
+          hint={roleOnly ? undefined : "留空表示不分组"}
         >
           <input
             id="eu-group"
             className={inputClass}
             aria-invalid={!!errors.groupName}
             value={groupName}
+            readOnly={roleOnly}
             onChange={(e) => setGroupName(e.target.value)}
           />
         </Field>
@@ -629,51 +658,56 @@ function EditUserDialog({
             value={role}
             onChange={setRole}
             disabled={isSelf}
+            roles={roleOnly ? ["member", "viewer"] : ROLES}
           />
         </Field>
-        <div className="col-span-2">
-          <AccountChecklist
-            ids={upstreamAccountIds}
-            onChange={setUpstreamAccountIds}
-            disabled={user.role === "admin"}
-            hint={
-              user.role === "admin"
-                ? "管理员始终能看全部上游账号"
-                : "勾选该员工在桌面「用量窗口」里能看到的 Sub2API 账号"
-            }
-          />
-        </div>
-        <Field
-          label="重置密码"
-          htmlFor="eu-password"
-          error={errors.password}
-          hint="留空则不修改；至少 6 位"
-        >
-          <input
-            id="eu-password"
-            type="password"
-            autoComplete="new-password"
-            className={inputClass}
-            aria-invalid={!!errors.password}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
-        <Field
-          label="账号状态"
-          htmlFor="eu-enabled"
-          hint={isSelf ? "不能禁用自己" : disabled ? "已禁用" : "已启用"}
-        >
-          <div className="flex h-8 items-center">
-            <Switch
-              id="eu-enabled"
-              label="启用账号"
-              checked={!disabled}
-              disabled={isSelf}
-              onChange={(on) => setDisabled(!on)}
-            />
-          </div>
-        </Field>
+        {!roleOnly && (
+          <>
+            <div className="col-span-2">
+              <AccountChecklist
+                ids={upstreamAccountIds}
+                onChange={setUpstreamAccountIds}
+                disabled={user.role === "admin"}
+                hint={
+                  user.role === "admin"
+                    ? "管理员始终能看全部上游账号"
+                    : "勾选该员工在桌面「用量窗口」里能看到的 Sub2API 账号"
+                }
+              />
+            </div>
+            <Field
+              label="重置密码"
+              htmlFor="eu-password"
+              error={errors.password}
+              hint="留空则不修改；至少 6 位"
+            >
+              <input
+                id="eu-password"
+                type="password"
+                autoComplete="new-password"
+                className={inputClass}
+                aria-invalid={!!errors.password}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="账号状态"
+              htmlFor="eu-enabled"
+              hint={isSelf ? "不能禁用自己" : disabled ? "已禁用" : "已启用"}
+            >
+              <div className="flex h-8 items-center">
+                <Switch
+                  id="eu-enabled"
+                  label="启用账号"
+                  checked={!disabled}
+                  disabled={isSelf}
+                  onChange={(on) => setDisabled(!on)}
+                />
+              </div>
+            </Field>
+          </>
+        )}
         <div className="col-span-2">
           <InlineError>{formError}</InlineError>
         </div>

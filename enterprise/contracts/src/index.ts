@@ -46,12 +46,16 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 // Roles & permissions
 // ---------------------------------------------------------------------------
 
-export const RoleSchema = z.enum(["admin", "member", "viewer"]);
+export const RoleSchema = z.enum(["admin", "group_leader", "member", "viewer"]);
 export type Role = z.infer<typeof RoleSchema>;
 
 export const PermissionSchema = z.enum([
   /** Create, edit and disable users. */
   "users.manage",
+  /** Read own group and change its members between member and viewer. */
+  "users.group.manage",
+  /** Read usage for the current user's group only. */
+  "usage.group.read",
   /** Manage gateway providers, model allowlists and quotas. */
   "providers.manage",
   /** Read retained conversations of all users. */
@@ -77,6 +81,12 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "models.use",
     "market.install",
     "settings.manage",
+  ],
+  group_leader: [
+    "users.group.manage",
+    "usage.group.read",
+    "models.use",
+    "market.install",
   ],
   member: ["models.use", "market.install"],
   viewer: [],
@@ -438,6 +448,36 @@ export const UsageRowSchema = z.object({
 export type UsageRow = z.infer<typeof UsageRowSchema>;
 export const UsageResponseSchema = z.object({ items: z.array(UsageRowSchema) });
 export type UsageResponse = z.infer<typeof UsageResponseSchema>;
+
+/** Account-wide, live Volcengine Coding Plan quotas; unrelated to gateway date/user filters. */
+export const CodingPlanWindowSchema = z.object({
+  id: z.enum(["fiveHour", "weekly", "monthly"]),
+  usedPercent: z.number().min(0),
+  resetsAt: z.string().datetime().nullable(),
+});
+export type CodingPlanWindow = z.infer<typeof CodingPlanWindowSchema>;
+export const CodingPlanSubscriptionSchema = z.object({
+  planType: z.string().nullable(),
+  status: z.string().nullable(),
+  startsAt: z.string().datetime().nullable(),
+  expiresAt: z.string().datetime().nullable(),
+  autoRenew: z.boolean().nullable(),
+});
+export const CodingPlanUsageResponseSchema = z.object({
+  configured: z.boolean(),
+  providerId: z.string(),
+  fetchedAt: z.string().datetime().nullable(),
+  sourceUpdatedAt: z.string().datetime().nullable(),
+  stale: z.boolean(),
+  error: z.string().nullable(),
+  warning: z.string().nullable(),
+  status: z.string().nullable(),
+  subscription: CodingPlanSubscriptionSchema.nullable(),
+  windows: z.array(CodingPlanWindowSchema),
+});
+export type CodingPlanUsageResponse = z.infer<
+  typeof CodingPlanUsageResponseSchema
+>;
 
 // ---------------------------------------------------------------------------
 // Phase 3 — conversation retention

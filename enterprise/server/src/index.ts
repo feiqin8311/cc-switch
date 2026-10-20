@@ -1,10 +1,15 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { openDatabase } from "./db/client.ts";
 import { seedBuiltinConnectors, seedInitialAdmin } from "./seed.ts";
 import { registerAdminStatic } from "./static.ts";
 
+// Resolve independently of the shell's working directory; OS/Docker env wins.
+const envFile = fileURLToPath(new URL("../../.env", import.meta.url));
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 const config = loadConfig();
 const database = await openDatabase({
   databaseUrl: config.databaseUrl,

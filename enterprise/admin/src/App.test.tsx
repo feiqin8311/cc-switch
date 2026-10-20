@@ -2,8 +2,15 @@ import {
   type Permission,
   permissionsForRole,
   type SessionResponse,
+  type User,
 } from "@ccse/contracts";
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -112,6 +119,18 @@ const FIXTURES: Record<string, unknown> = {
       },
     ],
   },
+  "/admin/usage/coding-plan": {
+    configured: false,
+    providerId: "volcengine-coding",
+    fetchedAt: null,
+    sourceUpdatedAt: null,
+    status: null,
+    stale: false,
+    error: null,
+    warning: null,
+    subscription: null,
+    windows: [],
+  },
   "/admin/usage": {
     items: [
       {
@@ -201,26 +220,35 @@ const FIXTURES: Record<string, unknown> = {
   },
 };
 
-function sessionFor(permissions: Permission[]): SessionResponse {
+function sessionFor(
+  permissions: Permission[],
+  user: User = admin,
+): SessionResponse {
   return {
     accessToken: "a",
     accessTokenExpiresAt: "2026-01-01T00:15:00.000Z",
     refreshToken: "r1",
     refreshTokenExpiresAt: "2026-02-01T00:00:00.000Z",
-    user: admin,
+    user,
     permissions,
   };
 }
 
-function renderAt(path: string, permissions: Permission[]) {
+function renderAt(path: string, permissions: Permission[], user: User = admin) {
   const posts: string[] = [];
+  const patches: unknown[] = [];
   const fetchMock = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const route = url.pathname.replace(/^\/api\/v1/, "");
     if (route === "/auth/refresh") {
-      return Response.json(sessionFor(permissions));
+      return Response.json(sessionFor(permissions, user));
     }
     if (init?.method === "POST") posts.push(route);
+    if (init?.method === "PATCH" && route === `/admin/users/${leaver.id}`) {
+      const body = JSON.parse(String(init.body));
+      patches.push(body);
+      return Response.json({ ...leaver, ...body });
+    }
     if (route === `/admin/users/${leaver.id}/offboard`) {
       return Response.json({
         user: {
@@ -252,7 +280,7 @@ function renderAt(path: string, permissions: Permission[]) {
       </MemoryRouter>
     </AppProviders>,
   );
-  return { posts };
+  return { posts, patches };
 }
 
 let consoleError: ReturnType<typeof vi.spyOn>;
@@ -267,6 +295,69 @@ afterEach(() => {
 const tabNames = () => screen.queryAllByRole("tab").map((t) => t.textContent);
 
 describe("App", () => {
+  const leader: User = {
+    ...admin,
+    role: "group_leader",
+    groupName: "Libraton组",
+  };
+
+  it("limits group leader editing to member/viewer roles", async () => {
+    const { patches } = renderAt(
+      "/users",
+      permissionsForRole("group_leader"),
+      leader,
+    );
+    await screen.findByText("bob");
+    expect(screen.queryByRole("button", { name: "新建用户" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /设置用量窗口/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "离职" })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    const adminRow = screen
+      .getAllByRole("row")
+      .find((r) => r.textContent?.includes("admin"));
+    if (!adminRow) throw new Error("Admin row missing");
+    expect(within(adminRow).queryByRole("button", { name: "编辑" })).toBeNull();
+    const memberRow = screen.getByText("bob").closest("tr");
+    if (!memberRow) throw new Error("Member row missing");
+    fireEvent.click(within(memberRow).getByRole("button", { name: "编辑" }));
+    const dialog = screen.getByRole("dialog");
+    const role = within(dialog).getByLabelText("角色");
+    expect(
+      [...role.querySelectorAll("option")].map((o) => o.textContent),
+    ).toEqual(["成员", "只读"]);
+    expect(within(dialog).queryByLabelText("重置密码")).toBeNull();
+    expect(within(dialog).queryByText("用量窗口")).toBeNull();
+    expect(
+      (within(dialog).getByLabelText("组") as HTMLInputElement).readOnly,
+    ).toBe(true);
+    fireEvent.change(role, { target: { value: "viewer" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(patches).toEqual([{ role: "viewer" }]));
+  });
+
+  it("fixes group leader usage to their group while allowing member selection", async () => {
+    renderAt("/usage", permissionsForRole("group_leader"), leader);
+    const group = await screen.findByRole("textbox", { name: "所属组" });
+    expect((group as HTMLInputElement).value).toBe("Libraton组");
+    expect((group as HTMLInputElement).readOnly).toBe(true);
+    expect(screen.queryByRole("button", { name: "按组筛选" })).toBeNull();
+    await screen.findByText("按用户汇总");
+    fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
+    expect(await screen.findByRole("option", { name: "bob" })).toBeTruthy();
+  });
+
+  it("lets admins assign the group leader role", async () => {
+    renderAt("/users", permissionsForRole("admin"));
+    await screen.findByText("bob");
+    const memberRow = screen.getByText("bob").closest("tr");
+    if (!memberRow) throw new Error("Member row missing");
+    fireEvent.click(within(memberRow).getByRole("button", { name: "编辑" }));
+    const role = within(screen.getByRole("dialog")).getByLabelText("角色");
+    expect(
+      [...role.querySelectorAll("option")].map((o) => o.textContent),
+    ).toEqual(["管理员", "组长", "成员", "只读"]);
+  });
+
   it.each([
     ["/users", "用户管理", "admin"],
     ["/devices", "设备管理", "还没有电脑上报"],

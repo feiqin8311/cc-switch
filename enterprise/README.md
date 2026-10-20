@@ -60,10 +60,26 @@ in `sessionStorage` (per tab).
 Migrations live in `server/drizzle/` and are applied on startup. After changing
 `server/src/db/schema.ts` run `pnpm --filter @ccse/server db:generate`.
 
+### 火山方舟 Coding Plan 用量
+
+管理员「上游账号」页在现有 Sub2API 账号列表末尾展示火山方舟 Coding Plan 卡片，沿用相同的两列卡片、状态和黑色用量进度条，显示 5 小时、周、订阅月使用率及重置时间、套餐档位与到期时间。页面顶部的「刷新」同时更新两个来源，未配置 Sub2API 时也可单独显示火山方舟账号。
+
+在 `enterprise/.env` 中填写 `VOLCENGINE_ACCESS_KEY_ID` 和 `VOLCENGINE_SECRET_ACCESS_KEY`，然后重启企业服务端。服务端会自动读取此文件，操作系统/Docker 环境变量优先；`.env` 已被忽略，请勿提交密钥。可选设置 `VOLCENGINE_REGION`（默认 `cn-beijing`）及 `VOLCENGINE_PROVIDER_ID`（默认 `volcengine-coding`）。Docker Compose 也会传入这些变量。
+
+服务端以火山引擎 V4 签名调用 `GetCodingPlanUsage`（`Version=2024-01-01`），并独立调用 `GetPersonalPlan`（`Plan=CodingPlan`）补充订阅信息。仅查询信息，不创建或续费套餐。推理 API Key 无法代替此处的账号 AK/SK；账号需具有相应的方舟查询权限。套餐详情读取失败时仍展示已获取的额度，不推测档位、总 token 额度或缺失的重置时间。
+
+`GET /api/v1/admin/usage/coding-plan` 需要登录及 `audit.read` 权限，只返回归一化的用量与订阅信息。成功结果缓存 30 秒，并发请求合并，网页每分钟刷新一次。查询失败时短暂缓存错误并保留上次成功数据，同时标记同步延迟。此处为火山账号共享额度；「用量统计」页只展示原有的网关用量统计。
+
 ## Auth model
 
-- Roles: `admin`, `member`, `viewer`; permissions per role are defined in
+- Roles: `admin`, `group_leader`, `member`, `viewer`; permissions per role are defined in
   `contracts/src/index.ts` (`ROLE_PERMISSIONS`) and enforced only on the server.
+- Group leaders can list users in their assigned group and change members between
+  `member` and `viewer`. They cannot edit administrators, other leaders, account
+  details or group assignments. Gateway and device usage are restricted to their
+  current group; the console fixes the group field and allows member selection.
+  Leaders without a group see no users or usage. Only administrators assign groups
+  and grant the `group_leader` role.
 - Access token: HS256 JWT, 15 min. The user and session are re-checked on every
   request, so disabling a user or revoking a session is immediate.
 - Refresh token: opaque, single-use, rotated on every refresh, 30-day sliding

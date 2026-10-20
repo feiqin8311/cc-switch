@@ -24,6 +24,12 @@ describe("navItemsFor", () => {
     expect(navItemsFor(permissionsForRole("viewer"))).toEqual([]);
   });
 
+  it("only shows users and usage to group leaders", () => {
+    expect(
+      navItemsFor(permissionsForRole("group_leader")).map((i) => i.path),
+    ).toEqual(["/users", "/usage"]);
+  });
+
   it("shows audit pages for audit.read only", () => {
     expect(navItemsFor(["audit.read"]).map((i) => i.path)).toEqual([
       "/usage",

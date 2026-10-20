@@ -30,7 +30,7 @@ import {
   thClass,
   trClass,
 } from "../components/ui";
-import { useApi } from "../lib/auth";
+import { useApi, useSession } from "../lib/auth";
 import {
   daySpan,
   formatNumber,
@@ -39,6 +39,7 @@ import {
   rangeForPreset,
   type UtcRangePreset,
 } from "../lib/format";
+import { useUsers } from "./UsersPage";
 
 const MAX_DAYS = 92;
 
@@ -141,7 +142,7 @@ function DateRangePicker({
 }: {
   from: string;
   to: string;
-  onApply: (next: { from: string; to: string }) => boolean | void;
+  onApply: (next: { from: string; to: string }) => boolean;
   error?: string | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -183,7 +184,7 @@ function DateRangePicker({
           aria-expanded={open}
           aria-haspopup="dialog"
           onClick={() => setOpen((v) => !v)}
-          className="flex h-8 w-52 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-sm text-foreground shadow-2xs outline-none transition-colors hover:bg-muted/40 focus:border-ring focus:ring-1 focus:ring-ring"
+          className="flex h-8 w-full items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-sm text-foreground shadow-2xs outline-none transition-colors hover:bg-muted/40 focus:border-ring focus:ring-1 focus:ring-ring"
         >
           <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
@@ -222,7 +223,11 @@ function DateRangePicker({
               })}
             </div>
             <div className="mt-3 flex items-end gap-2 border-t border-border/60 pt-3">
-              <Field label="开始日期" htmlFor="usage-from" className="min-w-0 flex-1">
+              <Field
+                label="开始日期"
+                htmlFor="usage-from"
+                className="min-w-0 flex-1"
+              >
                 <input
                   id="usage-from"
                   type="date"
@@ -232,7 +237,11 @@ function DateRangePicker({
                 />
               </Field>
               <span className="mb-2 text-muted-foreground">→</span>
-              <Field label="结束日期" htmlFor="usage-to" className="min-w-0 flex-1">
+              <Field
+                label="结束日期"
+                htmlFor="usage-to"
+                className="min-w-0 flex-1"
+              >
                 <input
                   id="usage-to"
                   type="date"
@@ -269,6 +278,9 @@ function DateRangePicker({
 
 export function UsagePage() {
   const client = useApi();
+  const session = useSession();
+  const isGroupLeader = session.user.role === "group_leader";
+  const groupUsers = useUsers(isGroupLeader);
   const [initialFrom, initialTo] = useMemo(() => lastUtcDays(7), []);
   const [draft, setDraft] = useState({ from: initialFrom, to: initialTo });
   const [range, setRange] = useState({ from: initialFrom, to: initialTo });
@@ -311,6 +323,10 @@ export function UsagePage() {
     const users = new Map<string, string>();
     const groups = new Map<string, string>();
     const providers = new Map<string, string>();
+    for (const user of groupUsers.data?.items ?? []) {
+      users.set(user.id, user.username);
+      usernames.current.set(user.id, user.username);
+    }
     for (const r of [...allRows, ...deviceRows]) {
       users.set(r.userId, r.username);
       usernames.current.set(r.userId, r.username);
@@ -329,7 +345,7 @@ export function UsagePage() {
       })),
       providers: optionsOf(providers, filters.providerIds),
     };
-  }, [allRows, deviceRows, filters]);
+  }, [allRows, deviceRows, filters, groupUsers.data]);
 
   const rows = useMemo(
     () => allRows.filter((r) => matches(filters, r)),
@@ -446,7 +462,7 @@ export function UsagePage() {
         noValidate
         className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
       >
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(150px,1.2fr)_repeat(3,minmax(120px,1fr))_auto]">
           <DateRangePicker
             from={range.from}
             to={range.to}
@@ -455,7 +471,7 @@ export function UsagePage() {
           />
           <Field label="用户">
             <MultiSelect
-              className="w-44"
+              className="w-full"
               aria-label="按用户筛选"
               allLabel="全部用户"
               unit="个用户"
@@ -465,19 +481,28 @@ export function UsagePage() {
             />
           </Field>
           <Field label="组">
-            <MultiSelect
-              className="w-44"
-              aria-label="按组筛选"
-              allLabel="全部组"
-              unit="个组"
-              options={options.groups}
-              value={filters.groups}
-              onChange={(groups) => setFilters((f) => ({ ...f, groups }))}
-            />
+            {isGroupLeader ? (
+              <input
+                className={inputClass}
+                aria-label="所属组"
+                value={session.user.groupName || "未分配组"}
+                readOnly
+              />
+            ) : (
+              <MultiSelect
+                className="w-full"
+                aria-label="按组筛选"
+                allLabel="全部组"
+                unit="个组"
+                options={options.groups}
+                value={filters.groups}
+                onChange={(groups) => setFilters((f) => ({ ...f, groups }))}
+              />
+            )}
           </Field>
           <Field label="供应商">
             <MultiSelect
-              className="w-44"
+              className="w-full"
               aria-label="按供应商筛选"
               allLabel="全部供应商"
               unit="个供应商"
@@ -488,16 +513,20 @@ export function UsagePage() {
               }
             />
           </Field>
-          {filtering && (
-            <Button variant="ghost" onClick={() => setFilters(NO_FILTERS)}>
-              清空筛选
+          <div className="flex items-center gap-2">
+            {filtering && (
+              <Button variant="ghost" onClick={() => setFilters(NO_FILTERS)}>
+                清空筛选
+              </Button>
+            )}
+            <Button type="submit" variant="primary">
+              <Search className="size-3.5" />
+              查询
             </Button>
-          )}
-          <Button type="submit" variant="primary">
-            <Search className="size-3.5" />
-            查询
-          </Button>
-          {usage.isFetching && !usage.isPending && <Spinner className="mb-2" />}
+            {usage.isFetching && !usage.isPending && (
+              <Spinner className="mb-2" />
+            )}
+          </div>
         </div>
       </form>
 
@@ -568,7 +597,7 @@ export function UsagePage() {
               <div className="border-b border-border/50 pb-2.5 text-xs font-medium text-foreground">
                 概览指标
               </div>
-              <div className="mt-4 grid grid-cols-4 gap-4 text-left">
+              <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
                 <Stat label="请求数" value={grand.requests} />
                 <Stat label="输入 tokens" value={grand.inputTokens} />
                 <Stat label="输出 tokens" value={grand.outputTokens} />
@@ -580,7 +609,7 @@ export function UsagePage() {
             </Card>
           )}
           {byUser.length > 0 && <UserTokenChart rows={byUser} />}
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid gap-5 xl:grid-cols-2">
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
             <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
           </div>

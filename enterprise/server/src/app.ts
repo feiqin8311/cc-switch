@@ -9,12 +9,13 @@ import { adminProviderRoutes } from "./routes/admin-providers.ts";
 import { adminUserRoutes } from "./routes/admin-users.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { clientRoutes } from "./routes/client.ts";
+import { codingPlanRoutes } from "./routes/coding-plan.ts";
 import { fleetRoutes } from "./routes/fleet.ts";
 import { gatewayRoutes } from "./routes/gateway.ts";
 import { marketRoutes } from "./routes/market.ts";
 import { retentionRoutes } from "./routes/retention.ts";
-import { registerUpdates } from "./updates.ts";
 import { upstreamRoutes } from "./routes/upstream.ts";
+import { registerUpdates } from "./updates.ts";
 
 export interface AppDeps {
   db: Db;
@@ -69,6 +70,7 @@ export async function buildApp(
       await marketRoutes(api, deps);
       await fleetRoutes(api, deps);
       await upstreamRoutes(api, deps);
+      await codingPlanRoutes(api, deps);
     },
     { prefix: API_PREFIX },
   );

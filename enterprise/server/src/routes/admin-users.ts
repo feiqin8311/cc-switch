@@ -4,18 +4,26 @@ import {
   type OffboardUserResponse,
   UpdateUserRequestSchema,
 } from "@ccse/contracts";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
-import { authOf, requirePermission } from "../auth/guard.ts";
+import {
+  authOf,
+  requireAnyPermission,
+  requirePermission,
+} from "../auth/guard.ts";
 import { hashPassword } from "../auth/password.ts";
 import { revokeAllUserSessions } from "../auth/sessions.ts";
 import { auditEvents, devices, sessions, users } from "../db/schema.ts";
 import { AppError, forbidden, notFound, parseBody } from "../errors.ts";
 import { toUserDto } from "../users/dto.ts";
+import { groupScope } from "../users/scope.ts";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
+const GroupRoleUpdateSchema = z
+  .object({ role: z.enum(["member", "viewer"]) })
+  .strict();
 
 function uniqueAccountIds(ids: number[] | undefined): number[] {
   if (!ids) return [];
@@ -42,9 +50,20 @@ export async function adminUserRoutes(
   const guard = {
     preHandler: [authenticate, requirePermission("users.manage")],
   };
+  const groupGuard = {
+    preHandler: [
+      authenticate,
+      requireAnyPermission("users.manage", "users.group.manage"),
+    ],
+  };
 
-  app.get("/admin/users", guard, async () => {
-    const rows = await db.select().from(users).orderBy(asc(users.createdAt));
+  app.get("/admin/users", groupGuard, async (req) => {
+    const actor = authOf(req).user;
+    const rows = await db
+      .select()
+      .from(users)
+      .where(actor.role === "group_leader" ? groupScope(actor) : undefined)
+      .orderBy(asc(users.createdAt));
     const res: ListUsersResponse = { items: rows.map(toUserDto) };
     return res;
   });
@@ -77,10 +96,12 @@ export async function adminUserRoutes(
     }
   });
 
-  app.patch("/admin/users/:id", guard, async (req) => {
+  app.patch("/admin/users/:id", groupGuard, async (req) => {
     const { id } = parseBody(IdParamSchema, req.params);
     const body = parseBody(UpdateUserRequestSchema, req.body);
     const actor = authOf(req).user;
+    const isGroupLeader = actor.role === "group_leader";
+    if (isGroupLeader) parseBody(GroupRoleUpdateSchema, req.body);
 
     if (id === actor.id) {
       if (body.disabled === true)
@@ -96,6 +117,13 @@ export async function adminUserRoutes(
       .where(eq(users.id, id))
       .limit(1);
     if (!existing) throw notFound("User not found");
+    if (
+      isGroupLeader &&
+      (!actor.groupName.trim() ||
+        existing.groupName !== actor.groupName ||
+        (existing.role !== "member" && existing.role !== "viewer"))
+    )
+      throw forbidden("只能修改本组成员或只读用户的角色");
 
     const renamed =
       body.username !== undefined && body.username !== existing.username;
@@ -124,7 +152,14 @@ export async function adminUserRoutes(
           : {}),
         updatedAt: new Date(),
       })
-      .where(eq(users.id, id))
+      .where(
+        and(
+          eq(users.id, id),
+          isGroupLeader
+            ? and(groupScope(actor), inArray(users.role, ["member", "viewer"]))
+            : undefined,
+        ),
+      )
       .returning()
       .catch((err: unknown) => {
         if (isUniqueViolation(err)) {
@@ -137,6 +172,9 @@ export async function adminUserRoutes(
     const securityChanged =
       (body.disabled === true && !existing.disabled) ||
       (body.role !== undefined && body.role !== existing.role) ||
+      (existing.role === "group_leader" &&
+        body.groupName !== undefined &&
+        body.groupName !== existing.groupName) ||
       body.password !== undefined;
     if (securityChanged && id !== actor.id) {
       await revokeAllUserSessions(db, id);

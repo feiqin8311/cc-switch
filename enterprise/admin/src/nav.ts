@@ -8,14 +8,22 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { path: "/users", label: "用户管理", anyOf: ["users.manage"] },
+  {
+    path: "/users",
+    label: "用户管理",
+    anyOf: ["users.manage", "users.group.manage"],
+  },
   // The union of the tab permissions below (DEVICE_TABS).
   {
     path: "/devices",
     label: "设备管理",
     anyOf: ["settings.manage", "providers.manage"],
   },
-  { path: "/usage", label: "用量统计", anyOf: ["audit.read"] },
+  {
+    path: "/usage",
+    label: "用量统计",
+    anyOf: ["audit.read", "usage.group.read"],
+  },
   { path: "/upstream", label: "上游账号", anyOf: ["audit.read"] },
   { path: "/mcp", label: "MCP", anyOf: ["market.manage"] },
   { path: "/connectors", label: "连接器", anyOf: ["market.manage"] },

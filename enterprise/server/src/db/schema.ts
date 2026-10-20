@@ -26,7 +26,9 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   displayName: text("display_name").notNull(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role", { enum: ["admin", "member", "viewer"] }).notNull(),
+  role: text("role", {
+    enum: ["admin", "group_leader", "member", "viewer"],
+  }).notNull(),
   disabled: boolean("disabled").notNull().default(false),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true })

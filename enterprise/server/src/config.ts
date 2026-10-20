@@ -34,6 +34,13 @@ const EnvSchema = z.object({
   SUB2API_URL: z.string().optional(),
   SUB2API_EMAIL: z.string().optional(),
   SUB2API_PASSWORD: z.string().optional(),
+  VOLCENGINE_ACCESS_KEY_ID: z.string().optional(),
+  VOLCENGINE_SECRET_ACCESS_KEY: z.string().optional(),
+  VOLCENGINE_REGION: z
+    .string()
+    .regex(/^[a-z]{2}-[a-z]+(?:-\d+)?$/)
+    .default("cn-beijing"),
+  VOLCENGINE_PROVIDER_ID: z.string().default("volcengine-coding"),
 });
 
 export interface AppConfig {
@@ -52,6 +59,12 @@ export interface AppConfig {
   admin: { username: string; password?: string };
   /** Present when SUB2API_URL + email + password are all set. */
   sub2api: { url: string; email: string; password: string } | null;
+  volcengine: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    region: string;
+    providerId: string;
+  } | null;
   logLevel: string;
   version: string;
 }
@@ -101,6 +114,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       return { url: url.replace(/\/$/, ""), email, password };
     })(),
     logLevel: e.LOG_LEVEL,
+    volcengine: (() => {
+      const accessKeyId = e.VOLCENGINE_ACCESS_KEY_ID?.trim();
+      const secretAccessKey = e.VOLCENGINE_SECRET_ACCESS_KEY?.trim();
+      if (!accessKeyId || !secretAccessKey) return null;
+      return {
+        accessKeyId,
+        secretAccessKey,
+        region: e.VOLCENGINE_REGION,
+        providerId: e.VOLCENGINE_PROVIDER_ID,
+      };
+    })(),
     version: pkg.version,
   };
 }
