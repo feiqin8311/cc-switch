@@ -1,11 +1,11 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppDeps } from "../app.ts";
 import { AppError, unauthorized } from "../errors.ts";
 import {
   authenticateGatewayRequest,
   type GatewayContext,
 } from "../gateway/auth.ts";
-import { forwardResponses } from "../gateway/forward.ts";
+import { forwardPassthrough, forwardResponses } from "../gateway/forward.ts";
 import { tokensUsedToday } from "../gateway/usage.ts";
 
 /** Codex request bodies carry the whole conversation; allow large ones here only. */
@@ -40,6 +40,32 @@ export async function gatewayRoutes(
     return ctx;
   };
 
+  const enforceQuota = async (ctx: GatewayContext) => {
+    const limit = ctx.provider.dailyTokenLimitPerUser;
+    if (limit === null) return;
+    const used = await tokensUsedToday(db, ctx.user.id, ctx.provider.id);
+    if (used >= limit) {
+      throw new AppError(
+        429,
+        "rate_limited",
+        "Daily token limit reached for this provider",
+        { limit, used },
+      );
+    }
+  };
+
+  const jsonBody = (req: FastifyRequest): Record<string, unknown> => {
+    const body = req.body;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new AppError(
+        400,
+        "bad_request",
+        "Request body must be a JSON object",
+      );
+    }
+    return body as Record<string, unknown>;
+  };
+
   app.get("/:providerId/v1/models", { onRequest }, async (req) => {
     const { provider } = contextOf(req);
     return {
@@ -57,15 +83,8 @@ export async function gatewayRoutes(
     { onRequest, bodyLimit: RESPONSES_BODY_LIMIT },
     async (req, reply) => {
       const ctx = contextOf(req);
-      const body = req.body;
-      if (typeof body !== "object" || body === null || Array.isArray(body)) {
-        throw new AppError(
-          400,
-          "bad_request",
-          "Request body must be a JSON object",
-        );
-      }
-      const model = (body as Record<string, unknown>).model;
+      const body = jsonBody(req);
+      const model = body.model;
       if (typeof model !== "string") {
         throw new AppError(400, "bad_request", "`model` is required");
       }
@@ -76,20 +95,7 @@ export async function gatewayRoutes(
           "Model is not allowed for this provider",
         );
       }
-
-      const limit = ctx.provider.dailyTokenLimitPerUser;
-      if (limit !== null) {
-        const used = await tokensUsedToday(db, ctx.user.id, ctx.provider.id);
-        if (used >= limit) {
-          throw new AppError(
-            429,
-            "rate_limited",
-            "Daily token limit reached for this provider",
-            { limit, used },
-          );
-        }
-      }
-
+      await enforceQuota(ctx);
       await forwardResponses(
         db,
         config.secretsKey,
@@ -101,5 +107,40 @@ export async function gatewayRoutes(
       );
       return reply;
     },
+  );
+
+  const imagesHandler =
+    (upstreamPath: "/images/generations" | "/images/edits") =>
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const ctx = contextOf(req);
+      const body = jsonBody(req);
+      // ImageGen often sends a dedicated image model, not the chat catalog.
+      const model =
+        typeof body.model === "string" && body.model.trim()
+          ? body.model.trim()
+          : ctx.provider.defaultModel;
+      await enforceQuota(ctx);
+      await forwardPassthrough(
+        db,
+        config.secretsKey,
+        ctx,
+        model,
+        body,
+        req,
+        reply,
+        upstreamPath,
+      );
+      return reply;
+    };
+
+  app.post(
+    "/:providerId/v1/images/generations",
+    { onRequest, bodyLimit: RESPONSES_BODY_LIMIT },
+    imagesHandler("/images/generations"),
+  );
+  app.post(
+    "/:providerId/v1/images/edits",
+    { onRequest, bodyLimit: RESPONSES_BODY_LIMIT },
+    imagesHandler("/images/edits"),
   );
 }
