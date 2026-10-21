@@ -70,6 +70,18 @@ export function UsersPage() {
   const [offboarding, setOffboarding] = useState<User | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const allUsers = users.data?.items ?? [];
+  const groupNames = [
+    ...new Set([
+      ...allUsers.map((u) => u.groupName).filter(Boolean),
+      ...(groupFilter ? [groupFilter] : []),
+    ]),
+  ].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const filteredUsers = allUsers.filter(
+    (u) => groupFilter === null || u.groupName === groupFilter,
+  );
+  const selectedUsers = filteredUsers.filter((u) => selected.includes(u.id));
 
   const offboard = useMutation({
     mutationFn: (user: User) =>
@@ -93,7 +105,7 @@ export function UsersPage() {
         <h1 className="font-serif text-[32px] font-normal leading-none tracking-tight text-foreground">
           用户管理
         </h1>
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+        <div className="mt-5 flex flex-col items-start gap-3">
           <p className="min-w-0 max-w-2xl text-sm leading-6 text-muted-foreground">
             {isAdmin
               ? "创建员工账号、分配角色、重置密码、禁用账号或办理离职。禁用、改角色、重置密码或离职会立即注销该用户的所有会话；离职会保留其用量和对话记录。"
@@ -103,11 +115,11 @@ export function UsersPage() {
             <div className="flex shrink-0 items-center gap-2">
               <Button
                 className="font-normal shadow-none"
-                disabled={selected.length === 0}
+                disabled={selectedUsers.length === 0}
                 onClick={() => setBulkOpen(true)}
               >
                 设置用量窗口
-                {selected.length > 0 ? ` (${selected.length})` : ""}
+                {selectedUsers.length > 0 ? ` (${selectedUsers.length})` : ""}
               </Button>
               <Button
                 variant="primary"
@@ -121,6 +133,39 @@ export function UsersPage() {
           )}
         </div>
       </div>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <label
+          htmlFor="users-group-filter"
+          className="text-sm text-muted-foreground"
+        >
+          筛选
+        </label>
+        <div className="w-48">
+          <Select
+            id="users-group-filter"
+            aria-label="按组筛选"
+            value={groupFilter === null ? "all" : `group:${groupFilter}`}
+            options={[
+              { value: "all", label: "全部组" },
+              { value: "group:", label: "未分组" },
+              ...groupNames.map((name) => ({
+                value: `group:${name}`,
+                label: name,
+              })),
+            ]}
+            onChange={(value) => {
+              setGroupFilter(value === "all" ? null : value.slice(6));
+              setSelected([]);
+            }}
+            disabled={users.isPending || users.isError}
+          />
+        </div>
+        {users.isSuccess && (
+          <span className="text-xs text-muted-foreground" role="status">
+            显示 {filteredUsers.length} / {allUsers.length} 位用户
+          </span>
+        )}
+      </div>
       <div className="overflow-x-auto rounded-xl border border-border/80 bg-card">
         {users.isPending ? (
           <LoadingState />
@@ -133,6 +178,13 @@ export function UsersPage() {
           >
             暂无用户
           </EmptyState>
+        ) : filteredUsers.length === 0 ? (
+          <EmptyState
+            icon={<UsersIcon className="size-5 stroke-[1.5]" />}
+            title="没有符合筛选条件的用户"
+          >
+            请切换其他组或选择全部组。
+          </EmptyState>
         ) : (
           <table className="w-full border-collapse text-left">
             <thead>
@@ -144,13 +196,19 @@ export function UsersPage() {
                       className="size-3.5 accent-foreground"
                       aria-label="全选"
                       checked={
-                        users.data.items.length > 0 &&
-                        selected.length === users.data.items.length
+                        filteredUsers.length > 0 &&
+                        selectedUsers.length === filteredUsers.length
                       }
+                      ref={(input) => {
+                        if (input)
+                          input.indeterminate =
+                            selectedUsers.length > 0 &&
+                            selectedUsers.length < filteredUsers.length;
+                      }}
                       onChange={(e) =>
                         setSelected(
                           e.target.checked
-                            ? users.data.items.map((u) => u.id)
+                            ? filteredUsers.map((u) => u.id)
                             : [],
                         )
                       }
@@ -168,7 +226,7 @@ export function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {users.data.items.map((u) => (
+              {filteredUsers.map((u) => (
                 <tr key={u.id} className={userTr}>
                   {isAdmin && (
                     <td className={userTd}>
@@ -288,9 +346,7 @@ export function UsersPage() {
       {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
       {bulkOpen && (
         <BulkWindowsDialog
-          users={(users.data?.items ?? []).filter((u) =>
-            selected.includes(u.id),
-          )}
+          users={selectedUsers}
           onClose={() => setBulkOpen(false)}
           onDone={() => {
             setBulkOpen(false);

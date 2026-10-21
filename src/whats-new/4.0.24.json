@@ -1,0 +1,12 @@
+{
+  "version": "4.0.24",
+  "items": [
+    {
+      "type": "new",
+      "zh": "用量窗口支持查看管理员分配的火山方舟 Coding Plan 额度",
+      "zh-TW": "用量視窗支援查看管理員分配的火山方舟 Coding Plan 額度",
+      "en": "View administrator-assigned Volcengine Coding Plan quotas in the usage window.",
+      "ja": "管理者が割り当てた火山方舟 Coding Plan の利用枠を確認できます"
+    }
+  ]
+}
