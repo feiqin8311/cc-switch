@@ -30,7 +30,7 @@ import { ApiError } from "../lib/api";
 import { useApi } from "../lib/auth";
 import { describeError, fieldErrorsOf } from "../lib/format";
 import { gatewayUrl, ProviderForm, type ProviderPayload } from "./ProviderForm";
-import { useUsers } from "./UsersPage";
+import { useUserOptions } from "./UsersPage";
 
 const PROVIDERS_KEY = ["admin", "providers"] as const;
 
@@ -38,7 +38,7 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
-  const users = useUsers();
+  const users = useUserOptions();
   const userMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const u of users.data?.items ?? []) {
@@ -135,7 +135,8 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
                     {p.models.length}
                   </td>
                   <td className={tdClass}>
-                    {p.allowedGroups.length === 0 && p.allowedUserIds.length === 0 ? (
+                    {p.allowedGroups.length === 0 &&
+                    p.allowedUserIds.length === 0 ? (
                       <Badge tone="gray">全员不可用</Badge>
                     ) : (
                       <div className="flex flex-wrap gap-1 max-w-56">

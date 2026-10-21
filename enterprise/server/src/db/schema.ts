@@ -1,3 +1,4 @@
+import type { AdminMenu } from "@ccse/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -42,6 +43,8 @@ export const users = pgTable("users", {
     .default(sql`'{}'::integer[]`),
   /** Org group label. Empty means ungrouped. */
   groupName: text("group_name").notNull().default(""),
+  /** null inherits role defaults; an empty array denies all admin menus. */
+  adminMenus: jsonb("admin_menus").$type<AdminMenu[] | null>(),
   /** Set by the offboard action; cleared when the user is re-enabled. */
   offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
   /** Username of the admin who offboarded the user. */

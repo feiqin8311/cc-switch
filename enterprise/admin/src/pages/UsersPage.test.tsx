@@ -28,6 +28,7 @@ const admin: User = {
   username: "admin",
   displayName: "",
   role: "admin",
+  adminMenus: null,
   groupName: "研发",
   disabled: false,
   createdAt: "2026-10-01T00:00:00.000Z",
@@ -92,6 +93,56 @@ function filterBy(label: string) {
 }
 
 describe("user group filtering", () => {
+  it("saves independent menu grants below the account checklist", async () => {
+    await show();
+    const row = screen
+      .getByRole("checkbox", { name: "选择 alice" })
+      .closest("tr");
+    if (!row) throw new Error("Missing user row");
+    fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
+    const dialog = screen.getByRole("dialog");
+    const mcp = within(dialog).getByRole("checkbox", {
+      name: "MCP",
+    }) as HTMLInputElement;
+    expect(mcp.checked).toBe(false);
+    fireEvent.click(mcp);
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "用量统计" }));
+    expect(
+      (
+        within(dialog).getByRole("checkbox", {
+          name: "连接器",
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "/admin/users/alice",
+        expect.objectContaining({
+          method: "PATCH",
+          body: { adminMenus: ["mcp", "usage"] },
+        }),
+      ),
+    );
+  });
+
+  it("keeps all administrator menus checked and disabled", async () => {
+    await show();
+    const row = screen
+      .getByRole("checkbox", { name: "选择 admin" })
+      .closest("tr");
+    if (!row) throw new Error("Missing admin row");
+    fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
+    const dialog = screen.getByRole("dialog");
+    const menus = within(dialog)
+      .getAllByRole("checkbox")
+      .filter((c) => !(c as HTMLInputElement).name.includes("Coding"));
+    expect(menus.length).toBeGreaterThanOrEqual(9);
+    for (const checkbox of menus) {
+      expect((checkbox as HTMLInputElement).checked).toBe(true);
+      expect((checkbox as HTMLInputElement).disabled).toBe(true);
+    }
+  });
   it("filters named and ungrouped users and restores the full list", async () => {
     await show();
     expect(screen.getAllByRole("row")).toHaveLength(6);

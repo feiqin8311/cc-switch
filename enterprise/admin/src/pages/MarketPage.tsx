@@ -5,7 +5,7 @@ import {
   type MarketItemPatch,
   MarketItemSchema,
   PromptDefinitionSchema,
-  type User,
+  type UserOption,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cable, Plug, ScrollText, Sparkles, Upload } from "lucide-react";
@@ -45,7 +45,7 @@ import {
   MarketUploadForm,
   type MarketUploadValues,
 } from "./MarketUploadForm";
-import { useUsers } from "./UsersPage";
+import { useUserOptions } from "./UsersPage";
 
 export const MARKET_KEY = ["market", "items"] as const;
 
@@ -178,7 +178,7 @@ export function MarketPage({
   const [deleting, setDeleting] = useState<MarketItem | null>(null);
   const [audience, setAudience] = useState<MarketItem | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const users = useUsers();
+  const users = useUserOptions();
 
   const items = useQuery({
     queryKey: MARKET_KEY,
@@ -462,7 +462,7 @@ function AudienceDialog({
   onSave,
 }: {
   item: MarketItem;
-  users: User[];
+  users: UserOption[];
   pending: boolean;
   onClose(): void;
   onSave(userIds: string[], groups: string[]): void;
@@ -547,7 +547,7 @@ function AudienceDialog({
 }
 
 export function publisherLabel(
-  user: Pick<User, "displayName" | "username">,
+  user: Pick<UserOption, "displayName" | "username">,
 ): string {
   return user.username;
 }
@@ -559,7 +559,7 @@ export function PublisherSelect({
   onChange,
 }: {
   item: MarketItem;
-  users: User[] | undefined;
+  users: UserOption[] | undefined;
   disabled: boolean;
   onChange(userId: string): void;
 }) {

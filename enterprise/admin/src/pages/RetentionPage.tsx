@@ -60,7 +60,9 @@ function PolicyForm({ initial }: { initial: AdminRetentionPolicy }) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
-  const canEdit = useCan("settings.manage");
+  const canManageSettings = useCan("settings.manage");
+  const canManageRetention = useCan("retention.manage");
+  const canEdit = canManageSettings || canManageRetention;
   const [enabled, setEnabled] = useState(initial.enabled);
   const [formError, setFormError] = useState<string | null>(null);
 

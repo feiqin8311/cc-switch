@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ProviderForm } from "./ProviderForm";
 
 vi.mock("./UsersPage", () => ({
-  useUsers: () => ({
+  useUserOptions: () => ({
     data: {
       items: [
         {

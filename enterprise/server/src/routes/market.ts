@@ -1,7 +1,8 @@
 import { Transform } from "node:stream";
 import {
-  type ListMarketItemsResponse,
   ConnectorDefinitionSchema,
+  canManageMarketKind,
+  type ListMarketItemsResponse,
   MAX_CONNECTOR_DEFINITION_BYTES,
   MAX_MARKET_PACKAGE_BYTES,
   MAX_MCP_DEFINITION_BYTES,
@@ -17,7 +18,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
-import { authOf, requirePermission } from "../auth/guard.ts";
+import { authOf } from "../auth/guard.ts";
 import {
   AppError,
   forbidden,
@@ -32,14 +33,25 @@ import {
   getMarketPackage,
   listMarketItems,
   patchMarketItem,
-  publishMarketItem,
   publisherNameOf,
+  publishMarketItem,
   toMarketItemDto,
 } from "../market/store.ts";
 import { validateMarketPackage } from "../market/validate.ts";
 import { assertUsersExist } from "../users/dto.ts";
 
 const IdParamSchema = z.object({ id: ProviderIdSchema });
+const MARKET_MANAGE_PERMISSIONS: Permission[] = [
+  "market.manage",
+  "mcp.manage",
+  "connectors.manage",
+  "skills.manage",
+  "prompts.manage",
+];
+
+function assertCanManageKind(req: FastifyRequest, kind: MarketItemKind) {
+  if (!canManageMarketKind(authOf(req).permissions, kind)) throw forbidden();
+}
 
 /** Member skill publish: no mandatory flag, kind is skill only. */
 const MemberSkillPublishSchema = z.object({
@@ -142,19 +154,25 @@ export async function marketRoutes(
   const readGuard = {
     preHandler: [
       authenticate,
-      requireAnyPermission("market.install", "market.manage"),
+      requireAnyPermission("market.install", ...MARKET_MANAGE_PERMISSIONS),
     ],
   };
   const manageGuard = {
-    preHandler: [authenticate, requirePermission("market.manage")],
+    preHandler: [
+      authenticate,
+      requireAnyPermission(...MARKET_MANAGE_PERMISSIONS),
+    ],
   };
 
   app.get("/market/items", readGuard, async (req) => {
     const actor = authOf(req);
     let items = await listMarketItems(db);
-    if (!actor.permissions.includes("market.manage")) {
-      items = items.filter((item) => canSeeMarketItem(item, actor.user));
-    }
+    items = items.filter(
+      (item) =>
+        canManageMarketKind(actor.permissions, item.kind) ||
+        (actor.permissions.includes("market.install") &&
+          canSeeMarketItem(item, actor.user)),
+    );
     const res: ListMarketItemsResponse = { items };
     return res;
   });
@@ -168,6 +186,9 @@ export async function marketRoutes(
     async (req) => {
       const { id } = parseBody(IdParamSchema, req.params);
       const meta = parseQuery(MemberSkillPublishSchema, req.query);
+      if (!authOf(req).permissions.includes("market.install")) {
+        assertCanManageKind(req, "skill");
+      }
       const body = req.body;
       if (!Buffer.isBuffer(body) || body.length === 0) {
         throw new AppError(
@@ -223,8 +244,11 @@ export async function marketRoutes(
     if (!pkg) throw notFound("Market item not found");
     const actor = authOf(req);
     if (
-      !actor.permissions.includes("market.manage") &&
-      !canSeeMarketItem(pkg.item, actor.user)
+      !canManageMarketKind(actor.permissions, pkg.item.kind) &&
+      !(
+        actor.permissions.includes("market.install") &&
+        canSeeMarketItem(pkg.item, actor.user)
+      )
     ) {
       throw notFound("Market item not found");
     }
@@ -256,6 +280,9 @@ export async function marketRoutes(
       const { id } = parseBody(IdParamSchema, req.params);
       const meta = parseQuery(MarketItemMetadataSchema, req.query);
       const kind = meta.kind;
+      assertCanManageKind(req, kind);
+      const previous = await findMarketItem(db, id);
+      if (previous) assertCanManageKind(req, previous.kind);
       const body = req.body;
       let data: Buffer;
       if (isJsonKind(kind)) {
@@ -314,6 +341,9 @@ export async function marketRoutes(
 
   app.patch("/admin/market/items/:id", manageGuard, async (req) => {
     const { id } = parseBody(IdParamSchema, req.params);
+    const existing = await findMarketItem(db, id);
+    if (!existing) throw notFound("Market item not found");
+    assertCanManageKind(req, existing.kind);
     const patch = parseBody(MarketItemPatchSchema, req.body);
     const visibleUserIds = patch.visibleUserIds && [
       ...new Set(patch.visibleUserIds),
@@ -345,6 +375,9 @@ export async function marketRoutes(
 
   app.delete("/admin/market/items/:id", manageGuard, async (req, reply) => {
     const { id } = parseBody(IdParamSchema, req.params);
+    const existing = await findMarketItem(db, id);
+    if (!existing) throw notFound("Market item not found");
+    assertCanManageKind(req, existing.kind);
     if (!(await deleteMarketItem(db, id))) {
       throw notFound("Market item not found");
     }

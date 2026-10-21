@@ -1,4 +1,4 @@
-import { type Permission, permissionsForRole } from "@ccse/contracts";
+import { type Permission, permissionsForUser } from "@ccse/contracts";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "../db/client.ts";
@@ -49,7 +49,7 @@ export function createAuthenticate(db: Db, secret: Uint8Array) {
     req.auth = {
       user: row.user,
       sessionId: claims.sessionId,
-      permissions: permissionsForRole(row.user.role),
+      permissions: permissionsForUser(row.user),
     };
   };
 }

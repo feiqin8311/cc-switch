@@ -68,6 +68,15 @@ export const PermissionSchema = z.enum([
   "market.install",
   /** Edit server-wide settings such as the retention policy. */
   "settings.manage",
+  /** Independently delegated admin menu permissions. */
+  "usage.read",
+  "upstream.read",
+  "conversations.read",
+  "retention.manage",
+  "mcp.manage",
+  "connectors.manage",
+  "skills.manage",
+  "prompts.manage",
 ]);
 export type Permission = z.infer<typeof PermissionSchema>;
 
@@ -96,6 +105,86 @@ export function permissionsForRole(role: Role): Permission[] {
   return [...ROLE_PERMISSIONS[role]];
 }
 
+export const AdminMenuSchema = z.enum([
+  "users",
+  "devices",
+  "usage",
+  "upstream",
+  "mcp",
+  "connectors",
+  "skills",
+  "prompts",
+  "conversations",
+]);
+export type AdminMenu = z.infer<typeof AdminMenuSchema>;
+
+export const ADMIN_MENU_LABELS: Record<AdminMenu, string> = {
+  users: "用户管理",
+  devices: "设备管理",
+  usage: "用量统计",
+  upstream: "上游账号",
+  mcp: "MCP",
+  connectors: "连接器",
+  skills: "Skills",
+  prompts: "提示词",
+  conversations: "会话",
+};
+
+/** null preserves the role defaults; [] explicitly closes every admin menu. */
+export const AdminMenusSchema = z.array(AdminMenuSchema).max(9).nullable();
+
+export function adminMenusForRole(role: Role): AdminMenu[] {
+  return role === "admin"
+    ? [...AdminMenuSchema.options]
+    : role === "group_leader"
+      ? ["users", "usage"]
+      : [];
+}
+
+export function permissionsForUser(user: {
+  role: Role;
+  adminMenus?: AdminMenu[] | null;
+}): Permission[] {
+  if (user.role === "admin" || user.adminMenus == null) {
+    return permissionsForRole(user.role);
+  }
+  const grants: Record<AdminMenu, Permission[]> = {
+    // Delegated user management retains the existing group boundary.
+    users: ["users.group.manage"],
+    devices: ["settings.manage", "providers.manage"],
+    usage: [user.role === "group_leader" ? "usage.group.read" : "usage.read"],
+    upstream: ["upstream.read"],
+    mcp: ["mcp.manage"],
+    connectors: ["connectors.manage"],
+    skills: ["skills.manage"],
+    prompts: ["prompts.manage"],
+    conversations: ["conversations.read", "retention.manage"],
+  };
+  const base = permissionsForRole(user.role).filter(
+    (p) => p === "models.use" || p === "market.install",
+  );
+  return [
+    ...new Set([...base, ...user.adminMenus.flatMap((menu) => grants[menu])]),
+  ];
+}
+
+export function canManageMarketKind(
+  permissions: readonly Permission[],
+  kind: string,
+): boolean {
+  const permission: Record<string, Permission> = {
+    mcp: "mcp.manage",
+    connector: "connectors.manage",
+    skill: "skills.manage",
+    plugin: "skills.manage",
+    prompt: "prompts.manage",
+  };
+  return (
+    permissions.includes("market.manage") ||
+    (permission[kind] !== undefined && permissions.includes(permission[kind]))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -120,6 +209,7 @@ export const UserSchema = z.object({
   username: UsernameSchema,
   displayName: z.string(),
   role: RoleSchema,
+  adminMenus: AdminMenusSchema.default(null),
   disabled: z.boolean(),
   createdAt: z.string(),
   lastLoginAt: z.string().nullable(),
@@ -133,6 +223,18 @@ export const UserSchema = z.object({
   offboardedBy: z.string().nullable().default(null),
 });
 export type User = z.infer<typeof UserSchema>;
+
+/** Minimal identity fields for provider and marketplace audience selectors. */
+export const UserOptionSchema = UserSchema.pick({
+  id: true,
+  username: true,
+  displayName: true,
+  groupName: true,
+});
+export type UserOption = z.infer<typeof UserOptionSchema>;
+export const UserOptionsResponseSchema = z.object({
+  items: z.array(UserOptionSchema),
+});
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -195,12 +297,13 @@ export const CreateUserRequestSchema = z.object({
   role: RoleSchema,
   upstreamAccountIds: z.array(z.number().int()).optional(),
   groupName: GroupNameSchema.optional(),
+  adminMenus: AdminMenusSchema.optional(),
 });
 export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 
 /**
  * PATCH /admin/users/:id → 200 User
- * Disabling a user or changing their password/role revokes all their sessions.
+ * Disabling a user or changing their password/role/admin menus revokes all their sessions.
  * Re-enabling an offboarded user clears `offboardedAt`.
  * Renaming keeps the user's sessions; a display name that still equals the
  * old username follows the rename. 409 when the username is taken.
@@ -224,6 +327,7 @@ export const UpdateUserRequestSchema = z
     password: PasswordSchema.optional(),
     upstreamAccountIds: z.array(z.number().int()).optional(),
     groupName: GroupNameSchema.optional(),
+    adminMenus: AdminMenusSchema.optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "At least one field is required",

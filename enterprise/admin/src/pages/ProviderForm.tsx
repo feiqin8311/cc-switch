@@ -5,7 +5,7 @@ import {
 } from "@ccse/contracts";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import { Button, Field, inputClass, Switch } from "../components/ui";
-import { useUsers } from "./UsersPage";
+import { useUserOptions } from "./UsersPage";
 
 const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
@@ -206,7 +206,7 @@ export function ProviderForm({
   const removeModel = (key: number) =>
     setValues((v) => ({ ...v, models: v.models.filter((m) => m.key !== key) }));
 
-  const { data: usersData } = useUsers();
+  const { data: usersData } = useUserOptions();
   const users = usersData?.items ?? [];
   const groupOptions = useMemo(
     () => [...new Set(users.map((u) => u.groupName).filter(Boolean))].sort(),
@@ -434,7 +434,8 @@ export function ProviderForm({
             允许访问的组与成员
           </legend>
           <span className="text-[11px] text-muted-foreground">
-            {values.allowedGroups.length === 0 && values.allowedUserIds.length === 0
+            {values.allowedGroups.length === 0 &&
+            values.allowedUserIds.length === 0
               ? "未勾选（全员不可用）"
               : `已选 ${values.allowedGroups.length} 个组、${values.allowedUserIds.length} 位成员`}
           </span>
@@ -444,7 +445,9 @@ export function ProviderForm({
         </p>
 
         <div className="space-y-1.5">
-          <div className="text-[12px] font-medium text-foreground">部门 / 组</div>
+          <div className="text-[12px] font-medium text-foreground">
+            部门 / 组
+          </div>
           {groupOptions.length === 0 ? (
             <p className="text-xs text-muted-foreground">暂无可选的用户组</p>
           ) : (
@@ -468,7 +471,9 @@ export function ProviderForm({
         </div>
 
         <div className="space-y-1.5">
-          <div className="text-[12px] font-medium text-foreground">指定成员</div>
+          <div className="text-[12px] font-medium text-foreground">
+            指定成员
+          </div>
           {users.length === 0 ? (
             <p className="text-xs text-muted-foreground">暂无用户</p>
           ) : (
@@ -486,7 +491,9 @@ export function ProviderForm({
                   />
                   <span>{u.username}</span>
                   {u.displayName && u.displayName !== u.username ? (
-                    <span className="text-muted-foreground">({u.displayName})</span>
+                    <span className="text-muted-foreground">
+                      ({u.displayName})
+                    </span>
                   ) : null}
                   {u.groupName ? (
                     <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded ml-auto">

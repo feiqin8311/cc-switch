@@ -3,6 +3,7 @@ import {
   CreateUserRequestSchema,
   type ListUsersResponse,
   type OffboardUserResponse,
+  permissionsForUser,
   UpdateUserRequestSchema,
 } from "@ccse/contracts";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
@@ -69,11 +70,44 @@ export async function adminUserRoutes(
     const rows = await db
       .select()
       .from(users)
-      .where(actor.role === "group_leader" ? groupScope(actor) : undefined)
+      .where(
+        !authOf(req).permissions.includes("users.manage")
+          ? groupScope(actor)
+          : undefined,
+      )
       .orderBy(asc(users.createdAt));
     const res: ListUsersResponse = { items: rows.map(toUserDto) };
     return res;
   });
+
+  app.get(
+    "/admin/user-options",
+    {
+      preHandler: [
+        authenticate,
+        requireAnyPermission(
+          "users.manage",
+          "providers.manage",
+          "market.manage",
+          "mcp.manage",
+          "connectors.manage",
+          "skills.manage",
+          "prompts.manage",
+        ),
+      ],
+    },
+    async () => ({
+      items: await db
+        .select({
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          groupName: users.groupName,
+        })
+        .from(users)
+        .orderBy(asc(users.createdAt)),
+    }),
+  );
 
   app.post("/admin/users", guard, async (req, reply) => {
     const body = parseBody(CreateUserRequestSchema, req.body);
@@ -87,6 +121,8 @@ export async function adminUserRoutes(
           role: body.role,
           upstreamAccountIds: uniqueAccountIds(body.upstreamAccountIds),
           groupName: body.groupName ?? "",
+          adminMenus:
+            body.adminMenus == null ? null : [...new Set(body.adminMenus)],
         })
         .returning();
       if (!row) throw new Error("insert returned no row");
@@ -107,7 +143,7 @@ export async function adminUserRoutes(
     const { id } = parseBody(IdParamSchema, req.params);
     const body = parseBody(UpdateUserRequestSchema, req.body);
     const actor = authOf(req).user;
-    const isGroupLeader = actor.role === "group_leader";
+    const isGroupLeader = !authOf(req).permissions.includes("users.manage");
     if (isGroupLeader) parseBody(GroupRoleUpdateSchema, req.body);
 
     if (id === actor.id) {
@@ -154,6 +190,12 @@ export async function adminUserRoutes(
             ? uniqueAccountIds(body.upstreamAccountIds)
             : undefined,
         groupName: body.groupName,
+        adminMenus:
+          body.adminMenus === undefined
+            ? undefined
+            : body.adminMenus === null
+              ? null
+              : [...new Set(body.adminMenus)],
         ...(body.disabled === false && existing.offboardedAt
           ? { offboardedAt: null, offboardedBy: null }
           : {}),
@@ -179,7 +221,19 @@ export async function adminUserRoutes(
     const securityChanged =
       (body.disabled === true && !existing.disabled) ||
       (body.role !== undefined && body.role !== existing.role) ||
-      (existing.role === "group_leader" &&
+      (body.adminMenus !== undefined &&
+        JSON.stringify(
+          body.adminMenus === null
+            ? null
+            : [...new Set(body.adminMenus)].sort(),
+        ) !==
+          JSON.stringify(
+            existing.adminMenus === null
+              ? null
+              : [...existing.adminMenus].sort(),
+          )) ||
+      ((permissionsForUser(existing).includes("users.group.manage") ||
+        permissionsForUser(existing).includes("usage.group.read")) &&
         body.groupName !== undefined &&
         body.groupName !== existing.groupName) ||
       body.password !== undefined;

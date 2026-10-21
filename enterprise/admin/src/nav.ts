@@ -22,14 +22,34 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: "/usage",
     label: "用量统计",
-    anyOf: ["audit.read", "usage.group.read"],
+    anyOf: ["audit.read", "usage.read", "usage.group.read"],
   },
-  { path: "/upstream", label: "上游账号", anyOf: ["audit.read"] },
-  { path: "/mcp", label: "MCP", anyOf: ["market.manage"] },
-  { path: "/connectors", label: "连接器", anyOf: ["market.manage"] },
-  { path: "/skills", label: "Skills", anyOf: ["market.manage"] },
-  { path: "/prompts", label: "提示词", anyOf: ["market.manage"] },
-  { path: "/conversations", label: "会话", anyOf: ["audit.read"] },
+  {
+    path: "/upstream",
+    label: "上游账号",
+    anyOf: ["audit.read", "upstream.read"],
+  },
+  { path: "/mcp", label: "MCP", anyOf: ["market.manage", "mcp.manage"] },
+  {
+    path: "/connectors",
+    label: "连接器",
+    anyOf: ["market.manage", "connectors.manage"],
+  },
+  {
+    path: "/skills",
+    label: "Skills",
+    anyOf: ["market.manage", "skills.manage"],
+  },
+  {
+    path: "/prompts",
+    label: "提示词",
+    anyOf: ["market.manage", "prompts.manage"],
+  },
+  {
+    path: "/conversations",
+    label: "会话",
+    anyOf: ["audit.read", "conversations.read"],
+  },
 ];
 
 /** A tab inside a page; `id` is the value of the `?tab=` query parameter. */
@@ -47,9 +67,17 @@ export const DEVICE_TABS: readonly TabItem[] = [
 ];
 
 export const CONVERSATION_TABS: readonly TabItem[] = [
-  { id: "records", label: "对话记录", anyOf: ["audit.read"] },
+  {
+    id: "records",
+    label: "对话记录",
+    anyOf: ["audit.read", "conversations.read"],
+  },
   // Viewing needs audit.read (server GET); editing additionally settings.manage.
-  { id: "retention", label: "留存策略", anyOf: ["audit.read"] },
+  {
+    id: "retention",
+    label: "留存策略",
+    anyOf: ["audit.read", "conversations.read"],
+  },
 ];
 
 export function canAccess(

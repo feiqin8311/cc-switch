@@ -64,6 +64,13 @@
       "when": 1792400000000,
       "tag": "0008_provider_user_group",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792500000000,
+      "tag": "0009_admin_menus",
+      "breakpoints": true
     }
   ]
 }

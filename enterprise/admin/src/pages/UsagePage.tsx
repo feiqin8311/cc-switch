@@ -280,7 +280,9 @@ export function UsagePage() {
   const client = useApi();
   const session = useSession();
   const isGroupLeader = session.user.role === "group_leader";
-  const groupUsers = useUsers(isGroupLeader);
+  const groupUsers = useUsers(
+    isGroupLeader && session.permissions.includes("users.group.manage"),
+  );
   const [initialFrom, initialTo] = useMemo(() => lastUtcDays(7), []);
   const [draft, setDraft] = useState({ from: initialFrom, to: initialTo });
   const [range, setRange] = useState({ from: initialFrom, to: initialTo });

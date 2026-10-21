@@ -76,6 +76,12 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
 
 ## Auth model
 
+管理员可在「用户管理 → 编辑 → 用量窗口下方的管理菜单权限」中，逐项勾选用户管理、设备管理、用量统计、上游账号、MCP、连接器、Skills、提示词和会话；新建用户时也可设置。保存后该用户的现有会话会被注销，重新登录后按新权限显示菜单，后端接口同步校验权限。管理员始终拥有全部菜单；未设置过的已有用户沿用原角色默认权限。
+
+普通用户获授「用户管理」后仅能查看本组用户、修改本组成员/只读角色，不能分配菜单权限或提升为管理员。组长的用量统计仍仅限本组。会话菜单包含对话查看及留存策略管理。模型使用和桌面市场安装权限仍由角色决定，管理菜单配置不改变这两项能力。
+
+部署需同时更新服务端和管理后台，服务端启动时自动应用 `0009_admin_menus` 数据库迁移。`adminMenus: null` 表示沿用角色默认菜单，`[]` 表示关闭全部管理菜单；两者均不会限制管理员。`GET /admin/user-options` 仅返回各管理页面选择用户所需的姓名、ID 与组，不授予用户管理能力。
+
 - Roles: `admin`, `group_leader`, `member`, `viewer`; permissions per role are defined in
   `contracts/src/index.ts` (`ROLE_PERMISSIONS`) and enforced only on the server.
 - Group leaders can list users in their assigned group and change members between

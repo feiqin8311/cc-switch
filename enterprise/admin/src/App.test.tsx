@@ -24,6 +24,7 @@ const admin = {
   username: "admin",
   displayName: "管理员甲",
   role: "admin" as const,
+  adminMenus: null,
   disabled: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: "2026-10-01T08:00:00.000Z",
@@ -52,6 +53,7 @@ const departed = {
 
 const FIXTURES: Record<string, unknown> = {
   "/admin/users": { items: [admin, leaver, departed] },
+  "/admin/user-options": { items: [admin, leaver, departed] },
   "/admin/fleet": {
     revision: 0,
     mode: "direct",

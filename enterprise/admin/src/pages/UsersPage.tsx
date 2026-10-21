@@ -1,4 +1,8 @@
 import {
+  ADMIN_MENU_LABELS,
+  type AdminMenu,
+  AdminMenuSchema,
+  adminMenusForRole,
   CODING_PLAN_ACCOUNT_ID,
   type CreateUserRequest,
   ListUsersResponseSchema,
@@ -8,6 +12,7 @@ import {
   type UpdateUserRequest,
   UpstreamAccountsResponseSchema,
   type User,
+  UserOptionsResponseSchema,
   UserSchema,
 } from "@ccse/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +60,15 @@ export function useUsers(enabled = true) {
     queryFn: ({ signal }) =>
       client.get("/admin/users", ListUsersResponseSchema, signal),
     enabled,
+  });
+}
+
+export function useUserOptions() {
+  const client = useApi();
+  return useQuery({
+    queryKey: ["admin", "user-options"],
+    queryFn: ({ signal }) =>
+      client.get("/admin/user-options", UserOptionsResponseSchema, signal),
   });
 }
 
@@ -108,7 +122,7 @@ export function UsersPage() {
         <div className="mt-5 flex flex-col items-start gap-3">
           <p className="min-w-0 max-w-2xl text-sm leading-6 text-muted-foreground">
             {isAdmin
-              ? "创建员工账号、分配角色、重置密码、禁用账号或办理离职。禁用、改角色、重置密码或离职会立即注销该用户的所有会话；离职会保留其用量和对话记录。"
+              ? "创建员工账号、分配角色及管理菜单权限、重置密码、禁用账号或办理离职。禁用、改角色、修改菜单权限、重置密码或离职会立即注销该用户的所有会话；离职会保留其用量和对话记录。"
               : "查看本组用户，可将本组成员的角色设置为成员或只读。修改角色会立即注销该用户的所有会话。"}
           </p>
           {isAdmin && (
@@ -553,6 +567,13 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
           />
         </Field>
         <div className="col-span-2">
+          <MenuChecklist
+            menus={form.adminMenus ?? adminMenusForRole(form.role)}
+            disabled={form.role === "admin"}
+            onChange={(menus) => set("adminMenus", menus)}
+          />
+        </div>
+        <div className="col-span-2">
           <InlineError>{formError}</InlineError>
         </div>
       </form>
@@ -578,6 +599,9 @@ function EditUserDialog({
   const [username, setUsername] = useState(user.username);
   const [groupName, setGroupName] = useState(user.groupName);
   const [role, setRole] = useState<Role>(user.role);
+  const [adminMenus, setAdminMenus] = useState<AdminMenu[] | null>(
+    user.adminMenus ?? null,
+  );
   const [disabled, setDisabled] = useState(user.disabled);
   const [password, setPassword] = useState("");
   const [upstreamAccountIds, setUpstreamAccountIds] = useState<number[]>(
@@ -596,6 +620,7 @@ function EditUserDialog({
     onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: USERS_KEY });
       patchCurrentUser(updated);
+      qc.invalidateQueries({ queryKey: ["admin", "user-options"] });
       toast.success(`已更新用户 ${updated.username}`);
       onClose();
     },
@@ -637,6 +662,16 @@ function EditUserDialog({
       JSON.stringify([...upstreamAccountIds].sort()) !==
       JSON.stringify([...user.upstreamAccountIds].sort());
     if (idsChanged) body.upstreamAccountIds = upstreamAccountIds;
+    if (
+      role !== "admin" &&
+      adminMenus !== null &&
+      JSON.stringify([...adminMenus].sort()) !==
+        JSON.stringify(
+          [...(user.adminMenus ?? adminMenusForRole(user.role))].sort(),
+        )
+    ) {
+      body.adminMenus = adminMenus;
+    }
     if (Object.keys(body).length === 0) {
       onClose();
       return;
@@ -732,6 +767,13 @@ function EditUserDialog({
                 }
               />
             </div>
+            <div className="col-span-2">
+              <MenuChecklist
+                menus={adminMenus ?? adminMenusForRole(role)}
+                disabled={role === "admin"}
+                onChange={setAdminMenus}
+              />
+            </div>
             <Field
               label="重置密码"
               htmlFor="eu-password"
@@ -770,6 +812,49 @@ function EditUserDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+function MenuChecklist({
+  menus,
+  onChange,
+  disabled,
+}: {
+  menus: AdminMenu[];
+  onChange(menus: AdminMenu[]): void;
+  disabled?: boolean;
+}) {
+  return (
+    <Field
+      label="管理菜单权限"
+      hint={
+        disabled
+          ? "管理员始终拥有全部管理菜单权限"
+          : "勾选该用户可使用的管理菜单；用户管理仅限本组成员，组长的用量统计仅限本组。修改后用户需重新登录。"
+      }
+    >
+      <ul className="grid max-h-48 grid-cols-2 gap-x-4 gap-y-2 overflow-y-auto rounded-md border p-2">
+        {AdminMenuSchema.options.map((menu) => (
+          <li key={menu}>
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                disabled={disabled}
+                checked={disabled || menus.includes(menu)}
+                onChange={(e) =>
+                  onChange(
+                    e.target.checked
+                      ? [...menus, menu]
+                      : menus.filter((item) => item !== menu),
+                  )
+                }
+              />
+              <span>{ADMIN_MENU_LABELS[menu]}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </Field>
   );
 }
 

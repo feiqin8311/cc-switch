@@ -1,4 +1,4 @@
-import { permissionsForRole, type SessionResponse } from "@ccse/contracts";
+import { permissionsForUser, type SessionResponse } from "@ccse/contracts";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { refreshTokens, sessions, type UserRow, users } from "../db/schema.ts";
@@ -41,7 +41,7 @@ async function buildResponse(
     refreshToken,
     refreshTokenExpiresAt: refreshExpiresAt.toISOString(),
     user: toUserDto(user),
-    permissions: permissionsForRole(user.role),
+    permissions: permissionsForUser(user),
   };
 }
 

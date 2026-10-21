@@ -21,7 +21,6 @@ import {
 } from "../components/ui";
 import { useApi } from "../lib/auth";
 import { describeError, formatBytes, formatDateTime } from "../lib/format";
-import { isJsonKind } from "./MarketUploadForm";
 import {
   MARKET_KEY,
   MarketUploadDialog,
@@ -29,7 +28,8 @@ import {
   saveBlob,
   sha256Hex,
 } from "./MarketPage";
-import { useUsers } from "./UsersPage";
+import { isJsonKind } from "./MarketUploadForm";
+import { useUserOptions } from "./UsersPage";
 
 /**
  * Connectors admin page — Claude-inspired card grid with full administrative controls.
@@ -38,7 +38,7 @@ export function ConnectorsPage() {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
-  const users = useUsers();
+  const users = useUserOptions();
   const [uploading, setUploading] = useState<MarketItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<MarketItem | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -259,7 +259,9 @@ export function ConnectorsPage() {
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3.5">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">必装</span>
+                        <span className="text-xs text-muted-foreground">
+                          必装
+                        </span>
                         <Switch
                           label={`${item.name} 必装`}
                           checked={item.mandatory}
@@ -268,7 +270,9 @@ export function ConnectorsPage() {
                             patch.mutate({ id: item.id, body: { mandatory } })
                           }
                         />
-                        {togglingId === item.id && <Spinner className="size-3" />}
+                        {togglingId === item.id && (
+                          <Spinner className="size-3" />
+                        )}
                       </div>
                       <div className="w-36">
                         <PublisherSelect
@@ -327,9 +331,7 @@ export function ConnectorsPage() {
           key={uploading === "new" ? "new" : uploading.id}
           kinds={["connector"]}
           title={
-            uploading === "new"
-              ? "上传连接器"
-              : `发布新版本：${uploading.name}`
+            uploading === "new" ? "上传连接器" : `发布新版本：${uploading.name}`
           }
           existing={uploading === "new" ? undefined : uploading}
           onClose={() => setUploading(null)}

@@ -1,7 +1,7 @@
 import type { User } from "@ccse/contracts";
 import { inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { users, type UserRow } from "../db/schema.ts";
+import { type UserRow, users } from "../db/schema.ts";
 import { AppError } from "../errors.ts";
 
 export function toUserDto(row: UserRow): User {
@@ -10,6 +10,7 @@ export function toUserDto(row: UserRow): User {
     username: row.username,
     displayName: row.displayName,
     role: row.role,
+    adminMenus: row.adminMenus ?? null,
     disabled: row.disabled,
     createdAt: row.createdAt.toISOString(),
     lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
@@ -30,4 +31,3 @@ export async function assertUsersExist(db: Db, ids: string[]): Promise<void> {
     throw new AppError(400, "bad_request", "User not found");
   }
 }
-

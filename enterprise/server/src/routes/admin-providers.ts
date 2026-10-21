@@ -232,7 +232,7 @@ export async function adminProviderRoutes(
     {
       preHandler: [
         authenticate,
-        requireAnyPermission("audit.read", "usage.group.read"),
+        requireAnyPermission("audit.read", "usage.read", "usage.group.read"),
       ],
     },
     async (req) => {

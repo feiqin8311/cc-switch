@@ -1,8 +1,24 @@
-import { permissionsForRole } from "@ccse/contracts";
+import {
+  AdminMenuSchema,
+  permissionsForRole,
+  permissionsForUser,
+} from "@ccse/contracts";
 import { describe, expect, it } from "vitest";
 import { CONVERSATION_TABS, DEVICE_TABS, navItemsFor, tabsFor } from "./nav";
 
 describe("navItemsFor", () => {
+  it("opens each delegated menu independently", () => {
+    for (const menu of AdminMenuSchema.options) {
+      const permissions = permissionsForUser({
+        role: "member",
+        adminMenus: [menu],
+      });
+      expect(navItemsFor(permissions).map((i) => i.path)).toEqual([`/${menu}`]);
+    }
+    expect(
+      navItemsFor(permissionsForUser({ role: "group_leader", adminMenus: [] })),
+    ).toEqual([]);
+  });
   it("shows every page to admins", () => {
     expect(
       navItemsFor(permissionsForRole("admin")).map((i) => i.label),

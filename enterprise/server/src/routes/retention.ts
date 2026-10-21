@@ -5,7 +5,7 @@ import {
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app.ts";
-import { authOf, requirePermission } from "../auth/guard.ts";
+import { authOf, requireAnyPermission } from "../auth/guard.ts";
 import { sessions } from "../db/schema.ts";
 import { forbidden, parseBody } from "../errors.ts";
 import { ingestConversations } from "../retention/ingest.ts";
@@ -24,13 +24,24 @@ export async function retentionRoutes(
 
   app.get(
     "/admin/retention-policy",
-    { preHandler: [authenticate, requirePermission("audit.read")] },
+    {
+      preHandler: [
+        authenticate,
+        requireAnyPermission("audit.read", "conversations.read"),
+      ],
+    },
     async () => getRetentionPolicy(db),
   );
 
   app.put(
     "/admin/retention-policy",
-    { preHandler: [authenticate, requirePermission("settings.manage")] },
+    {
+      preHandler: [
+        authenticate,
+        requireAnyPermission("audit.read", "conversations.read"),
+        requireAnyPermission("settings.manage", "retention.manage"),
+      ],
+    },
     async (req) => {
       const body = parseBody(AdminRetentionPolicySchema, req.body);
       const saved = await saveRetentionPolicy(db, body);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { UserRow } from "../src/db/schema.ts";
 import { visibleUpstreamAccounts } from "../src/routes/upstream.ts";
 import { accountFromSub2Api } from "../src/sub2api.ts";
-import type { UserRow } from "../src/db/schema.ts";
 
 function user(role: UserRow["role"], ids: number[]): UserRow {
   return {
@@ -10,6 +10,7 @@ function user(role: UserRow["role"], ids: number[]): UserRow {
     displayName: "u",
     passwordHash: "x",
     role,
+    adminMenus: null,
     disabled: false,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -118,9 +119,9 @@ describe("visibleUpstreamAccounts", () => {
   });
 
   it("members only see assigned ids", () => {
-    expect(visibleUpstreamAccounts(user("member", [2]), items).map((a) => a.id)).toEqual([
-      2,
-    ]);
+    expect(
+      visibleUpstreamAccounts(user("member", [2]), items).map((a) => a.id),
+    ).toEqual([2]);
     expect(visibleUpstreamAccounts(user("member", []), items)).toEqual([]);
   });
 });

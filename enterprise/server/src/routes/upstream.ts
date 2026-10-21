@@ -6,7 +6,7 @@ import {
 } from "@ccse/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app.ts";
-import { authOf, requirePermission } from "../auth/guard.ts";
+import { authOf, requireAnyPermission } from "../auth/guard.ts";
 import type { UserRow } from "../db/schema.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
 
@@ -53,7 +53,10 @@ export async function upstreamRoutes(
   };
 
   app.get("/admin/upstream/accounts", {
-    preHandler: [authenticate, requirePermission("audit.read")],
+    preHandler: [
+      authenticate,
+      requireAnyPermission("audit.read", "upstream.read", "users.manage"),
+    ],
     handler: async (_req, reply) => {
       reply.header("Cache-Control", "no-store");
       return { ...(await listAll()), codingPlanAvailable: !!config.volcengine };
