@@ -18,8 +18,8 @@ pnpm install
 pnpm dev            # http://127.0.0.1:4000, embedded PGlite in server/data/
 ```
 
-On first start an `admin` user is created. Its generated password is written to
-`server/data/initial-admin-password.txt` (or set `ADMIN_PASSWORD` beforehand).
+The local development login defaults to `admin` / `123456`. Production must set
+an explicit `ADMIN_PASSWORD` in the environment.
 
 ```bash
 pnpm test           # server tests (in-memory PGlite)
@@ -55,7 +55,7 @@ in `sessionStorage` (per tab).
 | `SECRETS_KEY` | generated in dev | base64 of 32 bytes; encrypts upstream API keys (AES-256-GCM). Back it up — losing it makes stored keys unreadable |
 | `ADMIN_DIST_DIR` | `../admin/dist` | admin console build served at `/` (skipped when missing) |
 | `TRUST_PROXY` | `false` | `true` behind a reverse proxy (client IP for rate limiting) |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / generated | only used when the users table is empty |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `123456` | development defaults; production must set `ADMIN_PASSWORD` |
 
 Migrations live in `server/drizzle/` and are applied on startup. After changing
 `server/src/db/schema.ts` run `pnpm --filter @ccse/server db:generate`.

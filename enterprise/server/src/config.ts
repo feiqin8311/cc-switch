@@ -24,9 +24,9 @@ const EnvSchema = z.object({
     .transform((v) => v === "true"),
   /** Admin console build to serve at "/" (skipped when missing). */
   ADMIN_DIST_DIR: z.string().default("../admin/dist"),
-  ADMIN_USERNAME: z.string().default("Yida"),
-  /** Initial admin password; defaults to Password123$ when unset. */
-  ADMIN_PASSWORD: z.string().min(6).default("Password123$"),
+  ADMIN_USERNAME: z.string().default("admin"),
+  /** Development default; production must provide an explicit password. */
+  ADMIN_PASSWORD: z.string().min(6).default("123456"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
@@ -85,6 +85,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!e.JWT_SECRET) throw new Error("JWT_SECRET is required in production");
     if (!e.SECRETS_KEY)
       throw new Error("SECRETS_KEY is required in production");
+    if (!env.ADMIN_PASSWORD)
+      throw new Error("ADMIN_PASSWORD is required in production");
   }
 
   return {

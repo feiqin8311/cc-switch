@@ -5,7 +5,7 @@ import { type AppConfig, loadConfig } from "../src/config.ts";
 import { type Db, openDatabase } from "../src/db/client.ts";
 import { seedInitialAdmin } from "../src/seed.ts";
 
-export const ADMIN = { username: "admin", password: "admin-password-123" };
+export const ADMIN = { username: "admin", password: "123456" };
 
 export interface TestContext {
   app: FastifyInstance;
