@@ -42,6 +42,7 @@ import {
 import { useUsers } from "./UsersPage";
 
 const MAX_DAYS = 92;
+const PAGE_SIZE = 10;
 
 interface Totals {
   key: string;
@@ -418,6 +419,17 @@ export function UsagePage() {
       ),
     [rows],
   );
+  const detailRows = useMemo(
+    () =>
+      [...rows].sort(
+        (a, b) =>
+          b.date.localeCompare(a.date) ||
+          a.username.localeCompare(b.username, "zh-CN") ||
+          a.providerId.localeCompare(b.providerId) ||
+          a.model.localeCompare(b.model),
+      ),
+    [rows],
+  );
   const grand = useMemo(
     () =>
       aggregate(
@@ -615,51 +627,64 @@ export function UsagePage() {
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
             <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
           </div>
-          <Card className="overflow-x-auto">
-            <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
-              明细
-            </h2>
-            <table className={tableClass}>
-              <thead>
-                <tr>
-                  <th className={thClass}>日期</th>
-                  <th className={thClass}>用户</th>
-                  <th className={thClass}>模型服务</th>
-                  <th className={thClass}>模型</th>
-                  <th className={numTh}>请求数</th>
-                  <th className={numTh}>输入 tokens</th>
-                  <th className={numTh}>输出 tokens</th>
-                  <th className={numTh}>总 tokens</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr
-                    key={`${r.date}|${r.userId}|${r.providerId}|${r.model}`}
-                    className={trClass}
-                  >
-                    <td className={`${tdClass} whitespace-nowrap`}>{r.date}</td>
-                    <td className={tdClass}>{r.username}</td>
-                    <td className={`${tdClass} font-mono text-xs`}>
-                      {r.providerId}
-                    </td>
-                    <td className={`${tdClass} font-mono text-xs`}>
-                      {r.model}
-                    </td>
-                    <td className={num}>{formatNumber(r.requests)}</td>
-                    <td className={num}>{formatNumber(r.inputTokens)}</td>
-                    <td className={num}>{formatNumber(r.outputTokens)}</td>
-                    <td className={num}>
-                      {formatNumber(r.inputTokens + r.outputTokens)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+          <DetailsTable rows={detailRows} />
         </div>
       )}
     </div>
+  );
+}
+
+function DetailsTable({ rows }: { rows: UsageRow[] }) {
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [rows]);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  return (
+    <Card className="overflow-x-auto">
+      <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
+        明细
+      </h2>
+      <table className={tableClass}>
+        <thead>
+          <tr>
+            <th className={thClass}>日期</th>
+            <th className={thClass}>用户</th>
+            <th className={thClass}>模型服务</th>
+            <th className={thClass}>模型</th>
+            <th className={numTh}>请求数</th>
+            <th className={numTh}>输入 tokens</th>
+            <th className={numTh}>输出 tokens</th>
+            <th className={numTh}>总 tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pageRows.map((r) => (
+            <tr
+              key={`${r.date}|${r.userId}|${r.providerId}|${r.model}`}
+              className={trClass}
+            >
+              <td className={`${tdClass} whitespace-nowrap`}>{r.date}</td>
+              <td className={tdClass}>{r.username}</td>
+              <td className={`${tdClass} font-mono text-xs`}>{r.providerId}</td>
+              <td className={`${tdClass} font-mono text-xs`}>{r.model}</td>
+              <td className={num}>{formatNumber(r.requests)}</td>
+              <td className={num}>{formatNumber(r.inputTokens)}</td>
+              <td className={num}>{formatNumber(r.outputTokens)}</td>
+              <td className={num}>
+                {formatNumber(r.inputTokens + r.outputTokens)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        total={rows.length}
+        onPageChange={setPage}
+      />
+    </Card>
   );
 }
 
@@ -750,6 +775,11 @@ function TotalsTable({
   keyLabel: string;
   rows: Totals[];
 }) {
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [rows]);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   return (
     <Card className="overflow-x-auto">
       <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
@@ -766,7 +796,7 @@ function TotalsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((t) => (
+          {pageRows.map((t) => (
             <tr key={t.key} className={trClass}>
               <td className={tdClass}>{t.label}</td>
               <td className={num}>{formatNumber(t.requests)}</td>
@@ -779,6 +809,58 @@ function TotalsTable({
           ))}
         </tbody>
       </table>
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        total={rows.length}
+        onPageChange={setPage}
+      />
     </Card>
+  );
+}
+
+function Pagination({
+  page,
+  pageCount,
+  total,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  const first = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const last = Math.min((page + 1) * PAGE_SIZE, total);
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">
+      <span>
+        显示 {first}–{last} 条，共 {total} 条
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="rounded-md border border-border px-2.5 py-1 text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={page === 0}
+          onClick={() => onPageChange(page - 1)}
+          aria-label="上一页"
+        >
+          上一页
+        </button>
+        <span className="tabular-nums">
+          第 {page + 1} / {pageCount} 页
+        </span>
+        <button
+          type="button"
+          className="rounded-md border border-border px-2.5 py-1 text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={page + 1 >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+          aria-label="下一页"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   );
 }
