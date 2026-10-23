@@ -724,22 +724,61 @@ describe("App", () => {
         node.getAttribute("data-cost-detail"),
       );
     expect(order()[0]).toBe("运营部-EZARC");
-    const shared = within(chart).getAllByRole("button", {
-      name: /产品部、运营部-YPLUS 2月：/,
+    const february = within(chart).getByRole("button", {
+      name: "2月，查看所有部门费用",
     });
-    fireEvent.mouseEnter(shared[0]!);
-    expect(
-      within(details).getByText("同额部门：产品部、运营部-YPLUS"),
-    ).toBeTruthy();
-    const product = chart.querySelectorAll('[data-cost-marker="产品部"]')[1];
-    const yplus = chart.querySelectorAll(
-      '[data-cost-marker="运营部-YPLUS"]',
-    )[1];
-    expect(product?.getAttribute("r")).not.toBe(yplus?.getAttribute("r"));
-    expect(yplus?.getAttribute("class")).toContain("fill-none");
-    fireEvent.focus(
-      within(chart).getByRole("button", { name: /产品部 1月：/ }),
+    fireEvent.mouseEnter(february);
+    expect(within(details).getAllByText("同额")).toHaveLength(2);
+    const markers = chart.querySelectorAll(
+      `[data-cost-marker][data-period="${year}-02"]`,
     );
+    expect(markers).toHaveLength(2);
+    expect(
+      Array.from(markers).every((marker) => marker.getAttribute("r") === "4"),
+    ).toBe(true);
+    expect(
+      chart.querySelector(
+        `[data-cost-marker="产品部、运营部-YPLUS"][data-period="${year}-02"]`,
+      ),
+    ).toBeTruthy();
+    const svg = within(chart).getByRole("group", {
+      name: "各部门按时间排列的费用曲线",
+    });
+    vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      right: 912,
+      bottom: 282,
+      width: 912,
+      height: 282,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(svg, { clientX: 138, clientY: 40 });
+    const februaryOrder = order();
+    fireEvent.mouseMove(svg, { clientX: 138, clientY: 220 });
+    expect(order()).toEqual(februaryOrder);
+    expect(within(details).getByText("2月")).toBeTruthy();
+    expect(details.className).toContain("h-64");
+    expect(
+      Array.from(markers).every((marker) => marker.getAttribute("r") === "4"),
+    ).toBe(true);
+    fireEvent.mouseMove(svg, { clientX: 138, clientY: 200 });
+    const sharedTip = screen.getByRole("tooltip");
+    expect(within(sharedTip).getByText("产品部")).toBeTruthy();
+    expect(within(sharedTip).getByText("运营部-YPLUS")).toBeTruthy();
+    expect(within(sharedTip).getAllByText("$20.00")).toHaveLength(2);
+    expect(
+      sharedTip.closest("foreignObject")?.getAttribute("pointer-events"),
+    ).toBe("none");
+    fireEvent.mouseMove(svg, { clientX: 138, clientY: 68 });
+    const individualTip = screen.getByRole("tooltip");
+    expect(within(individualTip).getByText("运营部-EZARC")).toBeTruthy();
+    expect(within(individualTip).queryByText("产品部")).toBeNull();
+    fireEvent.mouseLeave(svg);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.mouseMove(svg, { clientX: 64, clientY: 100 });
     expect(order()).toEqual(["产品部", "运营部-YPLUS", "运营部-EZARC"]);
   });
 
