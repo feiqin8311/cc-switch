@@ -1358,6 +1358,8 @@ export type DeviceUsageResponse = z.infer<typeof DeviceUsageResponseSchema>;
 
 /** Reserved assignment id; Sub2API account ids are positive. No credentials are stored here. */
 export const CODING_PLAN_ACCOUNT_ID = -1;
+/** Shared display name for the synthetic Volcano Engine Coding Plan account. */
+export const CODING_PLAN_ACCOUNT_NAME = "Libraton-火山方舟Codin Plan";
 
 export const UpstreamWindowSchema = z.object({
   id: z.enum(["5h", "7d"]),
