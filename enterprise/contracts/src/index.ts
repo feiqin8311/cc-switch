@@ -615,6 +615,43 @@ const AccountCostGroupSchema = z.object({
   unpricedCount: z.number().int().nonnegative(),
 });
 
+export const OfflineAccountCostInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    department: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .transform(normalizeAccountCostDepartment),
+    charges: z
+      .array(
+        z.object({
+          month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+          monthlyUsd: z.number().finite().min(0).max(1_000_000),
+        }),
+      )
+      .min(1)
+      .max(600),
+  })
+  .refine(
+    (account) =>
+      new Set(account.charges.map((charge) => charge.month)).size ===
+      account.charges.length,
+    {
+      message: "同一账号每个月只能填写一条费用记录",
+      path: ["charges"],
+    },
+  );
+export const OfflineAccountCostSchema =
+  OfflineAccountCostInputSchema.safeExtend({
+    id: z.number().int().safe().negative(),
+  });
+export type OfflineAccountCost = z.infer<typeof OfflineAccountCostSchema>;
+export type OfflineAccountCostInput = z.infer<
+  typeof OfflineAccountCostInputSchema
+>;
+
 /** Period totals and recorded monthly history, grouped by department. */
 export const UsageAccountCostsResponseSchema = z.object({
   departmentScope: z.string().nullable().default(null),
@@ -629,6 +666,7 @@ export const UsageAccountCostsResponseSchema = z.object({
     )
     .default([]),
   manualAccounts: z.array(ManualAccountCostDetailSchema).default([]),
+  offlineAccounts: z.array(OfflineAccountCostSchema).default([]),
   configured: z.boolean(),
   items: z.array(AccountCostGroupSchema),
   unpricedCount: z.number().int().nonnegative(),

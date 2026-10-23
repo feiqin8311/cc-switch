@@ -59,6 +59,7 @@ import {
   type UtcRangePreset,
 } from "../lib/format";
 import { useUsers } from "./UsersPage";
+import { OfflineAccountCostsDialog } from "./OfflineAccountCostsDialog";
 
 const MAX_DAYS = 92;
 const PAGE_SIZE = 10;
@@ -664,6 +665,8 @@ function AccountStats() {
   const isAdmin = session.user.role === "admin";
   const groupScoped = session.user.role === "group_leader";
   const [editing, setEditing] = useState(false);
+  const [editingAccounts, setEditingAccounts] = useState(false);
+  const queryClient = useQueryClient();
   const [chartType, setChartType] = useState<"bar" | "line">("bar");
   const [period, setPeriod] = useState<"month" | "year">("month");
   const currentMonth = new Date()
@@ -1280,7 +1283,30 @@ function AccountStats() {
             )}
           </>
         )}
+        {isAdmin && (
+          <div className="mt-2 flex justify-end">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditingAccounts(true)}
+            >
+              <Pencil className="size-3.5" />
+              编辑账户
+            </Button>
+          </div>
+        )}
       </Card>
+      {editingAccounts && isAdmin && (
+        <OfflineAccountCostsDialog
+          accounts={data?.offlineAccounts ?? []}
+          departments={departments}
+          defaultMonth={month}
+          onSaved={() =>
+            queryClient.invalidateQueries({ queryKey: ACCOUNT_COSTS_KEY })
+          }
+          onClose={() => setEditingAccounts(false)}
+        />
+      )}
       {editing && isAdmin && data && (
         <ManualAccountCostsDialog
           initial={data.manualAccounts}
@@ -1419,13 +1445,12 @@ function AccountCostsMultiLineChart({
   title: string;
   series: { name: string; color: string; points: AccountCostTimePoint[] }[];
 }) {
-  const [hidden, setHidden] = useState<string[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [hovered, setHovered] = useState<{ key: string; cents: number } | null>(
     null,
   );
   const points = series[0]?.points ?? [];
-  const visible = series.filter((item) => !hidden.includes(item.name));
+  const visible = series;
   const active =
     points.find((point) => point.key === activeKey) ??
     points
@@ -1570,34 +1595,7 @@ function AccountCostsMultiLineChart({
       <p className="mt-1 text-[11px] text-muted-foreground">
         每个部门独立曲线 · 仅绘制有支出的节点 · USD
       </p>
-      <div
-        className="my-4 flex flex-wrap gap-2"
-        role="group"
-        aria-label="部门曲线图例"
-      >
-        {series.map((item) => (
-          <button
-            key={item.name}
-            type="button"
-            aria-pressed={!hidden.includes(item.name)}
-            onClick={() =>
-              setHidden((current) =>
-                current.includes(item.name)
-                  ? current.filter((name) => name !== item.name)
-                  : [...current, item.name],
-              )
-            }
-            className={`flex items-center gap-2 rounded-full border border-border px-2.5 py-1 text-[11px] transition-opacity ${hidden.includes(item.name) ? "opacity-40" : ""}`}
-          >
-            <span
-              className="h-0.5 w-4"
-              style={{ backgroundColor: item.color }}
-            />
-            {item.name}
-          </button>
-        ))}
-      </div>
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_15rem]">
+      <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="min-w-0 overflow-x-auto">
           <svg
             viewBox={`0 0 ${width} 282`}
@@ -1866,9 +1864,7 @@ function AccountCostsMultiLineChart({
             );
           })}
           {!details.length && (
-            <p className="text-xs text-muted-foreground">
-              点击图例可恢复部门曲线。
-            </p>
+            <p className="text-xs text-muted-foreground">暂无部门费用记录。</p>
           )}
         </aside>
       </div>
