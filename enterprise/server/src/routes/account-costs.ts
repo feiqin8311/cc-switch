@@ -1,6 +1,7 @@
 import {
   CODING_PLAN_ACCOUNT_ID,
   CODING_PLAN_ACCOUNT_NAME,
+  normalizeAccountCostDepartment,
   ManualAccountCostsRequestSchema,
   UsageAccountCostsResponseSchema,
 } from "@ccse/contracts";
@@ -97,8 +98,16 @@ export async function accountCostsRoutes(
       ],
     },
     async (req, reply) => {
-      const role = authOf(req).user.role;
-      if (role !== "admin" && role !== "leader") throw forbidden();
+      const actor = authOf(req).user;
+      const role = actor.role;
+      if (role !== "admin" && role !== "leader" && role !== "group_leader")
+        throw forbidden();
+      const departmentScope =
+        role === "group_leader"
+          ? normalizeAccountCostDepartment(actor.groupName ?? "")
+          : null;
+      if (departmentScope === "")
+        throw forbidden("尚未分配所属组，无法查看账户统计");
       reply.header("Cache-Control", "no-store");
       const query = parseBody(
         z
@@ -122,8 +131,26 @@ export async function accountCostsRoutes(
         (query.period === "month" ? current : current.slice(0, 4));
       // Refresh even for past-month views: a newly discovered cycle may belong to last month.
       const { ledger } = await refreshLedger();
-      const snapshots = ledgerMonths(ledger);
-      const legacy = await readCostMonths(db, config.demoUpstreamAccounts);
+      const visibleLedger =
+        departmentScope === null
+          ? ledger
+          : ledger
+              .map((account) => ({
+                ...account,
+                cycles: account.cycles
+                  .filter(
+                    (cycle) =>
+                      normalizeAccountCostDepartment(cycle.department) ===
+                      departmentScope,
+                  )
+                  .map((cycle) => ({ ...cycle, department: departmentScope })),
+              }))
+              .filter((account) => account.cycles.length > 0);
+      const snapshots = ledgerMonths(visibleLedger);
+      const legacy =
+        role === "admin"
+          ? await readCostMonths(db, config.demoUpstreamAccounts)
+          : [];
       const selected = snapshots.filter((s) =>
         query.period === "month"
           ? s.month === value
@@ -154,7 +181,8 @@ export async function accountCostsRoutes(
       const manualAccounts =
         role === "admin" ? ledgerManualAccounts(ledger) : [];
       return UsageAccountCostsResponseSchema.parse({
-        pendingDateCount: ledger
+        departmentScope,
+        pendingDateCount: visibleLedger
           .flatMap((account) => account.cycles)
           .filter((cycle) => cycle.month === null).length,
         legacySnapshotCount: role === "admin" ? legacy.length : 0,
