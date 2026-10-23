@@ -85,11 +85,27 @@ const FIXTURES: Record<string, unknown> = {
   },
   "/admin/usage/devices": { items: [] },
   "/admin/usage/account-costs": {
-    configured: true, unpricedCount: 0,
+    configured: true,
+    unpricedCount: 0,
     items: [
-      { department: "运营部-EZARC", monthlyUsd: 120, accountCount: 2, unpricedCount: 0 },
-      { department: "技术部&独立站", monthlyUsd: 80, accountCount: 4, unpricedCount: 0 },
-      { department: "Libraton组", monthlyUsd: 40, accountCount: 2, unpricedCount: 0 },
+      {
+        department: "运营部-EZARC",
+        monthlyUsd: 120,
+        accountCount: 2,
+        unpricedCount: 0,
+      },
+      {
+        department: "技术部&独立站",
+        monthlyUsd: 80,
+        accountCount: 4,
+        unpricedCount: 0,
+      },
+      {
+        department: "Libraton组",
+        monthlyUsd: 40,
+        accountCount: 2,
+        unpricedCount: 0,
+      },
     ],
   },
   "/admin/upstream/accounts": {
@@ -246,7 +262,10 @@ function sessionFor(
   };
 }
 
-function renderAt(path: string, permissions: Permission[], user: User = admin,
+function renderAt(
+  path: string,
+  permissions: Permission[],
+  user: User = admin,
   override?: (route: string, init?: RequestInit) => Response | undefined,
 ) {
   const posts: string[] = [];
@@ -394,6 +413,24 @@ describe("App", () => {
     expect(await screen.findByRole("option", { name: "bob" })).toBeTruthy();
   });
 
+  it("hides account statistics from group leaders", async () => {
+    renderAt("/usage", permissionsForRole("group_leader"), leader);
+    await screen.findByText("按用户汇总");
+    expect(screen.queryByRole("heading", { name: "账户统计" })).toBeNull();
+  });
+
+  it("shows account statistics to the Leader role", async () => {
+    const usageLeader: User = {
+      ...admin,
+      role: "leader",
+      adminMenus: ["usage"],
+    };
+    renderAt("/usage", ["usage.read"], usageLeader);
+    expect(
+      await screen.findByRole("heading", { name: "账户统计" }),
+    ).toBeTruthy();
+  });
+
   it("lets admins assign the group leader role", async () => {
     renderAt("/users", permissionsForRole("admin"));
     await screen.findByText("bob");
@@ -440,22 +477,44 @@ describe("App", () => {
         monthlyUsd = JSON.parse(String(init?.body)).items[0].monthlyUsd;
         return new Response(null, { status: 204 });
       }
-      if (route === "/admin/usage/account-costs") return Response.json({
-        configured: true, unpricedCount: monthlyUsd === null ? 1 : 0,
-        items: [{department: "技术部&独立站", monthlyUsd: monthlyUsd ?? 0, accountCount: 1, unpricedCount: monthlyUsd === null ? 1 : 0}],
-        manualAccounts: [{accountId: 99, name: "Unknown-GPT", platform: "openai", planType: null, department: "技术部&独立站", monthlyUsd}],
-      });
+      if (route === "/admin/usage/account-costs")
+        return Response.json({
+          configured: true,
+          unpricedCount: monthlyUsd === null ? 1 : 0,
+          items: [
+            {
+              department: "技术部&独立站",
+              monthlyUsd: monthlyUsd ?? 0,
+              accountCount: 1,
+              unpricedCount: monthlyUsd === null ? 1 : 0,
+            },
+          ],
+          manualAccounts: [
+            {
+              accountId: 99,
+              name: "Unknown-GPT",
+              platform: "openai",
+              planType: null,
+              department: "技术部&独立站",
+              monthlyUsd,
+            },
+          ],
+        });
       return undefined;
     });
-    fireEvent.click(await screen.findByRole("button", {name: "手动编辑"}));
-    const dialog = screen.getByRole("dialog", {name: "编辑未识别套餐费用"});
-    fireEvent.change(within(dialog).getByLabelText("每月费用（USD）"), {target: {value: "35.50"}});
+    fireEvent.click(await screen.findByRole("button", { name: "手动编辑" }));
+    const dialog = screen.getByRole("dialog", { name: "编辑未识别套餐费用" });
+    fireEvent.change(within(dialog).getByLabelText("每月费用（USD）"), {
+      target: { value: "35.50" },
+    });
     fireEvent.submit(document.getElementById("manual-account-costs")!);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(monthlyUsd).toBe(35.5);
     expect(screen.getAllByText("$35.50")).toHaveLength(2);
-    expect(await screen.findByText("未识别套餐的费用已手动补充。")).toBeTruthy();
-    expect(screen.getByRole("button", {name: "手动编辑"})).toBeTruthy();
+    expect(
+      await screen.findByText("未识别套餐的费用已手动补充。"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "手动编辑" })).toBeTruthy();
   });
 
   it("filters usage by user, group and provider", async () => {

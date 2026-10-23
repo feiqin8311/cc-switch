@@ -50,6 +50,8 @@ export async function accountCostsRoutes(
       ],
     },
     async (req, reply) => {
+      const role = authOf(req).user.role;
+      if (role !== "admin" && role !== "leader") throw forbidden();
       reply.header("Cache-Control", "no-store");
       const [accounts, overrides] = await Promise.all([
         liveAccounts(),
@@ -57,7 +59,7 @@ export async function accountCostsRoutes(
       ]);
       const items = aggregateAccountCosts(accounts, overrides);
       const manualAccounts =
-        authOf(req).user.role === "admin"
+        role === "admin"
           ? accounts.flatMap((account) => {
               const department = accountDepartment(account.name);
               if (!department || monthlySubscriptionUsd(account) !== null)

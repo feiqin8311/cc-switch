@@ -195,6 +195,31 @@ describe("live upstream subscription costs", () => {
         items: [{ monthlyUsd: 35.5 }],
         manualAccounts: [],
       });
+      await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/admin/users",
+        headers,
+        payload: {
+          username: "group-cost-reader",
+          password: "password123",
+          role: "group_leader",
+          groupName: "Libraton组",
+        },
+      });
+      const groupReader = await login(
+        ctx.app,
+        "group-cost-reader",
+        "password123",
+      );
+      expect(
+        (
+          await ctx.app.inject({
+            method: "GET",
+            url: base,
+            headers: bearer(groupReader.accessToken),
+          })
+        ).statusCode,
+      ).toBe(403);
       body.items[0]!.monthlyUsd = 0;
       expect((await write()).statusCode).toBe(204);
       expect(
