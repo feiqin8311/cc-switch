@@ -701,7 +701,11 @@ function AccountStats() {
   const costs = savedCosts
     .filter((item) => !department || item.department === department)
     .map((item) => ({
-      name: item.department,
+      name: department
+        ? period === "month"
+          ? `${Number(month.slice(5, 7))}月`
+          : `${year}年`
+        : item.department,
       monthlyUsd: item.monthlyUsd,
       amount: item.monthlyUsd,
     }))
