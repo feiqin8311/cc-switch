@@ -9,17 +9,19 @@ import { z } from "zod";
 import type { AppDeps } from "../app.ts";
 import { authOf, requireAnyPermission } from "../auth/guard.ts";
 import { forbidden, parseBody } from "../errors.ts";
+import {
+  recordSubscriptions,
+  ledgerMonths,
+  ledgerManualAccounts,
+} from "../usage/subscription-ledger.ts";
 import { demoUpstreamAccounts } from "../demo-upstream.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
 import {
-  accountDepartment,
   aggregateAccountCosts,
-  monthlySubscriptionUsd,
   manualCostKey,
   readManualCosts,
   saveManualCosts,
   currentCostMonth,
-  saveCostMonth,
   readCostMonths,
 } from "../usage/account-costs.ts";
 
@@ -43,32 +45,36 @@ export async function accountCostsRoutes(
               name: CODING_PLAN_ACCOUNT_NAME,
               platform: "volcengine",
               planType: codingPlan.subscription?.planType ?? null,
+              subscriptionExpiresAt: codingPlan.subscription?.expiresAt ?? null,
             },
           ]
         : []),
     ];
   };
-  const refreshSnapshot = async () => {
-    const month = currentCostMonth();
+  const refreshLedger = async () => {
     const [accounts, overrides] = await Promise.all([
       liveAccounts(),
       readManualCosts(db),
     ]);
-    const items = aggregateAccountCosts(accounts, overrides);
-    if (config.demoUpstreamAccounts || config.sub2api || config.volcengine)
-      await saveCostMonth(db, month, items, config.demoUpstreamAccounts);
-    return { accounts, overrides };
+    const ledger = await recordSubscriptions(
+      db,
+      accounts,
+      overrides,
+      config.demoUpstreamAccounts,
+    );
+    return { ledger, overrides };
   };
-  // Record independently of dashboard visits. Closed months are never rewritten.
+
+  // Observe renewal cycles independently of dashboard visits; existing charges are retained.
   if (config.env !== "test") {
     let running = false;
     const record = async () => {
       if (running) return;
       running = true;
       try {
-        await refreshSnapshot();
+        await refreshLedger();
       } catch (error) {
-        app.log.error({ err: error }, "subscription snapshot failed");
+        app.log.error({ err: error }, "subscription ledger sync failed");
       } finally {
         running = false;
       }
@@ -114,14 +120,10 @@ export async function accountCostsRoutes(
       const value =
         query.value ??
         (query.period === "month" ? current : current.slice(0, 4));
-      const isCurrent =
-        query.period === "month"
-          ? value === current
-          : value === current.slice(0, 4);
-      const { accounts, overrides } = isCurrent
-        ? await refreshSnapshot()
-        : { accounts: [], overrides: new Map() };
-      const snapshots = await readCostMonths(db, config.demoUpstreamAccounts);
+      // Refresh even for past-month views: a newly discovered cycle may belong to last month.
+      const { ledger } = await refreshLedger();
+      const snapshots = ledgerMonths(ledger);
+      const legacy = await readCostMonths(db, config.demoUpstreamAccounts);
       const selected = snapshots.filter((s) =>
         query.period === "month"
           ? s.month === value
@@ -150,28 +152,12 @@ export async function accountCostsRoutes(
           a.department.localeCompare(b.department, "zh-CN"),
       );
       const manualAccounts =
-        role === "admin" && isCurrent
-          ? accounts.flatMap((account) => {
-              const department = accountDepartment(account.name);
-              if (!department || monthlySubscriptionUsd(account) !== null)
-                return [];
-              const identity = {
-                accountId: account.id,
-                platform: account.platform,
-                planType: account.planType,
-              };
-              return [
-                {
-                  ...identity,
-                  name: account.name,
-                  department,
-                  monthlyUsd:
-                    overrides.get(manualCostKey(identity))?.monthlyUsd ?? null,
-                },
-              ];
-            })
-          : [];
+        role === "admin" ? ledgerManualAccounts(ledger) : [];
       return UsageAccountCostsResponseSchema.parse({
+        pendingDateCount: ledger
+          .flatMap((account) => account.cycles)
+          .filter((cycle) => cycle.month === null).length,
+        legacySnapshotCount: role === "admin" ? legacy.length : 0,
         history: snapshots.sort((a, b) => a.month.localeCompare(b.month)),
         recordedMonths: selected.map((s) => s.month).sort(),
         availableMonths: snapshots.map((s) => s.month).sort(),
@@ -198,28 +184,12 @@ export async function accountCostsRoutes(
     },
     async (req, reply) => {
       const body = parseBody(ManualAccountCostsRequestSchema, req.body);
-      const accounts = await liveAccounts();
-      const allowed = new Set(
-        accounts
-          .filter(
-            (account) =>
-              accountDepartment(account.name) &&
-              monthlySubscriptionUsd(account) === null,
-          )
-          .map((account) =>
-            manualCostKey({
-              accountId: account.id,
-              platform: account.platform,
-              planType: account.planType,
-            }),
-          ),
-      );
+      const { ledger } = await refreshLedger();
+      const allowed = new Set(ledgerManualAccounts(ledger).map(manualCostKey));
       if (body.items.some((item) => !allowed.has(manualCostKey(item))))
-        throw forbidden(
-          "Only current unrecognized subscriptions can be edited",
-        );
+        throw forbidden("Only pending subscription charges can be completed");
       await saveManualCosts(db, body.items);
-      await refreshSnapshot();
+      await refreshLedger();
       req.log.info(
         { actor: authOf(req).user.id, accounts: body.items.length },
         "manual subscription costs updated",

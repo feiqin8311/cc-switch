@@ -21,6 +21,8 @@ export function demoUpstreamAccounts(): UpstreamAccount[] {
   ];
   return names.map((name, index) => ({
     id: 900001 + index,
+    subscriptionExpiresAt:
+      index === 11 ? "2026-11-19T15:59:00Z" : "2026-10-23T08:00:00Z",
     name,
     email: null,
     platform: index === 3 ? "grok" : index === 11 ? "volcengine" : "openai",

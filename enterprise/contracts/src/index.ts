@@ -562,6 +562,11 @@ export const UsageResponseSchema = z.object({ items: z.array(UsageRowSchema) });
 export type UsageResponse = z.infer<typeof UsageResponseSchema>;
 
 export const ManualAccountCostSchema = z.object({
+  billingMonth: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+    .nullable()
+    .optional(),
   accountId: z.number().int(),
   platform: z.string().max(100),
   planType: z.string().max(200).nullable(),
@@ -572,6 +577,8 @@ export const ManualAccountCostsRequestSchema = z.object({
 });
 export type ManualAccountCost = z.infer<typeof ManualAccountCostSchema>;
 export const ManualAccountCostDetailSchema = ManualAccountCostSchema.extend({
+  needsBillingMonth: z.boolean().default(false),
+  automaticPricing: z.boolean().default(false),
   name: z.string(),
   department: z.string(),
 });
@@ -585,6 +592,8 @@ const AccountCostGroupSchema = z.object({
 
 /** Period totals and recorded monthly history, grouped by department. */
 export const UsageAccountCostsResponseSchema = z.object({
+  pendingDateCount: z.number().int().nonnegative().default(0),
+  legacySnapshotCount: z.number().int().nonnegative().default(0),
   demo: z.boolean().default(false),
   recordedMonths: z.array(z.string()).default([]),
   availableMonths: z.array(z.string()).default([]),
@@ -1382,6 +1391,7 @@ export const UpstreamWindowSchema = z.object({
 export type UpstreamWindow = z.infer<typeof UpstreamWindowSchema>;
 
 export const UpstreamAccountSchema = z.object({
+  subscriptionExpiresAt: z.string().nullable().default(null),
   /** Subscription SKU only; no credentials are exposed. */
   planType: z.string().nullable().default(null),
   id: z.number().int(),

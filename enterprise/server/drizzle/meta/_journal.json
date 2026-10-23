@@ -71,6 +71,20 @@
       "when": 1792500000000,
       "tag": "0009_admin_menus",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0010_rename_libraton_group",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0011_rename_technical_group",
+      "breakpoints": true
     }
   ]
 }

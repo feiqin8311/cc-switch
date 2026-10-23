@@ -412,10 +412,10 @@ describe("admin users", () => {
       method: "PATCH",
       url: `/api/v1/admin/users/${created.id}`,
       headers: bearer(adminToken),
-      payload: { groupName: " Libraton组 " },
+      payload: { groupName: " 运营部-LIBRATON " },
     });
     expect(set.statusCode).toBe(200);
-    expect(UserSchema.parse(set.json()).groupName).toBe("Libraton组");
+    expect(UserSchema.parse(set.json()).groupName).toBe("运营部-LIBRATON");
     const cleared = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/admin/users/${created.id}`,

@@ -17,7 +17,7 @@ let member: User;
 let outsider: User;
 let ungrouped: SessionResponse;
 const password = "test-password-123";
-const groupName = "Libraton组";
+const groupName = "运营部-LIBRATON";
 const range = "?from=2026-10-01&to=2026-10-20";
 
 async function create(username: string, role: Role, groupName: string) {

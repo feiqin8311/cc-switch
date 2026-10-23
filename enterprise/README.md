@@ -151,3 +151,22 @@ streaming responses on `/gateway/` (e.g. `proxy_read_timeout 600s;
 proxy_buffering off;` in nginx) and request bodies up to 32 MB.
 
 Back up the Postgres volume and `SECRETS_KEY`.
+
+### Subscription renewal accounting
+
+Account costs now use a retained per-account renewal ledger, rather than replacing
+monthly totals with the current live account list. Live Sub2API accounts are
+paginated; subscription expiry comes from `credentials.subscription_expires_at`
+or inherited `parent_subscription_expires_at`. For monthly subscriptions the
+estimated payment month is the expiry month minus one (Asia/Shanghai).
+Quota reset times and access-token expiry never determine payment dates.
+
+Each observed account/expiry cycle is recorded once. Removing or disabling an
+account, renaming it, or changing a quoted price does not subtract or move a
+recorded charge. A new expiry cycle adds a new charge. Missing dates remain
+pending until an administrator confirms the billing month; unknown prices can
+be completed even after an account has disappeared. This is an inferred renewal
+ledger, not an imported payment receipt or a reconstruction of unobserved cycles.
+Legacy live-list monthly snapshots remain in settings for reconciliation and
+are excluded from new ledger totals to avoid double counting. Demo ledger data
+is isolated from live data.
