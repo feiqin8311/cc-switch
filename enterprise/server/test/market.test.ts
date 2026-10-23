@@ -814,7 +814,7 @@ describe("market visibility", () => {
           method: "PATCH",
           url: `/api/v1/admin/users/${others.id}`,
           headers: bearer(adminToken),
-          payload: { groupName: "Libraton组" },
+          payload: { groupName: "运营部-LIBRATON" },
         })
       ).statusCode,
     ).toBe(200);
@@ -824,7 +824,7 @@ describe("market visibility", () => {
           method: "PATCH",
           url: "/api/v1/admin/market/items/secret-skill",
           headers: bearer(adminToken),
-          payload: { visibleUserIds: [], visibleGroups: ["Libraton组"] },
+          payload: { visibleUserIds: [], visibleGroups: ["运营部-LIBRATON"] },
         })
       ).statusCode,
     ).toBe(200);

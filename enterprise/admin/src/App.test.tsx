@@ -110,13 +110,13 @@ const FIXTURES: Record<string, unknown> = {
         unpricedCount: 0,
       },
       {
-        department: "技术部&独立站",
+        department: "技术部&独立站&TK",
         monthlyUsd: 80,
         accountCount: 4,
         unpricedCount: 0,
       },
       {
-        department: "Libraton组",
+        department: "运营部-LIBRATON",
         monthlyUsd: 40,
         accountCount: 2,
         unpricedCount: 0,
@@ -380,7 +380,7 @@ describe("App", () => {
   const leader: User = {
     ...admin,
     role: "group_leader",
-    groupName: "Libraton组",
+    groupName: "运营部-LIBRATON",
   };
 
   it("limits group leader editing to member/viewer roles", async () => {
@@ -420,7 +420,7 @@ describe("App", () => {
   it("fixes group leader usage to their group while allowing member selection", async () => {
     renderAt("/usage", permissionsForRole("group_leader"), leader);
     const group = await screen.findByRole("textbox", { name: "所属组" });
-    expect((group as HTMLInputElement).value).toBe("Libraton组");
+    expect((group as HTMLInputElement).value).toBe("运营部-LIBRATON");
     expect((group as HTMLInputElement).readOnly).toBe(true);
     expect(screen.queryByRole("button", { name: "按组筛选" })).toBeNull();
     await screen.findByText("按用户汇总");
@@ -453,7 +453,7 @@ describe("App", () => {
                 name: "Unknown-GPT",
                 platform: "openai",
                 planType: null,
-                department: "技术部&独立站",
+                department: "技术部&独立站&TK",
                 monthlyUsd: null,
               },
             ],
@@ -566,6 +566,183 @@ describe("App", () => {
     expect(screen.queryByText(/账号月数/)).toBeNull();
   });
 
+  it("switches chart types without losing department filters and keeps missing months as gaps", async () => {
+    const currentYear = new Date()
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+      .slice(0, 4);
+    const item = (monthlyUsd: number) => ({
+      department: "运营部-EZARC",
+      monthlyUsd,
+      accountCount: 2,
+      unpricedCount: 0,
+    });
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage/account-costs"
+        ? Response.json({
+            configured: true,
+            unpricedCount: 0,
+            items: [item(90)],
+            history: [
+              { month: `${currentYear}-01`, items: [item(40)] },
+              { month: `${currentYear}-02`, items: [item(60)] },
+              { month: `${currentYear}-04`, items: [item(90)] },
+            ],
+          })
+        : undefined,
+    );
+    await screen.findAllByText("$90.00");
+    fireEvent.change(screen.getByRole("combobox", { name: "费用部门" }), {
+      target: { value: "运营部-EZARC" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "折线图" }));
+    const chart = await screen.findByRole("group", { name: "订阅费用折线图" });
+    expect(chart.querySelectorAll('path[fill="none"]')).toHaveLength(1);
+    const january = within(chart).getByRole("button", { name: /1月：/ });
+    fireEvent.focus(january);
+    expect(within(chart).getByText("$40.00")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "费用月份" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "柱状图" }));
+    expect(
+      await screen.findByRole("group", { name: "部门订阅费用趋势图" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "订阅费用折线图" })).toBeNull();
+  });
+
+  it("plots a separate time series per department in the all-department line chart", async () => {
+    const year = new Date()
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+      .slice(0, 4);
+    const previous = String(Number(year) - 1);
+    const items = (a: number, b: number) => [
+      {
+        department: "运营部-EZARC",
+        monthlyUsd: a,
+        accountCount: 2,
+        unpricedCount: 0,
+      },
+      {
+        department: "产品部",
+        monthlyUsd: b,
+        accountCount: 1,
+        unpricedCount: 0,
+      },
+    ];
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage/account-costs"
+        ? Response.json({
+            configured: true,
+            unpricedCount: 0,
+            items: items(60, 30),
+            history: [
+              { month: `${previous}-01`, items: items(20, 10) },
+              { month: `${year}-01`, items: items(40, 20) },
+              { month: `${year}-02`, items: items(60, 30) },
+            ],
+          })
+        : undefined,
+    );
+    await screen.findByText("$90.00");
+    fireEvent.click(screen.getByRole("button", { name: "折线图" }));
+    const chart = await screen.findByRole("group", {
+      name: "全部部门费用趋势图",
+    });
+    expect(within(chart).getByText("1月")).toBeTruthy();
+    expect(within(chart).getByText("12月")).toBeTruthy();
+    const series = chart.querySelectorAll("[data-series]");
+    expect(series).toHaveLength(2);
+    expect(series[0]?.getAttribute("style")).not.toBe(
+      series[1]?.getAttribute("style"),
+    );
+    expect(chart.querySelectorAll('path[fill="none"]')).toHaveLength(2);
+    expect(screen.queryByRole("combobox", { name: "费用月份" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "费用年份" })).toBeTruthy();
+    expect(screen.getByText("$150.00")).toBeTruthy();
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "部门曲线图例" })).getByRole(
+        "button",
+        { name: "产品部" },
+      ),
+    );
+    expect(chart.querySelectorAll("[data-series]")).toHaveLength(1);
+    expect(screen.getByText("$150.00")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "按年" }));
+    expect(screen.queryByRole("combobox", { name: "费用年份" })).toBeNull();
+    expect(within(chart).getByText(`${previous}年`)).toBeTruthy();
+    expect(
+      within(chart).getByText(`${year}年`, { selector: "text" }),
+    ).toBeTruthy();
+    expect(screen.getByText("$180.00")).toBeTruthy();
+  });
+
+  it("sorts active-period details by cost and exposes every department sharing a node", async () => {
+    const year = new Date()
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+      .slice(0, 4);
+    const items = (a: number, b: number, c: number) => [
+      {
+        department: "运营部-EZARC",
+        monthlyUsd: a,
+        accountCount: 2,
+        unpricedCount: 0,
+      },
+      {
+        department: "产品部",
+        monthlyUsd: b,
+        accountCount: 1,
+        unpricedCount: 0,
+      },
+      {
+        department: "运营部-YPLUS",
+        monthlyUsd: c,
+        accountCount: 1,
+        unpricedCount: 0,
+      },
+    ];
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage/account-costs"
+        ? Response.json({
+            configured: true,
+            unpricedCount: 0,
+            items: items(120, 20, 20),
+            history: [
+              { month: `${year}-01`, items: items(10, 80, 20) },
+              { month: `${year}-02`, items: items(120, 20, 20) },
+            ],
+          })
+        : undefined,
+    );
+    await screen.findByText("$160.00");
+    fireEvent.click(screen.getByRole("button", { name: "折线图" }));
+    const chart = await screen.findByRole("group", {
+      name: "全部部门费用趋势图",
+    });
+    const details = within(chart).getByRole("group", {
+      name: "当期部门费用明细",
+    });
+    const order = () =>
+      Array.from(details.querySelectorAll("[data-cost-detail]")).map((node) =>
+        node.getAttribute("data-cost-detail"),
+      );
+    expect(order()[0]).toBe("运营部-EZARC");
+    const shared = within(chart).getAllByRole("button", {
+      name: /产品部、运营部-YPLUS 2月：/,
+    });
+    fireEvent.mouseEnter(shared[0]!);
+    expect(
+      within(details).getByText("同额部门：产品部、运营部-YPLUS"),
+    ).toBeTruthy();
+    const product = chart.querySelectorAll('[data-cost-marker="产品部"]')[1];
+    const yplus = chart.querySelectorAll(
+      '[data-cost-marker="运营部-YPLUS"]',
+    )[1];
+    expect(product?.getAttribute("r")).not.toBe(yplus?.getAttribute("r"));
+    expect(yplus?.getAttribute("class")).toContain("fill-none");
+    fireEvent.focus(
+      within(chart).getByRole("button", { name: /产品部 1月：/ }),
+    );
+    expect(order()).toEqual(["产品部", "运营部-YPLUS", "运营部-EZARC"]);
+  });
+
   it("edits an unrecognized monthly fee in a dialog and refreshes the total", async () => {
     let monthlyUsd: number | null = null;
     renderAt("/usage", permissionsForRole("admin"), admin, (route, init) => {
@@ -579,7 +756,7 @@ describe("App", () => {
           unpricedCount: monthlyUsd === null ? 1 : 0,
           items: [
             {
-              department: "技术部&独立站",
+              department: "技术部&独立站&TK",
               monthlyUsd: monthlyUsd ?? 0,
               accountCount: 1,
               unpricedCount: monthlyUsd === null ? 1 : 0,
@@ -591,7 +768,7 @@ describe("App", () => {
               name: "Unknown-GPT",
               platform: "openai",
               planType: null,
-              department: "技术部&独立站",
+              department: "技术部&独立站&TK",
               monthlyUsd,
             },
           ],

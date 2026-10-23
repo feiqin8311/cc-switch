@@ -18,6 +18,7 @@ export interface UpstreamWindow {
 }
 
 export interface UpstreamAccount {
+  subscriptionExpiresAt: string | null;
   planType: string | null;
   id: number;
   name: string;
@@ -108,6 +109,9 @@ export function accountFromSub2Api(
       ? (item.credentials as Record<string, unknown>)
       : {};
   return {
+    subscriptionExpiresAt:
+      str(credentials.subscription_expires_at) ??
+      str(item.parent_subscription_expires_at),
     planType: str(credentials.plan_type) ?? str(item.parent_plan_type),
     id: Math.floor(num(item.id)),
     name: str(item.name) ?? `#${item.id}`,

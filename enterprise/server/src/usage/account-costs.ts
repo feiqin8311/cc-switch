@@ -91,10 +91,10 @@ export function accountDepartment(name: string): string | null {
   const normalized = name.trim().toLowerCase();
   if (normalized.startsWith("kevin")) return null;
   if (normalized.startsWith("ezarc")) return "运营部-EZARC";
-  if (normalized.startsWith("libraton")) return "Libraton组";
+  if (normalized.startsWith("libraton")) return "运营部-LIBRATON";
   if (normalized.startsWith("yplus")) return "运营部-YPLUS";
   if (normalized.startsWith("产品部")) return "产品部";
-  return "技术部&独立站";
+  return "技术部&独立站&TK";
 }
 
 /** Subscription estimates, never API usage charges. Unknown SKUs stay unpriced. */
