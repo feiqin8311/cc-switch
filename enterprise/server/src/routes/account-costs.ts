@@ -3,6 +3,7 @@ import {
   CODING_PLAN_ACCOUNT_NAME,
   normalizeAccountCostDepartment,
   ManualAccountCostsRequestSchema,
+  OfflineAccountCostInputSchema,
   UsageAccountCostsResponseSchema,
 } from "@ccse/contracts";
 import type { FastifyInstance } from "fastify";
@@ -15,7 +16,14 @@ import {
   ledgerMonths,
   ledgerManualAccounts,
   mergeAccountBreakdowns,
+  readLedger,
 } from "../usage/subscription-ledger.ts";
+import {
+  readOfflineAccountCosts,
+  offlineAccountLedger,
+  saveOfflineAccountCost,
+  deleteOfflineAccountCost,
+} from "../usage/offline-account-costs.ts";
 import { demoUpstreamAccounts } from "../demo-upstream.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
 import {
@@ -131,11 +139,24 @@ export async function accountCostsRoutes(
         query.value ??
         (query.period === "month" ? current : current.slice(0, 4));
       // Refresh even for past-month views: a newly discovered cycle may belong to last month.
-      const { ledger } = await refreshLedger();
+      const [{ ledger }, offlineAccounts] = await Promise.all([
+        refreshLedger().catch(async (error) => {
+          app.log.warn(
+            { err: error },
+            "upstream refresh failed; showing recorded subscription costs",
+          );
+          return { ledger: await readLedger(db, config.demoUpstreamAccounts) };
+        }),
+        readOfflineAccountCosts(db, config.demoUpstreamAccounts),
+      ]);
+      const combinedLedger = [
+        ...ledger,
+        ...offlineAccountLedger(offlineAccounts),
+      ];
       const visibleLedger =
         departmentScope === null
-          ? ledger
-          : ledger
+          ? combinedLedger
+          : combinedLedger
               .map((account) => ({
                 ...account,
                 cycles: account.cycles
@@ -199,11 +220,74 @@ export async function accountCostsRoutes(
         configured:
           config.demoUpstreamAccounts ||
           !!config.sub2api ||
-          !!config.volcengine,
+          !!config.volcengine ||
+          offlineAccounts.length > 0,
         items,
         manualAccounts,
+        offlineAccounts: role === "admin" ? offlineAccounts : [],
         unpricedCount: items.reduce((sum, item) => sum + item.unpricedCount, 0),
       });
+    },
+  );
+  const offlineAdminOnly = [
+    authenticate,
+    async (req: Parameters<typeof authOf>[0]) => {
+      if (authOf(req).user.role !== "admin") throw forbidden();
+    },
+  ];
+  app.post(
+    "/admin/usage/account-costs/accounts",
+    { preHandler: offlineAdminOnly },
+    async (req, reply) => {
+      const input = parseBody(OfflineAccountCostInputSchema, req.body);
+      const account = await saveOfflineAccountCost(
+        db,
+        config.demoUpstreamAccounts,
+        input,
+      );
+      req.log.info(
+        { actor: authOf(req).user.id, accountId: account.id },
+        "manual account added",
+      );
+      return reply.status(201).send(account);
+    },
+  );
+  app.put(
+    "/admin/usage/account-costs/accounts/:id",
+    { preHandler: offlineAdminOnly },
+    async (req) => {
+      const { id } = parseBody(
+        z.object({ id: z.coerce.number().int().safe().negative() }),
+        req.params,
+      );
+      const input = parseBody(OfflineAccountCostInputSchema, req.body);
+      const account = await saveOfflineAccountCost(
+        db,
+        config.demoUpstreamAccounts,
+        input,
+        id,
+      );
+      req.log.info(
+        { actor: authOf(req).user.id, accountId: account.id },
+        "manual account updated",
+      );
+      return account;
+    },
+  );
+  app.delete(
+    "/admin/usage/account-costs/accounts/:id",
+    { preHandler: offlineAdminOnly },
+    async (req, reply) => {
+      const { id } = parseBody(
+        z.object({ id: z.coerce.number().int().safe().negative() }),
+        req.params,
+      );
+      await deleteOfflineAccountCost(db, config.demoUpstreamAccounts, id);
+      req.log.info(
+        { actor: authOf(req).user.id, accountId: id },
+        "manual account and charges deleted",
+      );
+      return reply.status(204).send();
     },
   );
   app.put(
