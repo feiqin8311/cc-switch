@@ -583,6 +583,23 @@ export const ManualAccountCostDetailSchema = ManualAccountCostSchema.extend({
   department: z.string(),
 });
 
+/** Canonical department names, including names used by older group settings. */
+export function normalizeAccountCostDepartment(name: string): string {
+  const trimmed = name.trim();
+  const aliases: Record<string, string> = {
+    "运营部-ezarc": "运营部-EZARC",
+    "运营部-yplus": "运营部-YPLUS",
+    libraton组: "运营部-LIBRATON",
+    "运营部-libraton": "运营部-LIBRATON",
+    技术部: "技术部&独立站&TK",
+    "技术部&独立站": "技术部&独立站&TK",
+    "技术部&独立站&tk": "技术部&独立站&TK",
+  };
+  return Object.hasOwn(aliases, trimmed.toLowerCase())
+    ? aliases[trimmed.toLowerCase()]!
+    : trimmed;
+}
+
 const AccountCostGroupSchema = z.object({
   department: z.string(),
   monthlyUsd: z.number().nonnegative(),
@@ -592,6 +609,7 @@ const AccountCostGroupSchema = z.object({
 
 /** Period totals and recorded monthly history, grouped by department. */
 export const UsageAccountCostsResponseSchema = z.object({
+  departmentScope: z.string().nullable().default(null),
   pendingDateCount: z.number().int().nonnegative().default(0),
   legacySnapshotCount: z.number().int().nonnegative().default(0),
   demo: z.boolean().default(false),

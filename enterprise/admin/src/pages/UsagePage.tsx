@@ -1,5 +1,6 @@
 import {
   UsageAccountCostsResponseSchema,
+  normalizeAccountCostDepartment,
   type UsageAccountCostsResponse,
   DeviceUsageResponseSchema,
   UsageResponseSchema,
@@ -612,9 +613,9 @@ export function UsagePage() {
           </div>
         </Card>
       )}
-      {(session.user.role === "admin" || session.user.role === "leader") && (
-        <AccountStats />
-      )}
+      {(session.user.role === "admin" ||
+        session.user.role === "leader" ||
+        session.user.role === "group_leader") && <AccountStats />}
       {usage.isPending ? (
         <Card>
           <LoadingState />
@@ -659,7 +660,9 @@ export function UsagePage() {
 
 function AccountStats() {
   const client = useApi();
-  const isAdmin = useSession().user.role === "admin";
+  const session = useSession();
+  const isAdmin = session.user.role === "admin";
+  const groupScoped = session.user.role === "group_leader";
   const [editing, setEditing] = useState(false);
   const [chartType, setChartType] = useState<"bar" | "line">("bar");
   const [period, setPeriod] = useState<"month" | "year">("month");
@@ -668,7 +671,10 @@ function AccountStats() {
     .slice(0, 7);
   const [month, setMonth] = useState(currentMonth);
   const [year, setYear] = useState(currentMonth.slice(0, 4));
-  const [department, setDepartment] = useState("");
+  const [departmentSelection, setDepartment] = useState("");
+  const department = groupScoped
+    ? normalizeAccountCostDepartment(session.user.groupName || "未分配组")
+    : departmentSelection;
   const trendView = !!department || chartType === "line";
   const requestPeriod = trendView ? "year" : period;
   const selectedPeriod = trendView
@@ -679,7 +685,14 @@ function AccountStats() {
       ? month
       : year;
   const accountCosts = useQuery({
-    queryKey: [...ACCOUNT_COSTS_KEY, requestPeriod, selectedPeriod],
+    queryKey: [
+      ...ACCOUNT_COSTS_KEY,
+      session.user.id,
+      session.user.role,
+      groupScoped ? department : null,
+      requestPeriod,
+      selectedPeriod,
+    ],
     queryFn: ({ signal }) =>
       client.request("/admin/usage/account-costs", {
         query: { period: requestPeriod, value: selectedPeriod },
@@ -910,17 +923,26 @@ function AccountStats() {
               />
             </div>
           )}
-          <div className="w-48">
-            <Select
-              aria-label="费用部门"
-              value={department}
-              onChange={setDepartment}
-              options={[
-                { value: "", label: "全部部门" },
-                ...departments.map((name) => ({ value: name, label: name })),
-              ]}
-            />
-          </div>
+          {groupScoped ? (
+            <span
+              className="rounded-lg border border-border bg-background px-3 py-2 text-xs"
+              aria-label="所属费用部门"
+            >
+              {department}
+            </span>
+          ) : (
+            <div className="w-48">
+              <Select
+                aria-label="费用部门"
+                value={department}
+                onChange={setDepartment}
+                options={[
+                  { value: "", label: "全部部门" },
+                  ...departments.map((name) => ({ value: name, label: name })),
+                ]}
+              />
+            </div>
+          )}
           <div className="ml-auto text-xs text-muted-foreground">
             {department ? (
               `${department} · ${period === "month" ? month.slice(0, 4) + " 年月度趋势" : "历年费用趋势"}`
@@ -1263,12 +1285,15 @@ function AccountCostsMultiLineChart({
 }) {
   const [hidden, setHidden] = useState<string[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [activeAmount, setActiveAmount] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<{ key: string; cents: number } | null>(
+    null,
+  );
   const points = series[0]?.points ?? [];
   const visible = series.filter((item) => !hidden.includes(item.name));
   const active =
     points.find((point) => point.key === activeKey) ??
-    points.filter((point) => point.recorded).at(-1);
+    points.filter((point) => point.recorded).at(-1) ??
+    points[0];
   const details = visible
     .map((item) => ({
       ...item,
@@ -1280,26 +1305,6 @@ function AccountCostsMultiLineChart({
           (a.point?.recorded ? a.point.monthlyUsd : -Infinity) ||
         a.name.localeCompare(b.name, "zh-CN"),
     );
-  const overlappingAt = (point: AccountCostTimePoint, index: number) =>
-    visible.filter((item) => {
-      const other = item.points[index];
-      return (
-        other?.recorded &&
-        Math.round(other.monthlyUsd * 100) ===
-          Math.round(point.monthlyUsd * 100)
-      );
-    });
-  const selectedMatches = details.filter(
-    (item) =>
-      active?.key === activeKey &&
-      item.point?.recorded &&
-      activeAmount !== null &&
-      Math.round(item.point.monthlyUsd * 100) === activeAmount,
-  );
-  const selectPoint = (point: AccountCostTimePoint) => {
-    setActiveKey(point.key);
-    setActiveAmount(Math.round(point.monthlyUsd * 100));
-  };
   const width = Math.max(760, points.length * 76);
   const left = 64,
     right = width - 38,
@@ -1320,9 +1325,9 @@ function AccountCostsMultiLineChart({
     points.length === 1
       ? (left + right) / 2
       : left + (index * (right - left)) / Math.max(1, points.length - 1);
-  const y = (amount: number) => bottom - (amount / maximum) * (bottom - top);
-  const usd = (amount: number) =>
-    `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const y = (value: number) => bottom - (value / maximum) * (bottom - top);
+  const usd = (value: number) =>
+    `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const segments = (values: AccountCostTimePoint[]) => {
     const result: number[][] = [];
     values.forEach((point, index) => {
@@ -1332,6 +1337,79 @@ function AccountCostsMultiLineChart({
     });
     return result.filter((segment) => segment.length > 1);
   };
+  const selectAtX = (clientX: number, clientY: number, rect: DOMRect) => {
+    if (!rect.width || !points.length) return;
+    const position = ((clientX - rect.left) / rect.width) * width;
+    const index =
+      points.length === 1
+        ? 0
+        : Math.max(
+            0,
+            Math.min(
+              points.length - 1,
+              Math.round(
+                ((position - left) / (right - left)) * (points.length - 1),
+              ),
+            ),
+          );
+    const period = points[index]!;
+    setActiveKey(period.key);
+    if (!rect.height) {
+      setHovered(null);
+      return;
+    }
+    const distanceX = (Math.abs(x(index) - position) / width) * rect.width;
+    const svgY = ((clientY - rect.top) / rect.height) * 282;
+    const candidates = visible
+      .map((item) => item.points[index])
+      .filter((point): point is AccountCostTimePoint => !!point?.recorded)
+      .sort(
+        (a, b) =>
+          Math.abs(y(a.monthlyUsd) - svgY) - Math.abs(y(b.monthlyUsd) - svgY),
+      );
+    const nearest = candidates[0];
+    if (
+      nearest &&
+      distanceX <= 16 &&
+      (Math.abs(y(nearest.monthlyUsd) - svgY) / 282) * rect.height <= 16
+    )
+      setHovered({
+        key: period.key,
+        cents: Math.round(nearest.monthlyUsd * 100),
+      });
+    else setHovered(null);
+  };
+  const hoverDetails = hovered
+    ? visible
+        .flatMap((item) => {
+          const point = item.points.find((point) => point.key === hovered.key);
+          return point?.recorded &&
+            Math.round(point.monthlyUsd * 100) === hovered.cents
+            ? [{ ...item, point }]
+            : [];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+    : [];
+  const hoverIndex = points.findIndex((point) => point.key === hovered?.key);
+  const tooltipHeight = 46 + hoverDetails.length * 23;
+  const tooltipX =
+    hoverIndex >= 0
+      ? Math.max(
+          8,
+          x(hoverIndex) + 280 > width
+            ? x(hoverIndex) - 278
+            : x(hoverIndex) + 14,
+        )
+      : 0;
+  const tooltipY = hoverDetails[0]
+    ? Math.max(
+        4,
+        Math.min(
+          282 - tooltipHeight - 4,
+          y(hoverDetails[0].point.monthlyUsd) - tooltipHeight - 12,
+        ),
+      )
+    : 0;
   if (!points.length)
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
@@ -1340,54 +1418,10 @@ function AccountCostsMultiLineChart({
     );
   return (
     <div role="group" aria-label="全部部门费用趋势图" className="pb-2">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h3 className="text-xs font-medium">{title}</h3>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            每个部门独立曲线 · 缺失记录保留断点 · USD
-          </p>
-        </div>
-        {active && (
-          <div
-            className="min-w-48 rounded-lg bg-muted/35 px-3 py-2"
-            aria-live="polite"
-            role="group"
-            aria-label="当期部门费用明细"
-          >
-            <p className="mb-1.5 text-[11px] font-medium">{active.label}</p>
-            {details.map((item) => {
-              const point = item.point;
-              const highlighted = selectedMatches.some(
-                (match) => match.name === item.name,
-              );
-              return (
-                <div
-                  key={item.name}
-                  data-cost-detail={item.name}
-                  className={`flex items-center justify-between gap-5 rounded-md px-1 py-0.5 text-[11px] ${highlighted ? "bg-muted font-medium" : ""}`}
-                >
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <span
-                      className="size-1.5 rounded-full"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    {item.name}
-                  </span>
-                  <span className="tabular-nums">
-                    {point?.recorded ? usd(point.monthlyUsd) : "无记录"}
-                    {point?.unpricedCount ? " *" : ""}
-                  </span>
-                </div>
-              );
-            })}
-            {selectedMatches.length > 1 && (
-              <p className="mt-2 border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
-                同额部门：{selectedMatches.map((item) => item.name).join("、")}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+      <h3 className="text-xs font-medium">{title}</h3>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        每个部门独立曲线 · 缺失记录保留断点 · USD
+      </p>
       <div
         className="my-4 flex flex-wrap gap-2"
         role="group"
@@ -1415,165 +1449,279 @@ function AccountCostsMultiLineChart({
           </button>
         ))}
       </div>
-      <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${width} 282`}
-          className="w-full"
-          style={{ minWidth: Math.max(640, points.length * 58) }}
-          role="group"
-          aria-label="各部门按时间排列的费用曲线"
-        >
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
-            <g key={tick}>
-              <line
-                x1={left}
-                x2={right}
-                y1={y(maximum * tick)}
-                y2={y(maximum * tick)}
-                className="stroke-border"
-                strokeDasharray="3 5"
-              />
-              <text
-                x={left - 12}
-                y={y(maximum * tick) + 4}
-                textAnchor="end"
-                className="fill-muted-foreground text-[10px]"
-              >
-                {usd(maximum * tick).replace(/\.00$/, "")}
-              </text>
-            </g>
-          ))}
-          {points.map((point, index) => (
-            <g key={point.key}>
-              <text
-                x={x(index)}
-                y={bottom + 28}
-                textAnchor="middle"
-                className="fill-muted-foreground text-[10px]"
-              >
-                {point.label}
-              </text>
-              {!point.recorded && (
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_15rem]">
+        <div className="min-w-0 overflow-x-auto">
+          <svg
+            viewBox={`0 0 ${width} 282`}
+            className="w-full"
+            style={{ minWidth: Math.max(640, points.length * 58) }}
+            role="group"
+            aria-label="各部门按时间排列的费用曲线"
+            onMouseLeave={() => setHovered(null)}
+            onMouseMove={(event) =>
+              selectAtX(
+                event.clientX,
+                event.clientY,
+                event.currentTarget.getBoundingClientRect(),
+              )
+            }
+            onClick={(event) =>
+              selectAtX(
+                event.clientX,
+                event.clientY,
+                event.currentTarget.getBoundingClientRect(),
+              )
+            }
+          >
+            {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
+              <g key={tick}>
+                <line
+                  x1={left}
+                  x2={right}
+                  y1={y(maximum * tick)}
+                  y2={y(maximum * tick)}
+                  className="stroke-border"
+                  strokeDasharray="3 5"
+                />
+                <text
+                  x={left - 12}
+                  y={y(maximum * tick) + 4}
+                  textAnchor="end"
+                  className="fill-muted-foreground text-[10px]"
+                >
+                  {usd(maximum * tick).replace(/\.00$/, "")}
+                </text>
+              </g>
+            ))}
+            {points.map((point, index) => (
+              <g key={point.key}>
+                {active?.key === point.key && (
+                  <line
+                    x1={x(index)}
+                    x2={x(index)}
+                    y1={top}
+                    y2={bottom}
+                    className="stroke-muted-foreground"
+                    strokeOpacity="0.4"
+                    strokeDasharray="3 4"
+                    pointerEvents="none"
+                  />
+                )}
                 <text
                   x={x(index)}
-                  y={bottom - 10}
+                  y={bottom + 28}
                   textAnchor="middle"
                   className="fill-muted-foreground text-[10px]"
                 >
-                  {point.future ? "尚未到期" : "无记录"}
+                  {point.label}
                 </text>
-              )}
-              {active?.key === point.key && (
-                <line
-                  x1={x(index)}
-                  x2={x(index)}
-                  y1={top}
-                  y2={bottom}
-                  className="stroke-muted-foreground"
-                  strokeOpacity="0.3"
-                  strokeDasharray="3 4"
+                {!point.recorded && (
+                  <text
+                    x={x(index)}
+                    y={bottom - 10}
+                    textAnchor="middle"
+                    className="fill-muted-foreground text-[10px]"
+                  >
+                    {point.future ? "尚未到期" : "无记录"}
+                  </text>
+                )}
+              </g>
+            ))}
+            {visible.map((item, index) => (
+              <g
+                key={item.name}
+                data-series={item.name}
+                style={{ color: item.color }}
+              >
+                {segments(item.points).map((segment) => (
+                  <path
+                    key={segment[0]}
+                    d={segment
+                      .map(
+                        (index, offset) =>
+                          `${offset ? "L" : "M"} ${x(index)} ${y(item.points[index]!.monthlyUsd)}`,
+                      )
+                      .join(" ")}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.25"
+                    strokeDasharray={
+                      index % 3 === 1
+                        ? "7 3"
+                        : index % 3 === 2
+                          ? "2 3"
+                          : undefined
+                    }
+                    strokeLinejoin="round"
+                    pointerEvents="none"
+                  />
+                ))}
+              </g>
+            ))}
+            {points.flatMap((period, index) => {
+              const groups = new Map<
+                number,
+                { color: string; names: string[]; value: number }
+              >();
+              for (const item of visible) {
+                const point = item.points[index];
+                if (!point?.recorded) continue;
+                const cents = Math.round(point.monthlyUsd * 100);
+                const group = groups.get(cents) ?? {
+                  color: item.color,
+                  names: [],
+                  value: point.monthlyUsd,
+                };
+                group.names.push(item.name);
+                groups.set(cents, group);
+              }
+              return [...groups].map(([cents, group]) => (
+                <circle
+                  key={`${period.key}-${cents}`}
+                  data-cost-marker={group.names.join("、")}
+                  data-period={period.key}
+                  cx={x(index)}
+                  cy={y(group.value)}
+                  r="4"
+                  className="fill-background"
+                  stroke={group.names.length > 1 ? "#71717a" : group.color}
+                  strokeWidth="2"
+                  pointerEvents="none"
                 />
-              )}
-            </g>
-          ))}
-          {visible.map((item, seriesIndex) => (
-            <g
-              key={item.name}
-              data-series={item.name}
-              style={{ color: item.color }}
-            >
-              {segments(item.points).map((segment) => (
-                <path
-                  key={segment[0]}
-                  d={segment
-                    .map(
-                      (index, offset) =>
-                        `${offset ? "L" : "M"} ${x(index)} ${y(item.points[index]!.monthlyUsd)}`,
-                    )
-                    .join(" ")}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.25"
-                  strokeDasharray={
-                    seriesIndex % 3 === 1
-                      ? "7 3"
-                      : seriesIndex % 3 === 2
-                        ? "2 3"
-                        : undefined
-                  }
-                  strokeLinejoin="round"
+              ));
+            })}
+            {points.map((point, index) => {
+              const start = index === 0 ? left : (x(index - 1) + x(index)) / 2;
+              const end =
+                index === points.length - 1
+                  ? right
+                  : (x(index) + x(index + 1)) / 2;
+              return (
+                <rect
+                  key={point.key}
+                  x={start}
+                  y={top}
+                  width={end - start}
+                  height={bottom - top + 38}
+                  fill="transparent"
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`${point.label}，查看所有部门费用`}
+                  className="cursor-default outline-none focus-visible:stroke-border"
+                  onMouseEnter={() => setActiveKey(point.key)}
+                  onFocus={() => setActiveKey(point.key)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setActiveKey(point.key);
+                    }
+                  }}
                 />
-              ))}
-              {item.points.map(
-                (point, index) =>
-                  point.recorded && (
-                    <g key={point.key}>
-                      <circle
-                        cx={x(index)}
-                        cy={y(point.monthlyUsd)}
-                        r={
-                          (active?.key === point.key ? 5 : 3.5) +
-                          Math.max(
-                            0,
-                            overlappingAt(point, index).findIndex(
-                              (other) => other.name === item.name,
-                            ),
-                          ) *
-                            3.5
-                        }
-                        className={
-                          overlappingAt(point, index)[0]?.name === item.name
-                            ? "fill-background"
-                            : "fill-none"
-                        }
-                        data-cost-marker={item.name}
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      />
-                      <circle
-                        cx={x(index)}
-                        cy={y(point.monthlyUsd)}
-                        r={Math.max(
-                          13,
-                          7 + overlappingAt(point, index).length * 3.5,
-                        )}
-                        fill="transparent"
-                        tabIndex={0}
-                        role="button"
-                        aria-label={`${overlappingAt(point, index)
-                          .map((other) => other.name)
-                          .join(
-                            "、",
-                          )} ${point.label}：${usd(point.monthlyUsd)}`}
-                        className="cursor-pointer outline-none focus:stroke-current"
-                        onMouseEnter={() => selectPoint(point)}
-                        onFocus={() => selectPoint(point)}
-                        onClick={() => selectPoint(point)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            selectPoint(point);
-                          }
-                        }}
-                      >
-                        <title>
-                          {overlappingAt(point, index)
-                            .map((other) => other.name)
-                            .join("、")}{" "}
-                          · {point.label}：{usd(point.monthlyUsd)}
-                          {point.unpricedCount ? "（费用待补充）" : ""}
-                        </title>
-                      </circle>
-                    </g>
-                  ),
-              )}
-            </g>
-          ))}
-        </svg>
+              );
+            })}
+            {hoverDetails.length > 0 && (
+              <foreignObject
+                x={tooltipX}
+                y={tooltipY}
+                width="264"
+                height={tooltipHeight}
+                pointerEvents="none"
+                className="pointer-events-none"
+              >
+                <div
+                  role="tooltip"
+                  className="h-full rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-lg"
+                >
+                  <p className="mb-1 text-[11px] font-medium">
+                    {hoverDetails[0]!.point.label}
+                    {hoverDetails.length > 1
+                      ? ` · ${hoverDetails.length} 个同额部门`
+                      : ""}
+                  </p>
+                  {hoverDetails.map((item) => (
+                    <div
+                      key={item.name}
+                      className="flex h-[23px] items-center justify-between gap-3 text-[11px]"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="size-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span className="truncate">{item.name}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        {usd(item.point.monthlyUsd)}
+                        {item.point.unpricedCount ? " *" : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </foreignObject>
+            )}
+          </svg>
+        </div>
+        <aside
+          className="h-64 overflow-y-auto rounded-xl border border-border/50 bg-muted/25 p-3"
+          role="group"
+          aria-label="当期部门费用明细"
+          aria-live="polite"
+        >
+          <div className="mb-2 flex h-6 items-center justify-between">
+            <span className="text-xs font-medium">
+              {active?.label ?? "当期费用"}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              按费用排序
+            </span>
+          </div>
+          {details.map((item) => {
+            const point = item.point;
+            const same =
+              point?.recorded &&
+              details.filter(
+                (other) =>
+                  other.point?.recorded &&
+                  Math.round(other.point.monthlyUsd * 100) ===
+                    Math.round(point.monthlyUsd * 100),
+              ).length > 1;
+            return (
+              <div
+                key={item.name}
+                data-cost-detail={item.name}
+                className="flex h-8 items-center justify-between gap-2 text-[11px]"
+              >
+                <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="truncate" title={item.name}>
+                    {item.name}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1 tabular-nums">
+                  {same && (
+                    <span className="rounded bg-muted px-1 text-[9px] text-muted-foreground">
+                      同额
+                    </span>
+                  )}
+                  {point?.recorded ? usd(point.monthlyUsd) : "—"}
+                  {point?.unpricedCount ? " *" : ""}
+                </span>
+              </div>
+            );
+          })}
+          {!details.length && (
+            <p className="text-xs text-muted-foreground">
+              点击图例可恢复部门曲线。
+            </p>
+          )}
+        </aside>
       </div>
-      <p className="mt-1 text-[10px] text-muted-foreground">
-        选中节点查看当期各部门费用；点击图例显示或隐藏曲线，总计不受影响。*
-        表示费用待补充。同额节点以不同颜色的同心圆呈现，明细同时列出所有同额部门。
+      <p className="mt-3 text-[10px] text-muted-foreground">
+        移动到月份或年份区域，即可查看当期所有部门费用；同额部门共用一个点，明细分别列出。*
+        表示费用待补充。
       </p>
     </div>
   );

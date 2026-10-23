@@ -246,7 +246,7 @@ describe("subscription renewal ledger", () => {
           url,
           headers: readerHeaders,
         });
-        expect(visible.statusCode).toBe(role === "leader" ? 200 : 403);
+        expect(visible.statusCode).toBe(role === "member" ? 403 : 200);
         if (role === "leader")
           expect(visible.json().manualAccounts).toEqual([]);
         expect(
@@ -264,6 +264,97 @@ describe("subscription renewal ledger", () => {
       await ctx.close();
     }
   });
+  it.each(["运营部-EZARC", "Libraton组", "技术部&独立站"])(
+    "scopes group leader history and totals to %s regardless of query parameters",
+    async (groupName) => {
+      const ctx = await setup(env);
+      try {
+        const session = await login(ctx.app, ADMIN.username, ADMIN.password);
+        const headers = bearer(session.accessToken);
+        vi.mocked(listUpstreamAccounts).mockResolvedValue([
+          fixture(1, "EZARC-A"),
+          fixture(2, "Libraton-A"),
+          fixture(3, "Other"),
+          fixture(4, "产品部-old", "pro", "2020-01-15T00:00:00Z"),
+          fixture(5, "Yplus-undated", "plus", null),
+        ]);
+        await ctx.app.inject({
+          method: "POST",
+          url: "/api/v1/admin/users",
+          headers,
+          payload: {
+            username: "scoped-reader",
+            password: "password123",
+            role: "group_leader",
+            groupName,
+          },
+        });
+        const reader = await login(ctx.app, "scoped-reader", "password123");
+        const scopedHeaders = bearer(reader.accessToken);
+        const response = await ctx.app.inject({
+          method: "GET",
+          url: "/api/v1/admin/usage/account-costs?period=year&value=2026&department=产品部",
+          headers: scopedHeaders,
+        });
+        expect(response.statusCode).toBe(200);
+        const { normalizeAccountCostDepartment } = await import(
+          "@ccse/contracts"
+        );
+        const canonical = normalizeAccountCostDepartment(groupName);
+        const result = response.json();
+        expect(result.departmentScope).toBe(canonical);
+        expect(result.items).toEqual([
+          {
+            department: canonical,
+            monthlyUsd: 20,
+            accountCount: 1,
+            unpricedCount: 0,
+          },
+        ]);
+        expect(result.history).toHaveLength(1);
+        expect(
+          result.history[0].items.every(
+            (item: { department: string }) => item.department === canonical,
+          ),
+        ).toBe(true);
+        expect(result.availableMonths).toEqual(["2026-09"]);
+        expect(result.pendingDateCount).toBe(0);
+        expect(result.manualAccounts).toEqual([]);
+        expect(
+          (
+            await ctx.app.inject({
+              method: "PUT",
+              url: "/api/v1/admin/usage/account-costs/manual",
+              headers: scopedHeaders,
+              payload: {
+                items: [
+                  {
+                    accountId: 3,
+                    platform: "openai",
+                    planType: "plus",
+                    monthlyUsd: 40,
+                  },
+                ],
+              },
+            })
+          ).statusCode,
+        ).toBe(403);
+        vi.mocked(listUpstreamAccounts).mockResolvedValue([]);
+        expect(
+          (
+            await ctx.app.inject({
+              method: "GET",
+              url: "/api/v1/admin/usage/account-costs?period=month&value=2026-09",
+              headers: scopedHeaders,
+            })
+          ).json().items[0].monthlyUsd,
+        ).toBe(20);
+      } finally {
+        await ctx.close();
+      }
+    },
+  );
+
   it("keeps old snapshots archived instead of counting them twice, and isolates demo ledgers", async () => {
     const ctx = await setup({ DEMO_UPSTREAM_ACCOUNTS: "true" });
     try {
