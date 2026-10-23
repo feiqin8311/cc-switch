@@ -11,6 +11,7 @@ import { registerErrorHandlers } from "./errors.ts";
 import { adminConversationRoutes } from "./routes/admin-conversations.ts";
 import { adminProviderRoutes } from "./routes/admin-providers.ts";
 import { adminUserRoutes } from "./routes/admin-users.ts";
+import { accountCostsRoutes } from "./routes/account-costs.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { clientRoutes } from "./routes/client.ts";
 import { codingPlanRoutes } from "./routes/coding-plan.ts";
@@ -72,6 +73,7 @@ export async function buildApp(
       await adminUserRoutes(api, deps);
       await clientRoutes(api, deps);
       await adminProviderRoutes(api, deps);
+      await accountCostsRoutes(api, deps);
       await retentionRoutes(api, deps);
       await adminConversationRoutes(api, deps);
       await marketRoutes(api, deps);

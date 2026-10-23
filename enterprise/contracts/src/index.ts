@@ -46,7 +46,13 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 // Roles & permissions
 // ---------------------------------------------------------------------------
 
-export const RoleSchema = z.enum(["admin", "group_leader", "member", "viewer"]);
+export const RoleSchema = z.enum([
+  "admin",
+  "group_leader",
+  "leader",
+  "member",
+  "viewer",
+]);
 export type Role = z.infer<typeof RoleSchema>;
 
 export const PermissionSchema = z.enum([
@@ -97,6 +103,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     "models.use",
     "market.install",
   ],
+  /** Generic delegated role; all admin menus are explicitly selected per user. */
+  leader: [],
   member: ["models.use", "market.install"],
   viewer: [],
 };
@@ -213,7 +221,7 @@ export const UserSchema = z.object({
   disabled: z.boolean(),
   createdAt: z.string(),
   lastLoginAt: z.string().nullable(),
-  /** Sub2API ids plus CODING_PLAN_ACCOUNT_ID for 用量窗口. Admins see all. */
+  /** Sub2API ids plus CODING_PLAN_ACCOUNT_ID for desktop and web account visibility. Admins see all. */
   upstreamAccountIds: z.array(z.number().int()).default([]),
   /** Empty when the user is not in a group. */
   groupName: GroupNameSchema.default(""),
@@ -552,6 +560,39 @@ export const UsageRowSchema = z.object({
 export type UsageRow = z.infer<typeof UsageRowSchema>;
 export const UsageResponseSchema = z.object({ items: z.array(UsageRowSchema) });
 export type UsageResponse = z.infer<typeof UsageResponseSchema>;
+
+export const ManualAccountCostSchema = z.object({
+  accountId: z.number().int(),
+  platform: z.string().max(100),
+  planType: z.string().max(200).nullable(),
+  monthlyUsd: z.number().finite().min(0).max(1_000_000).nullable(),
+});
+export const ManualAccountCostsRequestSchema = z.object({
+  items: z.array(ManualAccountCostSchema).min(1).max(1000),
+});
+export type ManualAccountCost = z.infer<typeof ManualAccountCostSchema>;
+export const ManualAccountCostDetailSchema = ManualAccountCostSchema.extend({
+  name: z.string(),
+  department: z.string(),
+});
+
+/** Live subscription estimates grouped from upstream account names. */
+export const UsageAccountCostsResponseSchema = z.object({
+  manualAccounts: z.array(ManualAccountCostDetailSchema).default([]),
+  configured: z.boolean(),
+  items: z.array(
+    z.object({
+      department: z.string(),
+      monthlyUsd: z.number().nonnegative(),
+      accountCount: z.number().int().nonnegative(),
+      unpricedCount: z.number().int().nonnegative(),
+    }),
+  ),
+  unpricedCount: z.number().int().nonnegative(),
+});
+export type UsageAccountCostsResponse = z.infer<
+  typeof UsageAccountCostsResponseSchema
+>;
 
 /** Account-wide, live Volcengine Coding Plan quotas; unrelated to gateway date/user filters. */
 export const CodingPlanWindowSchema = z.object({
@@ -1331,6 +1372,8 @@ export const UpstreamWindowSchema = z.object({
 export type UpstreamWindow = z.infer<typeof UpstreamWindowSchema>;
 
 export const UpstreamAccountSchema = z.object({
+  /** Subscription SKU only; no credentials are exposed. */
+  planType: z.string().nullable().default(null),
   id: z.number().int(),
   name: z.string(),
   email: z.string().nullable(),
@@ -1352,7 +1395,7 @@ export const UpstreamAccountsResponseSchema = z.object({
   configured: z.boolean(),
   error: z.string().nullable(),
   items: z.array(UpstreamAccountSchema),
-  /** Admin checklist availability, independent of Sub2API connectivity. */
+  /** Coding Plan is configured and visible to this user, independent of Sub2API connectivity. */
   codingPlanAvailable: z.boolean().optional(),
   /** Only returned to an admin or a user assigned CODING_PLAN_ACCOUNT_ID. */
   codingPlan: CodingPlanUsageResponseSchema.optional(),

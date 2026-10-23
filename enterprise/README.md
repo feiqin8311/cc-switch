@@ -64,7 +64,7 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
 
 管理员「上游账号」页在现有 Sub2API 账号列表末尾展示火山方舟 Coding Plan 卡片，沿用相同的两列卡片、状态和黑色用量进度条，显示 5 小时、周、订阅月使用率及重置时间、套餐档位与到期时间。页面顶部的「刷新」同时更新两个来源，未配置 Sub2API 时也可单独显示火山方舟账号。
 
-在「用户管理 → 编辑 → 用量窗口」或批量「设置用量窗口」中勾选「火山方舟 Coding Plan」并保存后，该员工可以在桌面端「用量窗口」查看同一账号的 5 小时、7 天和月度额度。管理员始终可见全部账号；取消勾选后，员工后续刷新不再返回该套餐数据。桌面每分钟自动刷新，也可手动刷新。火山方舟无需配置 Sub2API 即可单独使用。部署时需更新企业服务端、管理后台和桌面端。
+在「用户管理 → 编辑 → 用量窗口」或批量「设置用量窗口」中勾选「火山方舟 Coding Plan」并保存后，该员工可以在桌面端「用量窗口」查看同一账号的 5 小时、7 天和月度额度。用量窗口的账号勾选也同步控制网页后台「上游账号」的数据范围：组长及其他非管理员只能看到勾选的账号，一个都不勾则两处均为空；网页入口仍需「上游账号」管理菜单权限。管理员始终可见全部账号；取消勾选后，员工后续刷新不再返回该账号数据，无需重新登录。桌面和网页每分钟自动刷新，也可手动刷新。火山方舟无需配置 Sub2API 即可单独使用。此次权限同步需部署更新企业服务端和管理后台，沿用现有账号分配，无需数据库迁移或更新桌面客户端。
 
 分配沿用 `upstreamAccountIds`，保留 `-1`（`CODING_PLAN_ACCOUNT_ID`）代表火山方舟，正整数代表 Sub2API 账号，无需数据库迁移。`GET /api/v1/admin/upstream/accounts` 的 `codingPlanAvailable` 提供勾选项；`GET /api/v1/client/upstream/accounts` 仅向管理员和获分配的用户返回 `codingPlan`，权限由服务端校验，AK/SK 始终留在服务端。
 
@@ -72,7 +72,7 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
 
 服务端以火山引擎 V4 签名调用 `GetCodingPlanUsage`（`Version=2024-01-01`），并独立调用 `GetPersonalPlan`（`Plan=CodingPlan`）补充订阅信息。仅查询信息，不创建或续费套餐。推理 API Key 无法代替此处的账号 AK/SK；账号需具有相应的方舟查询权限。套餐详情读取失败时仍展示已获取的额度，不推测档位、总 token 额度或缺失的重置时间。
 
-`GET /api/v1/admin/usage/coding-plan` 需要登录及 `audit.read` 权限，只返回归一化的用量与订阅信息。成功结果缓存 30 秒，并发请求合并，网页每分钟刷新一次。查询失败时短暂缓存错误并保留上次成功数据，同时标记同步延迟。此处为火山账号共享额度；「用量统计」页只展示原有的网关用量统计。
+`GET /api/v1/admin/usage/coding-plan` 需要登录及 `audit.read` 或 `upstream.read` 权限，非管理员还须获分配 `CODING_PLAN_ACCOUNT_ID`，否则返回 403；只返回归一化的用量与订阅信息。成功结果缓存 30 秒，并发请求合并，网页每分钟刷新一次，每次请求均重新校验账号分配。查询失败时短暂缓存错误并保留上次成功数据，同时标记同步延迟。此处为火山账号共享额度；「用量统计」页只展示原有的网关用量统计。
 
 ## Auth model
 
@@ -82,7 +82,7 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
 
 部署需同时更新服务端和管理后台，服务端启动时自动应用 `0009_admin_menus` 数据库迁移。`adminMenus: null` 表示沿用角色默认菜单，`[]` 表示关闭全部管理菜单；两者均不会限制管理员。`GET /admin/user-options` 仅返回各管理页面选择用户所需的姓名、ID 与组，不授予用户管理能力。
 
-- Roles: `admin`, `group_leader`, `member`, `viewer`; permissions per role are defined in
+- Roles: `admin`, `group_leader`, `leader`, `member`, `viewer`; permissions per role are defined in
   `contracts/src/index.ts` (`ROLE_PERMISSIONS`) and enforced only on the server.
 - Group leaders can list users in their assigned group and change members between
   `member` and `viewer`. They cannot edit administrators, other leaders, account

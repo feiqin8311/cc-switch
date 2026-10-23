@@ -1,10 +1,23 @@
 import {
+  UsageAccountCostsResponseSchema,
+  type UsageAccountCostsResponse,
   DeviceUsageResponseSchema,
   UsageResponseSchema,
   type UsageRow,
 } from "@ccse/contracts";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { BarChart3, CalendarDays, ChevronDown, Search } from "lucide-react";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  BarChart3,
+  CalendarDays,
+  ChevronDown,
+  Search,
+  Pencil,
+} from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -16,6 +29,8 @@ import {
 import {
   Button,
   Card,
+  Dialog,
+  InlineError,
   EmptyState,
   ErrorState,
   Field,
@@ -33,6 +48,7 @@ import {
 import { useApi, useSession } from "../lib/auth";
 import {
   daySpan,
+  describeError,
   formatNumber,
   lastUtcDays,
   matchingUtcPreset,
@@ -130,6 +146,8 @@ const RANGE_PRESETS: { id: UtcRangePreset; label: string }[] = [
   { id: "thisMonth", label: "本月" },
   { id: "lastMonth", label: "上月" },
 ];
+
+const ACCOUNT_COSTS_KEY = ["admin", "usage-account-costs"] as const;
 
 function slashDate(iso: string) {
   return iso.replaceAll("-", "/");
@@ -576,6 +594,23 @@ export function UsagePage() {
         </Card>
       )}
 
+      {grand && (
+        <Card>
+          <div className="border-b border-border/50 pb-2.5 text-xs font-medium text-foreground">
+            概览指标
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
+            <Stat label="请求数" value={grand.requests} />
+            <Stat label="输入 tokens" value={grand.inputTokens} />
+            <Stat label="输出 tokens" value={grand.outputTokens} />
+            <Stat
+              label="总 tokens"
+              value={grand.inputTokens + grand.outputTokens}
+            />
+          </div>
+        </Card>
+      )}
+      <AccountStats />
       {usage.isPending ? (
         <Card>
           <LoadingState />
@@ -606,22 +641,6 @@ export function UsagePage() {
         </Card>
       ) : (
         <div className="flex flex-col gap-6">
-          {grand && (
-            <Card>
-              <div className="border-b border-border/50 pb-2.5 text-xs font-medium text-foreground">
-                概览指标
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
-                <Stat label="请求数" value={grand.requests} />
-                <Stat label="输入 tokens" value={grand.inputTokens} />
-                <Stat label="输出 tokens" value={grand.outputTokens} />
-                <Stat
-                  label="总 tokens"
-                  value={grand.inputTokens + grand.outputTokens}
-                />
-              </div>
-            </Card>
-          )}
           {byUser.length > 0 && <UserTokenChart rows={byUser} />}
           <div className="grid gap-5 xl:grid-cols-2">
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
@@ -631,6 +650,331 @@ export function UsagePage() {
         </div>
       )}
     </div>
+  );
+}
+
+function AccountStats() {
+  const client = useApi();
+  const isAdmin = useSession().user.role === "admin";
+  const [editing, setEditing] = useState(false);
+  const accountCosts = useQuery({
+    queryKey: ACCOUNT_COSTS_KEY,
+    queryFn: ({ signal }) =>
+      client.get(
+        "/admin/usage/account-costs",
+        UsageAccountCostsResponseSchema,
+        signal,
+      ),
+    refetchInterval: 30_000,
+  });
+  const [period, setPeriod] = useState<"month" | "year">("month");
+
+  if (accountCosts.isPending) {
+    return (
+      <Card>
+        <h2 className="mb-3 text-sm font-medium">账户统计</h2>
+        <LoadingState />
+      </Card>
+    );
+  }
+  if (accountCosts.isError) {
+    return (
+      <Card>
+        <h2 className="mb-3 text-sm font-medium">账户统计</h2>
+        <ErrorState
+          error={accountCosts.error}
+          onRetry={() => void accountCosts.refetch()}
+        />
+      </Card>
+    );
+  }
+
+  const savedCosts = accountCosts.data.items;
+  const multiplier = period === "year" ? 12 : 1;
+  const costs = savedCosts
+    .map((item) => ({
+      name: item.department,
+      monthlyUsd: item.monthlyUsd,
+      amount: item.monthlyUsd * multiplier,
+    }))
+    .sort(
+      (a, b) => b.amount - a.amount || a.name.localeCompare(b.name, "zh-CN"),
+    );
+  const total = costs.reduce((sum, item) => sum + item.amount, 0);
+  const maxAmount = Math.max(
+    50,
+    Math.ceil(Math.max(0, ...costs.map((item) => item.amount)) / 50) * 50,
+  );
+  const barScale = 80;
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  const formatUsd = (amount: number) =>
+    `$${amount.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  return (
+    <>
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 pb-2.5">
+          <div>
+            <h2 className="text-sm font-medium">账户统计</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              按上游账号名称自动分组，根据套餐估算订阅费用（USD）
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-4">
+            <div
+              className="inline-flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+              role="group"
+              aria-label="费用统计周期"
+            >
+              {(
+                [
+                  ["month", "按月"],
+                  ["year", "按年"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={period === value}
+                  onClick={() => setPeriod(value)}
+                  className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                    period === value
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                {period === "month" ? "每月费用总计" : "每年费用总计"}
+              </div>
+              <div className="mt-1 text-2xl font-serif tabular-nums text-foreground">
+                {formatUsd(total)}
+              </div>
+            </div>
+          </div>
+        </div>
+        {(accountCosts.data.unpricedCount > 0 ||
+          (isAdmin && accountCosts.data.manualAccounts.length > 0)) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-muted-foreground" role="status">
+              {accountCosts.data.unpricedCount > 0
+                ? `${accountCosts.data.unpricedCount} 个账号的套餐价格暂无法识别，总计仅包含已识别及手动补充的费用。`
+                : "未识别套餐的费用已手动补充。"}
+            </p>
+            {isAdmin && accountCosts.data.manualAccounts.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="size-3.5" />
+                手动编辑
+              </Button>
+            )}
+          </div>
+        )}
+        {!accountCosts.data.configured && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            尚未连接上游账号。
+          </p>
+        )}
+        {accountCosts.data.configured && costs.length === 0 && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            暂无可统计的上游账号。
+          </p>
+        )}
+        {costs.length > 0 && (
+          <div className="mt-4 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2">
+            <div className="relative h-56 text-right text-[10px] tabular-nums text-muted-foreground">
+              {ticks.map((tick) => (
+                <span
+                  key={tick}
+                  className="absolute right-0 -translate-y-1/2"
+                  style={{ bottom: `${tick * barScale}%` }}
+                >
+                  {formatUsd(maxAmount * tick).replace(/\.00$/, "")}
+                </span>
+              ))}
+            </div>
+            <div className="relative h-56 border-b border-border/70">
+              {ticks.map((tick) => (
+                <div
+                  key={tick}
+                  className="absolute inset-x-0 border-t border-dashed border-border/50"
+                  style={{ bottom: `${tick * barScale}%` }}
+                />
+              ))}
+              <div className="absolute inset-x-0 bottom-0 flex h-full items-end justify-around gap-3 px-2">
+                {costs.map((item) => {
+                  const height = (item.amount / maxAmount) * barScale;
+                  return (
+                    <div
+                      key={item.name}
+                      className="relative flex h-full min-w-0 flex-1 justify-center"
+                      title={`${item.name}: ${formatUsd(item.amount)}`}
+                    >
+                      <span
+                        className="absolute -translate-y-full whitespace-nowrap text-[11px] font-medium tabular-nums text-muted-foreground"
+                        style={{ bottom: `${height}%` }}
+                      >
+                        {formatUsd(item.amount)}
+                      </span>
+                      <div
+                        className="absolute bottom-0 w-8 max-w-[70%] rounded-t-md bg-brand transition-[height]"
+                        style={{ height: `${height}%` }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div />
+            <div className="flex justify-around gap-3 px-2 text-center text-xs text-muted-foreground">
+              {costs.map((item) => (
+                <div
+                  key={item.name}
+                  className="min-w-0 flex-1 truncate"
+                  title={item.name}
+                >
+                  {item.name}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+      {editing && isAdmin && (
+        <ManualAccountCostsDialog
+          initial={accountCosts.data.manualAccounts}
+          onClose={() => setEditing(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function ManualAccountCostsDialog({
+  initial,
+  onClose,
+}: {
+  initial: UsageAccountCostsResponse["manualAccounts"];
+  onClose(): void;
+}) {
+  const client = useApi();
+  const queryClient = useQueryClient();
+  const [values, setValues] = useState(() =>
+    initial.map((account) =>
+      account.monthlyUsd === null ? "" : String(account.monthlyUsd),
+    ),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: async () => {
+      const items = initial.map((account, index) => ({
+        accountId: account.accountId,
+        platform: account.platform,
+        planType: account.planType,
+        monthlyUsd: values[index]?.trim() ? Number(values[index]) : null,
+      }));
+      if (
+        items.some(
+          (item) =>
+            item.monthlyUsd !== null &&
+            (!Number.isFinite(item.monthlyUsd) ||
+              item.monthlyUsd < 0 ||
+              item.monthlyUsd > 1_000_000),
+        )
+      )
+        throw new Error("请填写有效的美元月费");
+      await client.request("/admin/usage/account-costs/manual", {
+        method: "PUT",
+        body: { items },
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ACCOUNT_COSTS_KEY });
+      onClose();
+    },
+    onError: (err) => setError(describeError(err)),
+  });
+  const close = () => {
+    if (!save.isPending) onClose();
+  };
+  return (
+    <Dialog
+      open
+      title="编辑未识别套餐费用"
+      width="max-w-2xl"
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close} disabled={save.isPending}>
+            取消
+          </Button>
+          <Button
+            type="submit"
+            form="manual-account-costs"
+            variant="primary"
+            disabled={save.isPending}
+          >
+            {save.isPending && <Spinner className="size-3" />}保存费用
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="manual-account-costs"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError(null);
+          save.mutate();
+        }}
+      >
+        <p className="mb-4 text-xs text-muted-foreground">
+          填写每个账号的美元月费；留空表示暂不计价。套餐变更后会重新识别费用。
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {initial.map((account, index) => (
+            <div
+              key={`${account.platform}-${account.accountId}`}
+              className="rounded-lg border border-border/60 p-3"
+            >
+              <div className="text-sm font-medium">{account.name}</div>
+              <p className="mb-2 mt-1 text-xs text-muted-foreground">
+                {account.department} · {account.planType || "未知套餐"}
+              </p>
+              <Field label="每月费用（USD）" htmlFor={`manual-cost-${index}`}>
+                <input
+                  id={`manual-cost-${index}`}
+                  className={inputClass}
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.01"
+                  placeholder="暂未定价"
+                  value={values[index]}
+                  disabled={save.isPending}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setValues((current) =>
+                      current.map((entry, i) => (i === index ? value : entry)),
+                    );
+                  }}
+                />
+              </Field>
+            </div>
+          ))}
+        </div>
+        <InlineError>{error}</InlineError>
+      </form>
+    </Dialog>
   );
 }
 
@@ -697,6 +1041,12 @@ function UserTokenChart({ rows }: { rows: Totals[] }) {
     total: t.inputTokens + t.outputTokens,
   }));
   const max = Math.max(...data.map((d) => d.total), 1);
+  const formatCompactTokens = (value: number) => {
+    const format = (scaled: number) => scaled.toFixed(2).replace(/\.?0+$/, "");
+    if (value >= 1_000_000) return `${format(value / 1_000_000)}M`;
+    if (value >= 1_000) return `${format(value / 1_000)}K`;
+    return formatNumber(value);
+  };
 
   return (
     <Card>
@@ -727,8 +1077,11 @@ function UserTokenChart({ rows }: { rows: Totals[] }) {
                 key={d.key}
                 className="flex h-full min-w-12 flex-1 flex-col items-center justify-end gap-1.5"
               >
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {formatNumber(d.total)}
+                <span
+                  className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+                  title={`${formatNumber(d.total)} tokens`}
+                >
+                  {formatCompactTokens(d.total)}
                 </span>
                 <div
                   className="flex w-8 flex-col-reverse overflow-hidden rounded-t-md"

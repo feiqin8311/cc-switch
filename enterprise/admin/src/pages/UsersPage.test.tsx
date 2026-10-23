@@ -169,7 +169,7 @@ describe("user group filtering", () => {
     expect(within(dialog).getByText(/已跳过 1 个管理员/)).toBeTruthy();
     fireEvent.click(
       await within(dialog).findByRole("checkbox", {
-        name: /火山方舟 Coding Plan/,
+        name: /Libraton-火山方舟Codin Plan/,
       }),
     );
     fireEvent.click(

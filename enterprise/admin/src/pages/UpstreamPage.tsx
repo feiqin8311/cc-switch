@@ -33,6 +33,7 @@ export function UpstreamPage() {
       }),
     refetchInterval: 60_000,
   });
+  const canSeeCodingPlan = q.data?.codingPlanAvailable === true;
   const codingPlan = useQuery({
     queryKey: ["admin", "coding-plan"],
     queryFn: ({ signal }) =>
@@ -41,11 +42,12 @@ export function UpstreamPage() {
         signal,
       }),
     refetchInterval: 60_000,
+    enabled: canSeeCodingPlan,
   });
   const accounts = q.data?.items ?? [];
-  const hasCodingPlan = !!codingPlan.data?.configured;
-  const loading = q.isPending || codingPlan.isPending;
-  const fetching = q.isFetching || codingPlan.isFetching;
+  const hasCodingPlan = canSeeCodingPlan && !!codingPlan.data?.configured;
+  const loading = q.isPending || (canSeeCodingPlan && codingPlan.isPending);
+  const fetching = q.isFetching || (canSeeCodingPlan && codingPlan.isFetching);
   const hasCards = accounts.length > 0 || hasCodingPlan;
   return (
     <div className="space-y-6">
@@ -57,7 +59,7 @@ export function UpstreamPage() {
             variant="secondary"
             onClick={() => {
               void q.refetch();
-              void codingPlan.refetch();
+              if (canSeeCodingPlan) void codingPlan.refetch();
             }}
             disabled={fetching}
           >
@@ -72,7 +74,7 @@ export function UpstreamPage() {
       {q.isError && (
         <ErrorState error={q.error} onRetry={() => void q.refetch()} />
       )}
-      {codingPlan.isError && !codingPlan.data && (
+      {canSeeCodingPlan && codingPlan.isError && !codingPlan.data && (
         <ErrorState
           error={codingPlan.error}
           onRetry={() => void codingPlan.refetch()}
@@ -99,13 +101,16 @@ export function UpstreamPage() {
           </p>
         </Card>
       )}
-      {!loading && !hasCards && !q.isError && !codingPlan.isError && (
-        <EmptyState title="暂无上游账号">
-          {q.data?.configured
-            ? "Sub2API 里还没有账号。"
-            : "尚未连接上游账号，请在企业服务端配置 Sub2API 或火山方舟。"}
-        </EmptyState>
-      )}
+      {!loading &&
+        !hasCards &&
+        !q.isError &&
+        !(canSeeCodingPlan && codingPlan.isError) && (
+          <EmptyState title="暂无上游账号">
+            {q.data?.configured
+              ? "当前没有可查看的上游账号，请联系管理员分配账号或检查上游配置。"
+              : "尚未连接上游账号，请在企业服务端配置 Sub2API 或火山方舟。"}
+          </EmptyState>
+        )}
     </div>
   );
 }

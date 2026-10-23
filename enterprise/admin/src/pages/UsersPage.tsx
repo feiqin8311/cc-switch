@@ -763,7 +763,7 @@ function EditUserDialog({
                 hint={
                   role === "admin"
                     ? "管理员始终能看全部上游账号"
-                    : "勾选该员工在桌面「用量窗口」里能看到的上游账号"
+                    : "勾选该员工在桌面「用量窗口」和网页后台「上游账号」中能看到的账号；网页入口需另行勾选管理菜单权限"
                 }
               />
             </div>
@@ -884,7 +884,7 @@ function AccountChecklist({
       ? [
           {
             id: CODING_PLAN_ACCOUNT_ID,
-            name: "火山方舟 Coding Plan",
+            name: "Libraton-火山方舟Codin Plan",
             platform: "volcengine",
           },
         ]
@@ -999,7 +999,7 @@ function BulkWindowsDialog({
       <AccountChecklist
         ids={ids}
         onChange={setIds}
-        hint="勾选这些用户能看到的上游账号；一个都不勾则他们打开用量窗口为空。"
+        hint="同时控制桌面「用量窗口」和网页后台「上游账号」的可见账号；一个都不勾则两处均为空，网页入口需另行授权。"
       />
     </Dialog>
   );

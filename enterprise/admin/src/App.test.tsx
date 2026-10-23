@@ -84,6 +84,14 @@ const FIXTURES: Record<string, unknown> = {
     ],
   },
   "/admin/usage/devices": { items: [] },
+  "/admin/usage/account-costs": {
+    configured: true, unpricedCount: 0,
+    items: [
+      { department: "运营部-EZARC", monthlyUsd: 120, accountCount: 2, unpricedCount: 0 },
+      { department: "技术部&独立站", monthlyUsd: 80, accountCount: 4, unpricedCount: 0 },
+      { department: "Libraton组", monthlyUsd: 40, accountCount: 2, unpricedCount: 0 },
+    ],
+  },
   "/admin/upstream/accounts": {
     configured: true,
     codingPlanAvailable: true,
@@ -238,7 +246,9 @@ function sessionFor(
   };
 }
 
-function renderAt(path: string, permissions: Permission[], user: User = admin) {
+function renderAt(path: string, permissions: Permission[], user: User = admin,
+  override?: (route: string, init?: RequestInit) => Response | undefined,
+) {
   const posts: string[] = [];
   const patches: unknown[] = [];
   const fetchMock = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -265,6 +275,8 @@ function renderAt(path: string, permissions: Permission[], user: User = admin) {
         disabledDevices: 1,
       });
     }
+    const custom = override?.(route, init);
+    if (custom) return custom;
     const body = FIXTURES[route];
     return body
       ? Response.json(body)
@@ -314,7 +326,7 @@ describe("App", () => {
       }
       const dialog = screen.getByRole("dialog");
       const checkbox = await within(dialog).findByRole("checkbox", {
-        name: /火山方舟 Coding Plan/,
+        name: /Libraton-火山方舟Codin Plan/,
       });
       expect((checkbox as HTMLInputElement).disabled).toBe(false);
       fireEvent.click(checkbox);
@@ -391,7 +403,7 @@ describe("App", () => {
     const role = within(screen.getByRole("dialog")).getByLabelText("角色");
     expect(
       [...role.querySelectorAll("option")].map((o) => o.textContent),
-    ).toEqual(["管理员", "组长", "成员", "只读"]);
+    ).toEqual(["管理员", "组长", "Leader", "成员", "只读"]);
   });
 
   it.each([
@@ -411,6 +423,39 @@ describe("App", () => {
     renderAt(path, permissionsForRole("admin"));
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
     expect((await screen.findAllByText(content)).length).toBeGreaterThan(0);
+  });
+
+  it("displays live account costs without manual controls and annualizes them", async () => {
+    renderAt("/usage", permissionsForRole("admin"));
+    expect(await screen.findByText("$240.00")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "编辑费用" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "按年" }));
+    expect(await screen.findByText("$2,880.00")).toBeTruthy();
+  });
+
+  it("edits an unrecognized monthly fee in a dialog and refreshes the total", async () => {
+    let monthlyUsd: number | null = null;
+    renderAt("/usage", permissionsForRole("admin"), admin, (route, init) => {
+      if (route === "/admin/usage/account-costs/manual") {
+        monthlyUsd = JSON.parse(String(init?.body)).items[0].monthlyUsd;
+        return new Response(null, { status: 204 });
+      }
+      if (route === "/admin/usage/account-costs") return Response.json({
+        configured: true, unpricedCount: monthlyUsd === null ? 1 : 0,
+        items: [{department: "技术部&独立站", monthlyUsd: monthlyUsd ?? 0, accountCount: 1, unpricedCount: monthlyUsd === null ? 1 : 0}],
+        manualAccounts: [{accountId: 99, name: "Unknown-GPT", platform: "openai", planType: null, department: "技术部&独立站", monthlyUsd}],
+      });
+      return undefined;
+    });
+    fireEvent.click(await screen.findByRole("button", {name: "手动编辑"}));
+    const dialog = screen.getByRole("dialog", {name: "编辑未识别套餐费用"});
+    fireEvent.change(within(dialog).getByLabelText("每月费用（USD）"), {target: {value: "35.50"}});
+    fireEvent.submit(document.getElementById("manual-account-costs")!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(monthlyUsd).toBe(35.5);
+    expect(screen.getAllByText("$35.50")).toHaveLength(2);
+    expect(await screen.findByText("未识别套餐的费用已手动补充。")).toBeTruthy();
+    expect(screen.getByRole("button", {name: "手动编辑"})).toBeTruthy();
   });
 
   it("filters usage by user, group and provider", async () => {

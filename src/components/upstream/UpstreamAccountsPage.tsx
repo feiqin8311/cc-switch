@@ -165,7 +165,7 @@ function CodingPlanCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-body font-medium text-fg-1">
-            火山方舟 Coding Plan
+            Libraton-火山方舟Codin Plan
           </div>
           <div className="truncate text-caption text-fg-3">
             {data.providerId}

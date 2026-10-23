@@ -4,6 +4,7 @@ import { ApiError } from "./api";
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "管理员",
   group_leader: "组长",
+  leader: "Leader",
   member: "成员",
   viewer: "只读",
 };
