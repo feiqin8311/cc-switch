@@ -18,6 +18,7 @@ export interface UpstreamWindow {
 }
 
 export interface UpstreamAccount {
+  planType: string | null;
   id: number;
   name: string;
   email: string | null;
@@ -65,7 +66,8 @@ function windowFromUsage(
   raw: unknown,
   extra: Record<string, unknown>,
 ): UpstreamWindow {
-  const u = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const u =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const stats =
     u.window_stats && typeof u.window_stats === "object"
       ? (u.window_stats as Record<string, unknown>)
@@ -101,7 +103,12 @@ export function accountFromSub2Api(
     item.extra && typeof item.extra === "object"
       ? (item.extra as Record<string, unknown>)
       : {};
+  const credentials =
+    item.credentials && typeof item.credentials === "object"
+      ? (item.credentials as Record<string, unknown>)
+      : {};
   return {
+    planType: str(credentials.plan_type) ?? str(item.parent_plan_type),
     id: Math.floor(num(item.id)),
     name: str(item.name) ?? `#${item.id}`,
     email: str(extra.email),
@@ -153,7 +160,8 @@ async function login(cfg: Sub2ApiConfig): Promise<string> {
         : `login failed (${res.status})`;
     throw new Error(msg);
   }
-  const rec = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const rec =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const token = str(rec.access_token);
   if (!token) throw new Error("Sub2API login returned no access_token");
   const expiresIn = num(rec.expires_in) || 3600;
@@ -199,14 +207,25 @@ async function authed(
 export async function listUpstreamAccounts(
   cfg: Sub2ApiConfig,
 ): Promise<UpstreamAccount[]> {
-  const list = (await authed(
-    cfg,
-    "/api/v1/admin/accounts?page=1&page_size=100",
-  )) as Record<string, unknown>;
-  const items = Array.isArray(list.items) ? list.items : [];
+  const items: unknown[] = [];
+  for (let page = 1; ; page++) {
+    const list = (await authed(
+      cfg,
+      `/api/v1/admin/accounts?page=${page}&page_size=100`,
+    )) as Record<string, unknown>;
+    const batch = Array.isArray(list.items) ? list.items : [];
+    items.push(...batch);
+    if (
+      batch.length < 100 ||
+      (num(list.total) > 0 && items.length >= num(list.total))
+    )
+      break;
+  }
   const ids = items
     .map((it) =>
-      it && typeof it === "object" ? Math.floor(num((it as { id: unknown }).id)) : 0,
+      it && typeof it === "object"
+        ? Math.floor(num((it as { id: unknown }).id))
+        : 0,
     )
     .filter((id) => id > 0);
   let usageMap: Record<string, Record<string, unknown>> = {};
@@ -225,7 +244,9 @@ export async function listUpstreamAccounts(
     }
   }
   return items
-    .filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
+    .filter(
+      (it): it is Record<string, unknown> => !!it && typeof it === "object",
+    )
     .map((it) => {
       const id = String(Math.floor(num(it.id)));
       return accountFromSub2Api(it, usageMap[id]);

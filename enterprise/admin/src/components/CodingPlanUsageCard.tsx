@@ -26,7 +26,7 @@ export function CodingPlanUsageCard({
   const active =
     data.subscription?.status === "Running" || data.status === "Running";
   const error = data.error ?? (refreshFailed ? "刷新失败，请稍后重试。" : null);
-  const name = "火山方舟 Coding Plan";
+  const name = "Libraton-火山方舟Codin Plan";
   const resetAt = fmtResetAt(data.subscription?.expiresAt ?? null);
   return (
     <AccountUsageCard

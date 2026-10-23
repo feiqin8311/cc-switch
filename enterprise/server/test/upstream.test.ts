@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { UserRow } from "../src/db/schema.ts";
 import { visibleUpstreamAccounts } from "../src/routes/upstream.ts";
-import { accountFromSub2Api } from "../src/sub2api.ts";
+import {
+  accountFromSub2Api,
+  listUpstreamAccounts,
+  clearSub2ApiTokenCache,
+} from "../src/sub2api.ts";
 
 function user(role: UserRow["role"], ids: number[]): UserRow {
   return {
@@ -123,5 +127,53 @@ describe("visibleUpstreamAccounts", () => {
       visibleUpstreamAccounts(user("member", [2]), items).map((a) => a.id),
     ).toEqual([2]);
     expect(visibleUpstreamAccounts(user("member", []), items)).toEqual([]);
+  });
+});
+
+describe("upstream account pagination", () => {
+  it("includes accounts beyond the first page with their subscription tiers", async () => {
+    clearSub2ApiTokenCache();
+    const pages: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/auth/login"))
+          return Response.json({
+            data: { access_token: "test-token", expires_in: 3600 },
+          });
+        if (url.pathname.endsWith("/usage/batch"))
+          return Response.json({ data: { usage: {} } });
+        pages.push(url.searchParams.get("page")!);
+        const first = url.searchParams.get("page") === "1";
+        return Response.json({
+          data: {
+            total: 101,
+            items: Array.from({ length: first ? 100 : 1 }, (_, index) => ({
+              id: first ? index + 1 : 101,
+              name: first ? `Account-${index}` : "EZARC-added",
+              platform: "openai",
+              credentials: { plan_type: "plus" },
+            })),
+          },
+        });
+      }),
+    );
+    try {
+      const accounts = await listUpstreamAccounts({
+        url: "https://upstream.test",
+        email: "test@example.com",
+        password: "test-only",
+      });
+      expect(accounts).toHaveLength(101);
+      expect(pages).toEqual(["1", "2"]);
+      expect(accounts[100]).toMatchObject({
+        name: "EZARC-added",
+        planType: "plus",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
   });
 });

@@ -1,8 +1,138 @@
 import { CODING_PLAN_ACCOUNT_ID } from "@ccse/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { clearSub2ApiTokenCache } from "../src/sub2api.ts";
 import { ADMIN, bearer, login, setup } from "./helpers.ts";
 
 describe("upstream accounts", () => {
+  it("applies account assignments to web and desktop for every non-admin role, including live revocation", async () => {
+    clearSub2ApiTokenCache();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.hostname === "open.volcengineapi.com")
+          return Response.json({
+            Result:
+              url.searchParams.get("Action") === "GetPersonalPlan"
+                ? { PlanType: "Pro", Status: "Running" }
+                : {
+                    Status: "Running",
+                    QuotaUsage: [{ Level: "weekly", Percent: 7 }],
+                  },
+          });
+        if (url.pathname.endsWith("/auth/login"))
+          return Response.json({
+            data: { access_token: "test-token", expires_in: 3600 },
+          });
+        if (url.pathname.endsWith("/usage/batch"))
+          return Response.json({ data: { usage: {} } });
+        return Response.json({
+          data: {
+            total: 2,
+            items: [
+              { id: 39, name: "产品部-GPT", platform: "openai" },
+              { id: 12, name: "其他部门-GPT", platform: "openai" },
+            ],
+          },
+        });
+      }),
+    );
+    const ctx = await setup({
+      SUB2API_URL: "https://upstream.test",
+      SUB2API_EMAIL: "test@example.com",
+      SUB2API_PASSWORD: "test-only",
+      VOLCENGINE_ACCESS_KEY_ID: "test-ak",
+      VOLCENGINE_SECRET_ACCESS_KEY: "test-sk",
+    });
+    try {
+      const admin = await login(ctx.app, ADMIN.username, ADMIN.password);
+      const adminHeaders = bearer(admin.accessToken);
+      const accountsUrl = "/api/v1/admin/upstream/accounts";
+      const planUrl = "/api/v1/admin/usage/coding-plan";
+      for (const role of [
+        "group_leader",
+        "leader",
+        "member",
+        "viewer",
+      ] as const) {
+        const username = `scoped-${role}`;
+        const created = await ctx.app.inject({
+          method: "POST",
+          url: "/api/v1/admin/users",
+          headers: adminHeaders,
+          payload: {
+            username,
+            password: "password-123",
+            role,
+            adminMenus: ["upstream", "users", "usage"],
+            upstreamAccountIds: [39],
+          },
+        });
+        expect(created.statusCode).toBe(201);
+        const session = await login(ctx.app, username, "password-123");
+        const headers = bearer(session.accessToken);
+        const get = (url: string) =>
+          ctx.app.inject({ method: "GET", url, headers });
+        const update = (ids: number[]) =>
+          ctx.app.inject({
+            method: "PATCH",
+            url: `/api/v1/admin/users/${created.json().id}`,
+            headers: adminHeaders,
+            payload: { upstreamAccountIds: ids },
+          });
+        const first = await get(accountsUrl);
+        expect(first.statusCode).toBe(200);
+        expect(first.headers["cache-control"]).toBe("no-store");
+        expect(first.json().items.map((a: { id: number }) => a.id)).toEqual([
+          39,
+        ]);
+        expect(first.json().codingPlanAvailable).toBe(false);
+        expect((await get(planUrl)).statusCode).toBe(403);
+        expect(
+          (await get("/api/v1/client/upstream/accounts"))
+            .json()
+            .items.map((a: { id: number }) => a.id),
+        ).toEqual([39]);
+
+        expect((await update([12, CODING_PLAN_ACCOUNT_ID])).statusCode).toBe(
+          200,
+        );
+        const changed = await get(accountsUrl);
+        expect(changed.json().items.map((a: { id: number }) => a.id)).toEqual([
+          12,
+        ]);
+        expect(changed.json().codingPlanAvailable).toBe(true);
+        expect((await get(planUrl)).json().configured).toBe(true);
+
+        expect((await update([])).statusCode).toBe(200);
+        expect((await get(accountsUrl)).json()).toMatchObject({
+          items: [],
+          codingPlanAvailable: false,
+        });
+        expect((await get(planUrl)).statusCode).toBe(403);
+        const desktop = await get("/api/v1/client/upstream/accounts");
+        expect(desktop.json().items).toEqual([]);
+        expect(desktop.json().codingPlan).toBeUndefined();
+      }
+      const all = await ctx.app.inject({
+        url: accountsUrl,
+        headers: adminHeaders,
+      });
+      expect(all.json().items.map((a: { id: number }) => a.id)).toEqual([
+        39, 12,
+      ]);
+      expect(all.json().codingPlanAvailable).toBe(true);
+      expect(
+        (await ctx.app.inject({ url: planUrl, headers: adminHeaders }))
+          .statusCode,
+      ).toBe(200);
+    } finally {
+      await ctx.close();
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
+  });
+
   it("persists Coding Plan assignments, enforces revocation, and shares the admin cache", async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
       Response.json({

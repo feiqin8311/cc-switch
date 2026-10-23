@@ -67,7 +67,11 @@ describe("per-user admin menus", () => {
           expect(
             (await get(path, session)).statusCode,
             `${selected}: ${path}`,
-          ).toBe(menu === selected ? 200 : 403);
+          ).toBe(
+            menu === selected && path !== "/admin/usage/coding-plan"
+              ? 200
+              : 403,
+          );
         }
       }
     }

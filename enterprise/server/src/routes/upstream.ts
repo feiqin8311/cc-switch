@@ -9,6 +9,7 @@ import type { AppDeps } from "../app.ts";
 import { authOf, requireAnyPermission } from "../auth/guard.ts";
 import type { UserRow } from "../db/schema.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
+import { canSeeUpstreamAccount } from "../users/upstream-access.ts";
 
 export function visibleUpstreamAccounts(
   user: UserRow,
@@ -57,9 +58,17 @@ export async function upstreamRoutes(
       authenticate,
       requireAnyPermission("audit.read", "upstream.read", "users.manage"),
     ],
-    handler: async (_req, reply) => {
+    handler: async (req, reply) => {
       reply.header("Cache-Control", "no-store");
-      return { ...(await listAll()), codingPlanAvailable: !!config.volcengine };
+      const user = authOf(req).user;
+      const all = await listAll();
+      return {
+        ...all,
+        items: visibleUpstreamAccounts(user, all.items),
+        codingPlanAvailable:
+          !!config.volcengine &&
+          canSeeUpstreamAccount(user, CODING_PLAN_ACCOUNT_ID),
+      };
     },
   });
   app.get("/client/upstream/accounts", {
@@ -69,8 +78,7 @@ export async function upstreamRoutes(
       const user = authOf(req).user;
       const canSeeCodingPlan =
         !!config.volcengine &&
-        (user.role === "admin" ||
-          user.upstreamAccountIds?.includes(CODING_PLAN_ACCOUNT_ID));
+        canSeeUpstreamAccount(user, CODING_PLAN_ACCOUNT_ID);
       const [all, codingPlan] = await Promise.all([
         listAll(),
         canSeeCodingPlan ? readCodingPlan() : undefined,

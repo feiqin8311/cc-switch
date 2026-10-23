@@ -42,11 +42,16 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
-function show(accounts: (typeof account)[] = []) {
+function show(accounts: (typeof account)[] = [], codingPlanAvailable = true) {
   request.mockImplementation(async (path: string) =>
     path === "/admin/usage/coding-plan"
       ? codingPlan
-      : { configured: accounts.length > 0, error: null, items: accounts },
+      : {
+          configured: accounts.length > 0,
+          error: null,
+          items: accounts,
+          codingPlanAvailable,
+        },
   );
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -58,11 +63,56 @@ function show(accounts: (typeof account)[] = []) {
   );
 }
 describe("upstream account placement", () => {
+  it("removes a cached Coding Plan card after its assignment is revoked", async () => {
+    show([account]);
+    await screen.findByText("Libraton-火山方舟Codin Plan");
+    request.mockImplementation(async (path: string) =>
+      path === "/admin/usage/coding-plan"
+        ? codingPlan
+        : {
+            configured: true,
+            error: null,
+            items: [],
+            codingPlanAvailable: false,
+          },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await screen.findByText("暂无上游账号");
+    expect(screen.queryByText("Libraton-火山方舟Codin Plan")).toBeNull();
+    expect(screen.queryByText("Existing-GPT")).toBeNull();
+  });
+
+  it("shows assigned accounts without requesting an unassigned Coding Plan", async () => {
+    show([account], false);
+    expect(await screen.findByText("Existing-GPT")).toBeTruthy();
+    expect(screen.queryByText("Libraton-火山方舟Codin Plan")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(
+        request.mock.calls.filter(
+          ([path]) => path === "/admin/upstream/accounts",
+        ),
+      ).toHaveLength(2),
+    );
+    expect(
+      request.mock.calls.some(([path]) => path === "/admin/usage/coding-plan"),
+    ).toBe(false);
+  });
+
+  it("shows the empty state when no accounts are assigned", async () => {
+    show([], false);
+    expect(await screen.findByText("暂无上游账号")).toBeTruthy();
+    expect(screen.queryByText("正在读取上游账号…")).toBeNull();
+    expect(
+      request.mock.calls.some(([path]) => path === "/admin/usage/coding-plan"),
+    ).toBe(false);
+  });
+
   it("appends Coding Plan after existing account cards and refreshes both sources", async () => {
     show([account]);
-    await screen.findByText("火山方舟 Coding Plan");
+    await screen.findByText("Libraton-火山方舟Codin Plan");
     const existing = screen.getByText("Existing-GPT");
-    const coding = screen.getByText("火山方舟 Coding Plan");
+    const coding = screen.getByText("Libraton-火山方舟Codin Plan");
     expect(
       existing.compareDocumentPosition(coding) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -85,7 +135,7 @@ describe("upstream account placement", () => {
   });
   it("shows Coding Plan even when Sub2API is not configured", async () => {
     show();
-    expect(await screen.findByText("火山方舟 Coding Plan")).toBeTruthy();
+    expect(await screen.findByText("Libraton-火山方舟Codin Plan")).toBeTruthy();
     expect(screen.queryByText("暂无上游账号")).toBeNull();
     expect(screen.getAllByRole("progressbar")).toHaveLength(3);
   });

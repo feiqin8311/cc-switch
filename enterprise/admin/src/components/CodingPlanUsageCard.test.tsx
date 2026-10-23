@@ -41,7 +41,7 @@ describe("CodingPlanUsageCard", () => {
     expect(await screen.findByText("Coding Plan Pro")).toBeTruthy();
     expect(
       screen
-        .getByRole("progressbar", { name: "火山方舟 Coding Plan 5h 用量" })
+        .getByRole("progressbar", { name: "Libraton-火山方舟Codin Plan 5h 用量" })
         .getAttribute("aria-valuetext"),
     ).toBe("已使用 2.05%");
     expect(screen.getAllByRole("progressbar")).toHaveLength(2);
@@ -60,7 +60,7 @@ describe("CodingPlanUsageCard", () => {
     );
     expect(
       screen
-        .getByRole("progressbar", { name: "火山方舟 Coding Plan 5h 用量" })
+        .getByRole("progressbar", { name: "Libraton-火山方舟Codin Plan 5h 用量" })
         .getAttribute("aria-valuenow"),
     ).toBe("2.05");
   });
