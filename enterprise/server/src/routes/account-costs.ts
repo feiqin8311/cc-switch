@@ -14,6 +14,7 @@ import {
   recordSubscriptions,
   ledgerMonths,
   ledgerManualAccounts,
+  mergeAccountBreakdowns,
 } from "../usage/subscription-ledger.ts";
 import { demoUpstreamAccounts } from "../demo-upstream.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
@@ -163,12 +164,17 @@ export async function accountCostsRoutes(
       for (const snapshot of selected)
         for (const row of snapshot.items) {
           const group = groups.get(row.department) ?? {
+            accounts: [],
             department: row.department,
             monthlyUsd: 0,
             accountCount: 0,
             unpricedCount: 0,
           };
           group.monthlyUsd += row.monthlyUsd;
+          group.accounts = mergeAccountBreakdowns([
+            ...group.accounts,
+            ...row.accounts,
+          ]);
           group.accountCount += row.accountCount;
           group.unpricedCount += row.unpricedCount;
           groups.set(row.department, group);

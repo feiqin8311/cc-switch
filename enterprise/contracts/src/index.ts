@@ -600,7 +600,15 @@ export function normalizeAccountCostDepartment(name: string): string {
     : trimmed;
 }
 
+const AccountCostBreakdownSchema = z.object({
+  accountId: z.number().int(),
+  platform: z.string(),
+  name: z.string(),
+  monthlyUsd: z.number().nonnegative(),
+  unpricedCount: z.number().int().nonnegative(),
+});
 const AccountCostGroupSchema = z.object({
+  accounts: z.array(AccountCostBreakdownSchema).default([]),
   department: z.string(),
   monthlyUsd: z.number().nonnegative(),
   accountCount: z.number().int().nonnegative(),
