@@ -147,13 +147,30 @@ export function ledgerMonths(accounts: LedgerAccount[]) {
   for (const account of accounts)
     for (const cycle of account.cycles) {
       if (!cycle.month) continue;
-      const groups = months.get(cycle.month) ?? new Map();
+      const groups: Map<string, UsageAccountCostsResponse["items"][number]> =
+        months.get(cycle.month) ?? new Map();
       const group = groups.get(cycle.department) ?? {
+        accounts: [],
         department: cycle.department,
         monthlyUsd: 0,
         accountCount: 0,
         unpricedCount: 0,
       };
+      const identity = group.accounts.find(
+        (item) =>
+          item.accountId === account.accountId &&
+          item.platform === account.platform,
+      );
+      const detail = identity ?? {
+        accountId: account.accountId,
+        platform: account.platform,
+        name: cycle.name,
+        monthlyUsd: 0,
+        unpricedCount: 0,
+      };
+      if (!identity) group.accounts.push(detail);
+      if (cycle.amount === null) detail.unpricedCount++;
+      else detail.monthlyUsd += cycle.amount;
       group.accountCount++;
       if (cycle.amount === null) group.unpricedCount++;
       else group.monthlyUsd += cycle.amount;
@@ -164,6 +181,25 @@ export function ledgerMonths(accounts: LedgerAccount[]) {
     .map(([month, groups]) => ({ month, items: [...groups.values()] }))
     .sort((a, b) => a.month.localeCompare(b.month));
 }
+export function mergeAccountBreakdowns(
+  items: UsageAccountCostsResponse["items"][number]["accounts"],
+) {
+  const result = new Map<string, (typeof items)[number]>();
+  for (const item of items) {
+    const key = JSON.stringify([item.platform, item.accountId]);
+    const existing = result.get(key);
+    if (!existing) result.set(key, { ...item });
+    else {
+      existing.monthlyUsd += item.monthlyUsd;
+      existing.unpricedCount += item.unpricedCount;
+    }
+  }
+  return [...result.values()].sort(
+    (a, b) =>
+      b.monthlyUsd - a.monthlyUsd || a.name.localeCompare(b.name, "zh-CN"),
+  );
+}
+
 export function ledgerManualAccounts(accounts: LedgerAccount[]) {
   const result: UsageAccountCostsResponse["manualAccounts"] = [];
   for (const account of accounts)

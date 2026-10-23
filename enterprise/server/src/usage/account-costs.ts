@@ -131,6 +131,7 @@ export function aggregateAccountCosts(
     const department = accountDepartment(account.name);
     if (!department) continue;
     const group = groups.get(department) ?? {
+      accounts: [],
       department,
       monthlyUsd: 0,
       accountCount: 0,

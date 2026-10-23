@@ -711,6 +711,11 @@ function AccountStats() {
         a.department.localeCompare(b.department, "zh-CN"),
     );
   const history = data?.history ?? [];
+  const accountColors = buildAccountColors(
+    history.flatMap((snapshot) =>
+      snapshot.items.flatMap((item) => item.accounts),
+    ),
+  );
   const timelineKeys =
     period === "month"
       ? Array.from(
@@ -734,7 +739,8 @@ function AccountStats() {
       return {
         key,
         label: period === "month" ? `${Number(key.slice(5, 7))}月` : `${key}年`,
-        recorded: snapshots.length > 0,
+        recorded: entries.length > 0,
+        accounts: mergeCostAccounts(entries.flatMap((item) => item.accounts)),
         future: period === "month" && key > currentMonth,
         monthlyUsd: entries.reduce((sum, item) => sum + item.monthlyUsd, 0),
         unpricedCount: entries.reduce(
@@ -994,16 +1000,21 @@ function AccountStats() {
                       ? timeline.map((item) => ({
                           key: item.key,
                           label: item.label,
-                          amount: item.recorded ? item.monthlyUsd : null,
+                          amount:
+                            item.recorded && item.monthlyUsd > 0
+                              ? item.monthlyUsd
+                              : null,
                           note: !item.recorded
                             ? item.future
                               ? "尚未到期"
                               : "无记录"
                             : item.unpricedCount
                               ? `${item.unpricedCount} 项费用待补充`
-                              : period === "month"
-                                ? `${item.accountCount} 个账号`
-                                : `已记录 ${item.months} 个月`,
+                              : item.monthlyUsd === 0
+                                ? "无支出"
+                                : period === "month"
+                                  ? `${item.accountCount} 个账号`
+                                  : `已记录 ${item.months} 个月`,
                           pending: item.unpricedCount > 0,
                         }))
                       : rows.map((item) => ({
@@ -1065,11 +1076,18 @@ function AccountStats() {
                             </span>
                             {item.recorded && (
                               <div
-                                className={`absolute bottom-0 left-1/2 w-7 max-w-[80%] -translate-x-1/2 rounded-t-md ${item.unpricedCount ? "bg-amber-400" : "bg-brand"}`}
+                                className="absolute bottom-0 left-1/2 w-7 max-w-[80%] -translate-x-1/2"
                                 style={{
                                   height: `${(item.monthlyUsd / chartMax) * 80}%`,
                                 }}
-                              />
+                              >
+                                <AccountCostStack
+                                  accounts={item.accounts}
+                                  total={item.monthlyUsd}
+                                  colors={accountColors}
+                                  vertical
+                                />
+                              </div>
                             )}
                           </div>
                         ))}
@@ -1154,11 +1172,17 @@ function AccountStats() {
                             />
                           ))}
                           <div
-                            className="relative h-7 rounded-r-md bg-brand transition-[width] duration-300"
+                            className="relative h-7 transition-[width] duration-300"
                             style={{
                               width: `${(item.monthlyUsd / chartMax) * 100}%`,
                             }}
-                          />
+                          >
+                            <AccountCostStack
+                              accounts={item.accounts}
+                              total={item.monthlyUsd}
+                              colors={accountColors}
+                            />
+                          </div>
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-medium tabular-nums">
@@ -1203,7 +1227,7 @@ function AccountStats() {
                   <p className="text-[11px] text-muted-foreground">
                     {trendView
                       ? period === "month"
-                        ? `${month.slice(0, 4)} 年 · 已记录 ${(department ? timeline : (multiSeries[0]?.points ?? [])).filter((item) => item.recorded).length} 个月；缺失月份不补算`
+                        ? `${month.slice(0, 4)} 年 · 已记录 ${(department ? timeline : (multiSeries[0]?.points ?? [])).filter((item, index) => (department ? item.recorded : multiSeries.some((series) => series.points[index]?.recorded))).length} 个月；缺失月份不补算`
                         : `共 ${(department ? timeline : (multiSeries[0]?.points ?? [])).length} 年记录；各年费用仅汇总已记录月份`
                       : period === "month"
                         ? `${month} · ${month === currentMonth ? "续费费用按订阅周期入账，停用或删除账号不扣减" : "历史月度记录"}`
@@ -1267,6 +1291,118 @@ function AccountStats() {
   );
 }
 
+type CostAccount =
+  UsageAccountCostsResponse["items"][number]["accounts"][number];
+function mergeCostAccounts(accounts: CostAccount[]): CostAccount[] {
+  const result = new Map<string, CostAccount>();
+  for (const account of accounts) {
+    const key = `${account.platform}:${account.accountId}`;
+    const previous = result.get(key);
+    result.set(
+      key,
+      previous
+        ? {
+            ...previous,
+            monthlyUsd: previous.monthlyUsd + account.monthlyUsd,
+            unpricedCount: previous.unpricedCount + account.unpricedCount,
+          }
+        : { ...account },
+    );
+  }
+  return [...result.values()].sort(
+    (a, b) =>
+      b.monthlyUsd - a.monthlyUsd || a.name.localeCompare(b.name, "zh-CN"),
+  );
+}
+function accountIdentity(account: CostAccount): string {
+  return `${account.platform}:${account.accountId}`;
+}
+function buildAccountColors(accounts: CostAccount[]): Map<string, string> {
+  const palette = [
+    "#d97706",
+    "#2563eb",
+    "#059669",
+    "#9333ea",
+    "#e11d48",
+    "#0891b2",
+    "#64748b",
+    "#4f46e5",
+    "#a16207",
+    "#0f766e",
+    "#be185d",
+    "#7c3aed",
+  ];
+  const identities = [...new Set(accounts.map(accountIdentity))].sort();
+  return new Map(
+    identities.map((key, index) => [
+      key,
+      palette[index] ??
+        `hsl(${(index * 137.508) % 360} 65% ${35 + (Math.floor(index / 12) % 3) * 8}%)`,
+    ]),
+  );
+}
+function AccountCostStack({
+  accounts,
+  total,
+  colors,
+  vertical = false,
+}: {
+  accounts: CostAccount[];
+  total: number;
+  colors: Map<string, string>;
+  vertical?: boolean;
+}) {
+  const [selected, setSelected] = useState<CostAccount | null>(null);
+  const paid = accounts.filter((account) => account.monthlyUsd > 0);
+  return (
+    <div
+      className={`relative flex size-full ${vertical ? "flex-col-reverse" : ""}`}
+      onMouseLeave={() => setSelected(null)}
+    >
+      {paid.length ? (
+        paid.map((account) => {
+          const share = total > 0 ? (account.monthlyUsd / total) * 100 : 0;
+          const text = `${account.name}：$${account.monthlyUsd.toFixed(2)}`;
+          return (
+            <button
+              key={`${account.platform}:${account.accountId}`}
+              type="button"
+              aria-label={text}
+              title={text}
+              data-account-segment={account.name}
+              style={{
+                [vertical ? "height" : "width"]: `${share}%`,
+                backgroundColor: colors.get(accountIdentity(account)),
+              }}
+              className={`shrink-0 border-white/30 text-[10px] text-white outline-none focus-visible:ring-2 focus-visible:ring-ring ${vertical ? "w-full border-t first:rounded-b-sm last:rounded-t-md" : "h-full border-r last:rounded-r-md"}`}
+              onMouseEnter={() => setSelected(account)}
+              onFocus={() => setSelected(account)}
+              onBlur={() => setSelected(null)}
+              onClick={() =>
+                setSelected((current) => (current === account ? null : account))
+              }
+            >
+              {!vertical && share >= 15
+                ? `$${account.monthlyUsd.toFixed(2)}`
+                : null}
+            </button>
+          );
+        })
+      ) : (
+        <div className="size-full rounded-r-md bg-brand" />
+      )}
+      {selected && (
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 w-max max-w-72 rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg"
+        >
+          {selected.name} · ${selected.monthlyUsd.toFixed(2)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type AccountCostTimePoint = {
   key: string;
   label: string;
@@ -1292,7 +1428,11 @@ function AccountCostsMultiLineChart({
   const visible = series.filter((item) => !hidden.includes(item.name));
   const active =
     points.find((point) => point.key === activeKey) ??
-    points.filter((point) => point.recorded).at(-1) ??
+    points
+      .filter((_, index) =>
+        visible.some((item) => item.points[index]?.recorded),
+      )
+      .at(-1) ??
     points[0];
   const details = visible
     .map((item) => ({
@@ -1331,8 +1471,13 @@ function AccountCostsMultiLineChart({
   const segments = (values: AccountCostTimePoint[]) => {
     const result: number[][] = [];
     values.forEach((point, index) => {
-      if (!point.recorded) return;
-      if (!index || !values[index - 1]?.recorded) result.push([]);
+      if (!point.recorded || point.monthlyUsd <= 0) return;
+      if (
+        !index ||
+        !values[index - 1]?.recorded ||
+        values[index - 1]!.monthlyUsd <= 0
+      )
+        result.push([]);
       result.at(-1)!.push(index);
     });
     return result.filter((segment) => segment.length > 1);
@@ -1362,7 +1507,10 @@ function AccountCostsMultiLineChart({
     const svgY = ((clientY - rect.top) / rect.height) * 282;
     const candidates = visible
       .map((item) => item.points[index])
-      .filter((point): point is AccountCostTimePoint => !!point?.recorded)
+      .filter(
+        (point): point is AccountCostTimePoint =>
+          !!point?.recorded && point.monthlyUsd > 0,
+      )
       .sort(
         (a, b) =>
           Math.abs(y(a.monthlyUsd) - svgY) - Math.abs(y(b.monthlyUsd) - svgY),
@@ -1420,7 +1568,7 @@ function AccountCostsMultiLineChart({
     <div role="group" aria-label="全部部门费用趋势图" className="pb-2">
       <h3 className="text-xs font-medium">{title}</h3>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        每个部门独立曲线 · 缺失记录保留断点 · USD
+        每个部门独立曲线 · 仅绘制有支出的节点 · USD
       </p>
       <div
         className="my-4 flex flex-wrap gap-2"
@@ -1515,7 +1663,7 @@ function AccountCostsMultiLineChart({
                 >
                   {point.label}
                 </text>
-                {!point.recorded && (
+                {!visible.some((item) => item.points[index]?.recorded) && (
                   <text
                     x={x(index)}
                     y={bottom - 10}
@@ -1565,7 +1713,7 @@ function AccountCostsMultiLineChart({
               >();
               for (const item of visible) {
                 const point = item.points[index];
-                if (!point?.recorded) continue;
+                if (!point?.recorded || point.monthlyUsd <= 0) continue;
                 const cents = Math.round(point.monthlyUsd * 100);
                 const group = groups.get(cents) ?? {
                   color: item.color,
@@ -1679,6 +1827,7 @@ function AccountCostsMultiLineChart({
             const point = item.point;
             const same =
               point?.recorded &&
+              point.monthlyUsd > 0 &&
               details.filter(
                 (other) =>
                   other.point?.recorded &&
@@ -1706,7 +1855,11 @@ function AccountCostsMultiLineChart({
                       同额
                     </span>
                   )}
-                  {point?.recorded ? usd(point.monthlyUsd) : "—"}
+                  {point?.recorded
+                    ? point.monthlyUsd > 0 || !point.unpricedCount
+                      ? usd(point.monthlyUsd)
+                      : "待补价"
+                    : "无记录"}
                   {point?.unpricedCount ? " *" : ""}
                 </span>
               </div>

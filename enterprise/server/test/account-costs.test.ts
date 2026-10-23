@@ -303,7 +303,7 @@ describe("subscription renewal ledger", () => {
         const canonical = normalizeAccountCostDepartment(groupName);
         const result = response.json();
         expect(result.departmentScope).toBe(canonical);
-        expect(result.items).toEqual([
+        expect(result.items).toMatchObject([
           {
             department: canonical,
             monthlyUsd: 20,
@@ -364,6 +364,7 @@ describe("subscription renewal ledger", () => {
         [
           {
             department: "Other",
+            accounts: [],
             monthlyUsd: 999,
             accountCount: 1,
             unpricedCount: 0,
