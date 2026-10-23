@@ -610,7 +610,9 @@ export function UsagePage() {
           </div>
         </Card>
       )}
-      <AccountStats />
+      {(session.user.role === "admin" || session.user.role === "leader") && (
+        <AccountStats />
+      )}
       {usage.isPending ? (
         <Card>
           <LoadingState />
