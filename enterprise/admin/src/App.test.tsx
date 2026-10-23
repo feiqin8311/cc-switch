@@ -462,12 +462,23 @@ describe("App", () => {
     expect((await screen.findAllByText(content)).length).toBeGreaterThan(0);
   });
 
-  it("displays live account costs without manual controls and annualizes them", async () => {
+  it("displays account costs for monthly and yearly queries", async () => {
     renderAt("/usage", permissionsForRole("admin"));
     expect(await screen.findByText("$240.00")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "编辑费用" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "按年" }));
-    expect(await screen.findByText("$2,880.00")).toBeTruthy();
+    expect(await screen.findByText("$240.00")).toBeTruthy();
+  });
+
+  it("filters subscription totals and bars by department", async () => {
+    renderAt("/usage", permissionsForRole("admin"));
+    await screen.findByText("$240.00");
+    fireEvent.change(screen.getByRole("combobox", { name: "费用部门" }), {
+      target: { value: "运营部-EZARC" },
+    });
+    expect(screen.getAllByText("$120.00")).toHaveLength(2);
+    expect(screen.queryByText("$80.00")).toBeNull();
+    expect(screen.queryByText("$40.00")).toBeNull();
   });
 
   it("edits an unrecognized monthly fee in a dialog and refreshes the total", async () => {

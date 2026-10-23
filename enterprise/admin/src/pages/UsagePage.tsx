@@ -659,18 +659,24 @@ function AccountStats() {
   const client = useApi();
   const isAdmin = useSession().user.role === "admin";
   const [editing, setEditing] = useState(false);
+  const [period, setPeriod] = useState<"month" | "year">("month");
+  const currentMonth = new Date()
+    .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+    .slice(0, 7);
+  const [month, setMonth] = useState(currentMonth);
+  const [year, setYear] = useState(currentMonth.slice(0, 4));
+  const [department, setDepartment] = useState("");
+  const selectedPeriod = period === "month" ? month : year;
   const accountCosts = useQuery({
-    queryKey: ACCOUNT_COSTS_KEY,
+    queryKey: [...ACCOUNT_COSTS_KEY, period, selectedPeriod],
     queryFn: ({ signal }) =>
-      client.get(
-        "/admin/usage/account-costs",
-        UsageAccountCostsResponseSchema,
+      client.request("/admin/usage/account-costs", {
+        query: { period, value: selectedPeriod },
+        schema: UsageAccountCostsResponseSchema,
         signal,
-      ),
+      }),
     refetchInterval: 30_000,
   });
-  const [period, setPeriod] = useState<"month" | "year">("month");
-
   if (accountCosts.isPending) {
     return (
       <Card>
@@ -692,12 +698,12 @@ function AccountStats() {
   }
 
   const savedCosts = accountCosts.data.items;
-  const multiplier = period === "year" ? 12 : 1;
   const costs = savedCosts
+    .filter((item) => !department || item.department === department)
     .map((item) => ({
       name: item.department,
       monthlyUsd: item.monthlyUsd,
-      amount: item.monthlyUsd * multiplier,
+      amount: item.monthlyUsd,
     }))
     .sort(
       (a, b) => b.amount - a.amount || a.name.localeCompare(b.name, "zh-CN"),
@@ -718,14 +724,14 @@ function AccountStats() {
   return (
     <>
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 pb-2.5">
+        <div className="flex flex-col gap-3 border-b border-border/50 pb-2.5">
           <div>
             <h2 className="text-sm font-medium">账户统计</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              按上游账号名称自动分组，根据套餐估算订阅费用（USD）
+              按月保存上游账号订阅费用，年度汇总已记录月份（USD）
             </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-4">
+          <div className="flex w-full flex-wrap items-center gap-4">
             <div
               className="inline-flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
               role="group"
@@ -752,16 +758,82 @@ function AccountStats() {
                 </button>
               ))}
             </div>
-            <div className="text-right">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {period === "month" ? "每月费用总计" : "每年费用总计"}
+            <select
+              aria-label="费用年份"
+              value={period === "month" ? month.slice(0, 4) : year}
+              onChange={(event) => {
+                if (period === "year") setYear(event.target.value);
+                else {
+                  const next = `${event.target.value}-${month.slice(5, 7)}`;
+                  setMonth(next > currentMonth ? currentMonth : next);
+                }
+              }}
+              className="rounded-md border border-border bg-background pl-3 pr-8 py-1.5 text-xs"
+            >
+              {Array.from(
+                { length: Number(currentMonth.slice(0, 4)) - 1999 },
+                (_, index) => String(Number(currentMonth.slice(0, 4)) - index),
+              ).map((value) => (
+                <option key={value} value={value}>
+                  {value} 年
+                </option>
+              ))}
+            </select>
+            {period === "month" && (
+              <select
+                aria-label="费用月份"
+                value={month.slice(5, 7)}
+                onChange={(event) =>
+                  setMonth(`${month.slice(0, 4)}-${event.target.value}`)
+                }
+                className="rounded-md border border-border bg-background pl-3 pr-8 py-1.5 text-xs"
+              >
+                {Array.from({ length: 12 }, (_, index) =>
+                  String(index + 1).padStart(2, "0"),
+                ).map((value) => (
+                  <option
+                    key={value}
+                    value={value}
+                    disabled={`${month.slice(0, 4)}-${value}` > currentMonth}
+                  >
+                    {Number(value)} 月
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              aria-label="费用部门"
+              value={department}
+              onChange={(event) => setDepartment(event.target.value)}
+              className="rounded-md border border-border bg-background pl-3 pr-8 py-1.5 text-xs"
+            >
+              <option value="">全部部门</option>
+              {[
+                ...new Set([
+                  ...savedCosts.map((item) => item.department),
+                  ...(department ? [department] : []),
+                ]),
+              ].map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <div className="ml-auto flex shrink-0 items-baseline gap-2 whitespace-nowrap">
+              <div className="text-[11px] font-medium leading-none uppercase tracking-wider text-muted-foreground">
+                {period === "month" ? "月度费用总计：" : "年度费用总计："}
               </div>
-              <div className="mt-1 text-2xl font-serif tabular-nums text-foreground">
+              <div className="text-2xl font-serif leading-none tabular-nums text-foreground">
                 {formatUsd(total)}
               </div>
             </div>
           </div>
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {period === "year"
+            ? `${year} 年已记录 ${accountCosts.data.recordedMonths.length} 个月，合计仅含已记录月份；未记录月份不补算。`
+            : `${month}：${month === currentMonth ? "当月记录随上游账号更新" : "历史月度记录"}。`}
+        </p>
         {(accountCosts.data.unpricedCount > 0 ||
           (isAdmin && accountCosts.data.manualAccounts.length > 0)) && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -789,7 +861,7 @@ function AccountStats() {
         )}
         {accountCosts.data.configured && costs.length === 0 && (
           <p className="mt-3 text-sm text-muted-foreground">
-            暂无可统计的上游账号。
+            所选期间或部门暂无费用记录。
           </p>
         )}
         {costs.length > 0 && (
