@@ -576,20 +576,26 @@ export const ManualAccountCostDetailSchema = ManualAccountCostSchema.extend({
   department: z.string(),
 });
 
-/** Live subscription estimates grouped from upstream account names. */
+const AccountCostGroupSchema = z.object({
+  department: z.string(),
+  monthlyUsd: z.number().nonnegative(),
+  accountCount: z.number().int().nonnegative(),
+  unpricedCount: z.number().int().nonnegative(),
+});
+
+/** Period totals and recorded monthly history, grouped by department. */
 export const UsageAccountCostsResponseSchema = z.object({
+  demo: z.boolean().default(false),
   recordedMonths: z.array(z.string()).default([]),
   availableMonths: z.array(z.string()).default([]),
+  history: z
+    .array(
+      z.object({ month: z.string(), items: z.array(AccountCostGroupSchema) }),
+    )
+    .default([]),
   manualAccounts: z.array(ManualAccountCostDetailSchema).default([]),
   configured: z.boolean(),
-  items: z.array(
-    z.object({
-      department: z.string(),
-      monthlyUsd: z.number().nonnegative(),
-      accountCount: z.number().int().nonnegative(),
-      unpricedCount: z.number().int().nonnegative(),
-    }),
-  ),
+  items: z.array(AccountCostGroupSchema),
   unpricedCount: z.number().int().nonnegative(),
 });
 export type UsageAccountCostsResponse = z.infer<
@@ -1396,6 +1402,7 @@ export type UpstreamAccount = z.infer<typeof UpstreamAccountSchema>;
 
 /** GET /admin/upstream/accounts (audit.read) and /client/upstream/accounts. */
 export const UpstreamAccountsResponseSchema = z.object({
+  demo: z.boolean().default(false),
   configured: z.boolean(),
   error: z.string().nullable(),
   items: z.array(UpstreamAccountSchema),

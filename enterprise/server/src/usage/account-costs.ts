@@ -19,19 +19,26 @@ export async function saveCostMonth(
   db: Db,
   month: string,
   items: UsageAccountCostsResponse["items"],
+  demo = false,
 ) {
   const value = { month, items };
   const updatedAt = new Date();
   await db
     .insert(settings)
-    .values({ key: SNAPSHOT_PREFIX + month, value, updatedAt })
+    .values({
+      key: (demo ? "demo-account-month:" : SNAPSHOT_PREFIX) + month,
+      value,
+      updatedAt,
+    })
     .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt } });
 }
-export async function readCostMonths(db: Db) {
+export async function readCostMonths(db: Db, demo = false) {
   const rows = await db
     .select({ value: settings.value })
     .from(settings)
-    .where(like(settings.key, `${SNAPSHOT_PREFIX}%`));
+    .where(
+      like(settings.key, `${demo ? "demo-account-month:" : SNAPSHOT_PREFIX}%`),
+    );
   return rows.map(
     (row) =>
       row.value as { month: string; items: UsageAccountCostsResponse["items"] },

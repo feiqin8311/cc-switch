@@ -27,6 +27,13 @@ pnpm typecheck
 pnpm lint
 ```
 
+For an offline account preview, set `DEMO_UPSTREAM_ACCOUNTS=true` in
+`enterprise/.env` and restart the server. The upstream page and subscription
+statistics use the same 12 screenshot-style accounts; Kevin is excluded from
+costs and the Coding Plan fee can be filled manually. Demo monthly snapshots
+are stored separately. Set the flag to `false` to return to live accounts.
+The flag is ignored in production.
+
 ## Admin console
 
 Web console for users, gateway providers, usage, conversation audit, the

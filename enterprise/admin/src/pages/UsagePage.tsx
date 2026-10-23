@@ -666,78 +666,136 @@ function AccountStats() {
   const [month, setMonth] = useState(currentMonth);
   const [year, setYear] = useState(currentMonth.slice(0, 4));
   const [department, setDepartment] = useState("");
-  const selectedPeriod = period === "month" ? month : year;
+  const requestPeriod = department ? "year" : period;
+  const selectedPeriod = department
+    ? period === "month"
+      ? month.slice(0, 4)
+      : currentMonth.slice(0, 4)
+    : period === "month"
+      ? month
+      : year;
   const accountCosts = useQuery({
-    queryKey: [...ACCOUNT_COSTS_KEY, period, selectedPeriod],
+    queryKey: [...ACCOUNT_COSTS_KEY, requestPeriod, selectedPeriod],
     queryFn: ({ signal }) =>
       client.request("/admin/usage/account-costs", {
-        query: { period, value: selectedPeriod },
+        query: { period: requestPeriod, value: selectedPeriod },
         schema: UsageAccountCostsResponseSchema,
         signal,
       }),
+    placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   });
-  if (accountCosts.isPending) {
-    return (
-      <Card>
-        <h2 className="mb-3 text-sm font-medium">账户统计</h2>
-        <LoadingState />
-      </Card>
-    );
-  }
-  if (accountCosts.isError) {
-    return (
-      <Card>
-        <h2 className="mb-3 text-sm font-medium">账户统计</h2>
-        <ErrorState
-          error={accountCosts.error}
-          onRetry={() => void accountCosts.refetch()}
-        />
-      </Card>
-    );
-  }
-
-  const savedCosts = accountCosts.data.items;
-  const costs = savedCosts
+  const data = accountCosts.data;
+  const rows = (data?.items ?? [])
     .filter((item) => !department || item.department === department)
-    .map((item) => ({
-      name: department
-        ? period === "month"
-          ? `${Number(month.slice(5, 7))}月`
-          : `${year}年`
-        : item.department,
-      monthlyUsd: item.monthlyUsd,
-      amount: item.monthlyUsd,
-    }))
     .sort(
-      (a, b) => b.amount - a.amount || a.name.localeCompare(b.name, "zh-CN"),
+      (a, b) =>
+        b.monthlyUsd - a.monthlyUsd ||
+        a.department.localeCompare(b.department, "zh-CN"),
     );
-  const total = costs.reduce((sum, item) => sum + item.amount, 0);
-  const maxAmount = Math.max(
+  const history = data?.history ?? [];
+  const timelineKeys =
+    period === "month"
+      ? Array.from(
+          { length: 12 },
+          (_, index) =>
+            `${month.slice(0, 4)}-${String(index + 1).padStart(2, "0")}`,
+        )
+      : [
+          ...new Set(history.map((snapshot) => snapshot.month.slice(0, 4))),
+        ].sort();
+  const timeline = department
+    ? timelineKeys.map((key) => {
+        const snapshots = history.filter((snapshot) =>
+          period === "month"
+            ? snapshot.month === key
+            : snapshot.month.startsWith(key + "-"),
+        );
+        const entries = snapshots.flatMap((snapshot) =>
+          snapshot.items.filter((item) => item.department === department),
+        );
+        return {
+          key,
+          label:
+            period === "month" ? `${Number(key.slice(5, 7))}月` : `${key}年`,
+          recorded: snapshots.length > 0,
+          future: period === "month" && key > currentMonth,
+          monthlyUsd: entries.reduce((sum, item) => sum + item.monthlyUsd, 0),
+          unpricedCount: entries.reduce(
+            (sum, item) => sum + item.unpricedCount,
+            0,
+          ),
+          accountCount: entries.reduce(
+            (sum, item) => sum + item.accountCount,
+            0,
+          ),
+          months: snapshots.length,
+        };
+      })
+    : [];
+  const displayed = department ? timeline : rows;
+  const total = displayed.reduce((sum, item) => sum + item.monthlyUsd, 0);
+  const accounts = rows.reduce((sum, item) => sum + item.accountCount, 0);
+  const unpriced = displayed.reduce((sum, item) => sum + item.unpricedCount, 0);
+  const departments = [
+    ...new Set([
+      "运营部-EZARC",
+      "Libraton组",
+      "运营部-YPLUS",
+      "产品部",
+      "技术部&独立站",
+      ...(data?.items ?? []).map((item) => item.department),
+    ]),
+  ];
+  const chartMax = Math.max(
     50,
-    Math.ceil(Math.max(0, ...costs.map((item) => item.amount)) / 50) * 50,
+    Math.ceil(Math.max(0, ...displayed.map((item) => item.monthlyUsd)) / 50) *
+      50,
   );
-  const barScale = 80;
-  const ticks = [0, 0.25, 0.5, 0.75, 1];
-  const formatUsd = (amount: number) =>
-    `$${amount.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+  const chartTicks = [0, 0.25, 0.5, 0.75, 1];
+  const formatUsd = (value: number) =>
+    `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const selectStyle =
+    "h-9 rounded-lg border border-border bg-background pl-3 pr-8 text-xs text-foreground";
+  const labelStyle = "flex flex-col text-[11px] text-muted-foreground";
 
   return (
     <>
       <Card>
-        <div className="flex flex-col gap-3 border-b border-border/50 pb-2.5">
+        <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
-            <h2 className="text-sm font-medium">账户统计</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              按月保存上游账号订阅费用，年度汇总已记录月份（USD）
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium">账户统计</h2>
+              {data?.demo && (
+                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700">
+                  测试数据
+                </span>
+              )}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              部门订阅费用概览 · 美元 USD
             </p>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-4">
+          <div className="flex items-baseline gap-2 whitespace-nowrap">
+            <span className="text-xs text-muted-foreground">
+              {department
+                ? period === "month"
+                  ? "全年已记录费用："
+                  : "历年费用总计："
+                : period === "month"
+                  ? "月度费用总计："
+                  : "年度费用总计："}
+            </span>
+            <span className="text-3xl font-serif leading-none tabular-nums">
+              {data ? formatUsd(total) : "—"}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-muted/35 p-3">
+          <div className={labelStyle}>
             <div
-              className="inline-flex rounded-lg border border-border/70 bg-muted/40 p-0.5"
+              className="inline-flex h-9 items-center rounded-lg border border-border/70 p-0.5"
               role="group"
               aria-label="费用统计周期"
             >
@@ -751,46 +809,58 @@ function AccountStats() {
                   key={value}
                   type="button"
                   aria-pressed={period === value}
-                  onClick={() => setPeriod(value)}
-                  className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
-                    period === value
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  onClick={() => {
+                    setPeriod(value);
+                    if (value === "year") setYear(month.slice(0, 4));
+                    else
+                      setMonth(
+                        `${year}-${month.slice(5, 7)}` > currentMonth
+                          ? currentMonth
+                          : `${year}-${month.slice(5, 7)}`,
+                      );
+                  }}
+                  className={`h-full rounded-md px-3 text-xs transition-colors ${period === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <select
-              aria-label="费用年份"
-              value={period === "month" ? month.slice(0, 4) : year}
-              onChange={(event) => {
-                if (period === "year") setYear(event.target.value);
-                else {
-                  const next = `${event.target.value}-${month.slice(5, 7)}`;
-                  setMonth(next > currentMonth ? currentMonth : next);
-                }
-              }}
-              className="rounded-md border border-border bg-background pl-3 pr-8 py-1.5 text-xs"
-            >
-              {Array.from(
-                { length: Number(currentMonth.slice(0, 4)) - 1999 },
-                (_, index) => String(Number(currentMonth.slice(0, 4)) - index),
-              ).map((value) => (
-                <option key={value} value={value}>
-                  {value} 年
-                </option>
-              ))}
-            </select>
-            {period === "month" && (
+          </div>
+          {(!department || period === "month") && (
+            <label className={labelStyle}>
+              <select
+                aria-label="费用年份"
+                className={selectStyle}
+                value={period === "month" ? month.slice(0, 4) : year}
+                onChange={(event) => {
+                  if (period === "year") setYear(event.target.value);
+                  else {
+                    const next = `${event.target.value}-${month.slice(5, 7)}`;
+                    setMonth(next > currentMonth ? currentMonth : next);
+                  }
+                }}
+              >
+                {Array.from(
+                  { length: Number(currentMonth.slice(0, 4)) - 1999 },
+                  (_, index) =>
+                    String(Number(currentMonth.slice(0, 4)) - index),
+                ).map((value) => (
+                  <option key={value} value={value}>
+                    {value} 年
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {period === "month" && !department && (
+            <label className={labelStyle}>
               <select
                 aria-label="费用月份"
+                className={selectStyle}
                 value={month.slice(5, 7)}
                 onChange={(event) =>
                   setMonth(`${month.slice(0, 4)}-${event.target.value}`)
                 }
-                className="rounded-md border border-border bg-background pl-3 pr-8 py-1.5 text-xs"
               >
                 {Array.from({ length: 12 }, (_, index) =>
                   String(index + 1).padStart(2, "0"),
@@ -804,133 +874,280 @@ function AccountStats() {
                   </option>
                 ))}
               </select>
-            )}
+            </label>
+          )}
+          <label className={`${labelStyle} min-w-40`}>
             <select
               aria-label="费用部门"
+              className={selectStyle}
               value={department}
               onChange={(event) => setDepartment(event.target.value)}
-              className="rounded-md border border-border bg-background pl-3 pr-8 py-1.5 text-xs"
             >
               <option value="">全部部门</option>
-              {[
-                ...new Set([
-                  ...savedCosts.map((item) => item.department),
-                  ...(department ? [department] : []),
-                ]),
-              ].map((name) => (
+              {departments.map((name) => (
                 <option key={name} value={name}>
                   {name}
                 </option>
               ))}
             </select>
-            <div className="ml-auto flex shrink-0 items-baseline gap-2 whitespace-nowrap">
-              <div className="text-[11px] font-medium leading-none uppercase tracking-wider text-muted-foreground">
-                {period === "month" ? "月度费用总计：" : "年度费用总计："}
-              </div>
-              <div className="text-2xl font-serif leading-none tabular-nums text-foreground">
-                {formatUsd(total)}
-              </div>
-            </div>
-          </div>
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          {period === "year"
-            ? `${year} 年已记录 ${accountCosts.data.recordedMonths.length} 个月，合计仅含已记录月份；未记录月份不补算。`
-            : `${month}：${month === currentMonth ? "当月记录随上游账号更新" : "历史月度记录"}。`}
-        </p>
-        {(accountCosts.data.unpricedCount > 0 ||
-          (isAdmin && accountCosts.data.manualAccounts.length > 0)) && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <p className="text-xs text-muted-foreground" role="status">
-              {accountCosts.data.unpricedCount > 0
-                ? `${accountCosts.data.unpricedCount} 个账号的套餐价格暂无法识别，总计仅包含已识别及手动补充的费用。`
-                : "未识别套餐的费用已手动补充。"}
-            </p>
-            {isAdmin && accountCosts.data.manualAccounts.length > 0 && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setEditing(true)}
-              >
-                <Pencil className="size-3.5" />
-                手动编辑
-              </Button>
+          </label>
+          <div className="ml-auto text-xs text-muted-foreground">
+            {department ? (
+              `${department} · ${period === "month" ? month.slice(0, 4) + " 年月度趋势" : "历年费用趋势"}`
+            ) : (
+              <>
+                {rows.length} 个部门
+                {period === "month" && <> · {accounts} 个账号</>}
+              </>
             )}
           </div>
-        )}
-        {!accountCosts.data.configured && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            尚未连接上游账号。
-          </p>
-        )}
-        {accountCosts.data.configured && costs.length === 0 && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            所选期间或部门暂无费用记录。
-          </p>
-        )}
-        {costs.length > 0 && (
-          <div className="mt-4 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2">
-            <div className="relative h-56 text-right text-[10px] tabular-nums text-muted-foreground">
-              {ticks.map((tick) => (
-                <span
-                  key={tick}
-                  className="absolute right-0 -translate-y-1/2"
-                  style={{ bottom: `${tick * barScale}%` }}
-                >
-                  {formatUsd(maxAmount * tick).replace(/\.00$/, "")}
-                </span>
-              ))}
-            </div>
-            <div className="relative h-56 border-b border-border/70">
-              {ticks.map((tick) => (
-                <div
-                  key={tick}
-                  className="absolute inset-x-0 border-t border-dashed border-border/50"
-                  style={{ bottom: `${tick * barScale}%` }}
-                />
-              ))}
-              <div className="absolute inset-x-0 bottom-0 flex h-full items-end justify-around gap-3 px-2">
-                {costs.map((item) => {
-                  const height = (item.amount / maxAmount) * barScale;
-                  return (
-                    <div
-                      key={item.name}
-                      className="relative flex h-full min-w-0 flex-1 justify-center"
-                      title={`${item.name}: ${formatUsd(item.amount)}`}
-                    >
-                      <span
-                        className="absolute -translate-y-full whitespace-nowrap text-[11px] font-medium tabular-nums text-muted-foreground"
-                        style={{ bottom: `${height}%` }}
-                      >
-                        {formatUsd(item.amount)}
-                      </span>
-                      <div
-                        className="absolute bottom-0 w-8 max-w-[70%] rounded-t-md bg-brand transition-[height]"
-                        style={{ height: `${height}%` }}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div />
-            <div className="flex justify-around gap-3 px-2 text-center text-xs text-muted-foreground">
-              {costs.map((item) => (
-                <div
-                  key={item.name}
-                  className="min-w-0 flex-1 truncate"
-                  title={item.name}
-                >
-                  {item.name}
-                </div>
-              ))}
-            </div>
+        </div>
+
+        {accountCosts.isPending && (
+          <div className="py-6">
+            <LoadingState />
           </div>
         )}
+        {accountCosts.isError && (
+          <ErrorState
+            error={accountCosts.error}
+            onRetry={() => void accountCosts.refetch()}
+          />
+        )}
+        {data && (
+          <>
+            <div
+              className="mt-5 overflow-x-auto"
+              aria-busy={accountCosts.isFetching}
+            >
+              {department ? (
+                timeline.length > 0 ? (
+                  <div
+                    className="min-w-[36rem] pb-3"
+                    role="group"
+                    aria-label="部门订阅费用趋势图"
+                  >
+                    <p className="mb-6 text-[11px] text-muted-foreground">
+                      {period === "month" ? "全年各月订阅费用" : "历年订阅费用"}{" "}
+                      · USD · 缺失记录不补算
+                    </p>
+                    <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3">
+                      <div className="relative h-56 text-[10px] tabular-nums text-muted-foreground">
+                        {chartTicks.map((tick) => (
+                          <span
+                            key={tick}
+                            className="absolute right-0 translate-y-1/2"
+                            style={{ bottom: `${tick * 80}%` }}
+                          >
+                            {formatUsd(chartMax * tick).replace(/\.00$/, "")}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="relative flex h-56 items-end gap-2 border-b border-border px-2">
+                        {chartTicks.map((tick) => (
+                          <div
+                            key={tick}
+                            className="absolute inset-x-0 border-t border-dashed border-border/60"
+                            style={{ bottom: `${tick * 80}%` }}
+                          />
+                        ))}
+                        {timeline.map((item) => (
+                          <div
+                            key={item.key}
+                            className="relative h-full min-w-0 flex-1"
+                            title={`${item.label}：${item.recorded ? formatUsd(item.monthlyUsd) : item.future ? "尚未到期" : "无记录"}`}
+                          >
+                            <span
+                              className="absolute left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap pb-2 text-[10px] tabular-nums text-muted-foreground"
+                              style={{
+                                bottom: `${(item.monthlyUsd / chartMax) * 80}%`,
+                              }}
+                            >
+                              {item.recorded ? formatUsd(item.monthlyUsd) : "—"}
+                            </span>
+                            {item.recorded && (
+                              <div
+                                className={`absolute bottom-0 left-1/2 w-7 max-w-[80%] -translate-x-1/2 rounded-t-md ${item.unpricedCount ? "bg-amber-400" : "bg-brand"}`}
+                                style={{
+                                  height: `${(item.monthlyUsd / chartMax) * 80}%`,
+                                }}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div />
+                      <div className="flex gap-2 px-2 text-center text-[10px] text-muted-foreground">
+                        {timeline.map((item) => (
+                          <div key={item.key} className="min-w-0 flex-1">
+                            <span className="text-foreground">
+                              {item.label}
+                            </span>
+                            <div className="mt-1">
+                              {item.recorded
+                                ? item.unpricedCount > 0
+                                  ? "待补价"
+                                  : period === "month"
+                                    ? `${item.accountCount} 个账号`
+                                    : `已记录 ${item.months} 月`
+                                : item.future
+                                  ? "尚未到期"
+                                  : "无记录"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    暂无年度费用记录。
+                  </p>
+                )
+              ) : rows.length > 0 ? (
+                <div
+                  className="min-w-[28rem] py-2"
+                  role="group"
+                  aria-label="订阅费用条形图"
+                >
+                  <div className="mb-3 flex justify-between text-[11px] text-muted-foreground">
+                    <span>
+                      {department
+                        ? `${department} · ${period === "month" ? month.slice(0, 4) + " 年" : "年度费用"}`
+                        : "部门费用对比"}
+                    </span>
+                    <span>费用 / 占比</span>
+                  </div>
+                  {rows.map((item) => {
+                    const label = department
+                      ? period === "month"
+                        ? `${Number(month.slice(5, 7))}月`
+                        : `${year}年`
+                      : item.department;
+                    return (
+                      <div
+                        key={item.department}
+                        className="grid grid-cols-[8rem_minmax(0,1fr)_5.5rem] items-center gap-3"
+                        aria-label={`${label}：${formatUsd(item.monthlyUsd)}`}
+                      >
+                        <div className="py-4">
+                          <div
+                            className="truncate text-xs font-medium"
+                            title={item.department}
+                          >
+                            {label}
+                          </div>
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            {period === "month" &&
+                              `${item.accountCount} 个账号`}
+                            {item.unpricedCount > 0 && (
+                              <span className="ml-1 text-amber-700">
+                                · {item.unpricedCount} 项待补充
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="relative flex h-full min-h-16 items-center">
+                          {chartTicks.map((tick) => (
+                            <div
+                              key={tick}
+                              className="absolute inset-y-0 border-l border-dashed border-border/60"
+                              style={{ left: `${tick * 100}%` }}
+                            />
+                          ))}
+                          <div
+                            className="relative h-7 rounded-r-md bg-brand transition-[width] duration-300"
+                            style={{
+                              width: `${(item.monthlyUsd / chartMax) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-medium tabular-nums">
+                            {formatUsd(item.monthlyUsd)}
+                          </div>
+                          <div className="mt-1 text-[10px] tabular-nums text-muted-foreground">
+                            {total > 0
+                              ? `${((item.monthlyUsd / total) * 100).toFixed(1)}%`
+                              : "—"}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="grid grid-cols-[8rem_minmax(0,1fr)_5.5rem] gap-3 pb-3">
+                    <div />
+                    <div className="relative h-6 border-t border-border">
+                      {chartTicks.map((tick) => (
+                        <span
+                          key={tick}
+                          className="absolute top-2 -translate-x-1/2 whitespace-nowrap text-[10px] tabular-nums text-muted-foreground"
+                          style={{ left: `${tick * 100}%` }}
+                        >
+                          {formatUsd(chartMax * tick).replace(/\.00$/, "")}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="pt-2 text-right text-[10px] text-muted-foreground">
+                      USD
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  所选期间或部门暂无费用记录。
+                </p>
+              )}
+            </div>
+            {isAdmin && (
+              <>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
+                  <p className="text-[11px] text-muted-foreground">
+                    {department
+                      ? period === "month"
+                        ? `${month.slice(0, 4)} 年 · 已记录 ${timeline.filter((item) => item.recorded).length} 个月；缺失月份不补算`
+                        : `共 ${timeline.length} 年记录；各年费用仅汇总已记录月份`
+                      : period === "month"
+                        ? `${month} · ${month === currentMonth ? "当月记录随上游账号更新" : "历史月度记录"}`
+                        : `${year} 年 · 已记录 ${data.recordedMonths.length} 个月；未记录月份不补算`}
+                  </p>
+                  {isAdmin && data.manualAccounts.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEditing(true)}
+                    >
+                      <Pencil className="size-3.5" />
+                      手动编辑
+                    </Button>
+                  )}
+                </div>
+                {unpriced > 0 && (
+                  <p className="mt-2 text-[11px] text-amber-700" role="status">
+                    {unpriced} 项套餐费用待补充，总计仅包含已计价费用。
+                  </p>
+                )}
+                {unpriced === 0 && data.manualAccounts.length > 0 && (
+                  <p
+                    className="mt-2 text-[11px] text-muted-foreground"
+                    role="status"
+                  >
+                    未识别套餐的费用已手动补充。
+                  </p>
+                )}
+                {data.demo && (
+                  <p className="mt-2 text-[11px] text-amber-700">
+                    本机模拟账号，未连接上游服务；测试月度记录单独保存。
+                  </p>
+                )}
+              </>
+            )}
+          </>
+        )}
       </Card>
-      {editing && isAdmin && (
+      {editing && isAdmin && data && (
         <ManualAccountCostsDialog
-          initial={accountCosts.data.manualAccounts}
+          initial={data.manualAccounts}
           onClose={() => setEditing(false)}
         />
       )}

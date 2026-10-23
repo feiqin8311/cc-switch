@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { AppDeps } from "../app.ts";
 import { authOf, requireAnyPermission } from "../auth/guard.ts";
 import { forbidden, parseBody } from "../errors.ts";
+import { demoUpstreamAccounts } from "../demo-upstream.ts";
 import { listUpstreamAccounts } from "../sub2api.ts";
 import {
   accountDepartment,
@@ -28,6 +29,7 @@ export async function accountCostsRoutes(
 ): Promise<void> {
   const { authenticate, config, readCodingPlan, db } = deps;
   const liveAccounts = async () => {
+    if (config.demoUpstreamAccounts) return demoUpstreamAccounts();
     const [accounts, codingPlan] = await Promise.all([
       config.sub2api ? listUpstreamAccounts(config.sub2api) : [],
       config.volcengine ? readCodingPlan() : undefined,
@@ -53,8 +55,8 @@ export async function accountCostsRoutes(
       readManualCosts(db),
     ]);
     const items = aggregateAccountCosts(accounts, overrides);
-    if (config.sub2api || config.volcengine)
-      await saveCostMonth(db, month, items);
+    if (config.demoUpstreamAccounts || config.sub2api || config.volcengine)
+      await saveCostMonth(db, month, items, config.demoUpstreamAccounts);
     return { accounts, overrides };
   };
   // Record independently of dashboard visits. Closed months are never rewritten.
@@ -119,7 +121,7 @@ export async function accountCostsRoutes(
       const { accounts, overrides } = isCurrent
         ? await refreshSnapshot()
         : { accounts: [], overrides: new Map() };
-      const snapshots = await readCostMonths(db);
+      const snapshots = await readCostMonths(db, config.demoUpstreamAccounts);
       const selected = snapshots.filter((s) =>
         query.period === "month"
           ? s.month === value
@@ -148,7 +150,7 @@ export async function accountCostsRoutes(
           a.department.localeCompare(b.department, "zh-CN"),
       );
       const manualAccounts =
-        role === "admin" && query.period === "month" && value === current
+        role === "admin" && isCurrent
           ? accounts.flatMap((account) => {
               const department = accountDepartment(account.name);
               if (!department || monthlySubscriptionUsd(account) !== null)
@@ -170,9 +172,14 @@ export async function accountCostsRoutes(
             })
           : [];
       return UsageAccountCostsResponseSchema.parse({
+        history: snapshots.sort((a, b) => a.month.localeCompare(b.month)),
         recordedMonths: selected.map((s) => s.month).sort(),
         availableMonths: snapshots.map((s) => s.month).sort(),
-        configured: !!config.sub2api || !!config.volcengine,
+        demo: config.demoUpstreamAccounts,
+        configured:
+          config.demoUpstreamAccounts ||
+          !!config.sub2api ||
+          !!config.volcengine,
         items,
         manualAccounts,
         unpricedCount: items.reduce((sum, item) => sum + item.unpricedCount, 0),
