@@ -37,6 +37,56 @@ const accounts = [
 ];
 
 describe("live upstream subscription costs", () => {
+  it("uses the same offline demo accounts in upstream cards and subscription costs", async () => {
+    const ctx = await setup({ DEMO_UPSTREAM_ACCOUNTS: "true" });
+    try {
+      const session = await login(ctx.app, ADMIN.username, ADMIN.password);
+      const headers = bearer(session.accessToken);
+      const upstream = (
+        await ctx.app.inject({
+          method: "GET",
+          url: "/api/v1/admin/upstream/accounts",
+          headers,
+        })
+      ).json();
+      expect(upstream.demo).toBe(true);
+      expect(upstream.items).toHaveLength(12);
+      const result = (
+        await ctx.app.inject({
+          method: "GET",
+          url: "/api/v1/admin/usage/account-costs",
+          headers,
+        })
+      ).json();
+      expect(result.demo).toBe(true);
+      expect(
+        result.items.reduce(
+          (sum: number, item: { monthlyUsd: number }) => sum + item.monthlyUsd,
+          0,
+        ),
+      ).toBe(280);
+      expect(
+        result.items.reduce(
+          (sum: number, item: { accountCount: number }) =>
+            sum + item.accountCount,
+          0,
+        ),
+      ).toBe(11);
+      expect(result.manualAccounts[0].name).toBe(upstream.items[11].name);
+      ctx.config.demoUpstreamAccounts = false;
+      const real = (
+        await ctx.app.inject({
+          method: "GET",
+          url: "/api/v1/admin/usage/account-costs",
+          headers,
+        })
+      ).json();
+      expect(real.items).toEqual([]);
+      expect(real.recordedMonths).toEqual([]);
+    } finally {
+      await ctx.close();
+    }
+  });
   it("keeps historical months separate and sums recorded months for the selected year", async () => {
     const ctx = await setup();
     try {
@@ -63,6 +113,9 @@ describe("live upstream subscription costs", () => {
       expect(january.manualAccounts).toEqual([]);
       const annual = (await get("year", "2020")).json();
       expect(annual.items[0].monthlyUsd).toBe(60);
+      expect(
+        annual.history.map((entry: { month: string }) => entry.month),
+      ).toEqual(["2020-01", "2020-02", "2021-01"]);
       expect(annual.recordedMonths).toEqual(["2020-01", "2020-02"]);
       expect((await get("month", "2019-01")).json().items).toEqual([]);
       expect((await get("month", "2020-13")).statusCode).toBe(400);

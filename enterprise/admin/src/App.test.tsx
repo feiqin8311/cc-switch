@@ -87,6 +87,21 @@ const FIXTURES: Record<string, unknown> = {
   "/admin/usage/account-costs": {
     configured: true,
     unpricedCount: 0,
+    history: [
+      {
+        month: new Date()
+          .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+          .slice(0, 7),
+        items: [
+          {
+            department: "运营部-EZARC",
+            monthlyUsd: 120,
+            accountCount: 2,
+            unpricedCount: 0,
+          },
+        ],
+      },
+    ],
     items: [
       {
         department: "运营部-EZARC",
@@ -425,10 +440,34 @@ describe("App", () => {
       role: "leader",
       adminMenus: ["usage"],
     };
-    renderAt("/usage", ["usage.read"], usageLeader);
+    renderAt("/usage", ["usage.read"], usageLeader, (route) =>
+      route === "/admin/usage/account-costs"
+        ? Response.json({
+            configured: true,
+            demo: true,
+            items: [],
+            unpricedCount: 1,
+            manualAccounts: [
+              {
+                accountId: 99,
+                name: "Unknown-GPT",
+                platform: "openai",
+                planType: null,
+                department: "技术部&独立站",
+                monthlyUsd: null,
+              },
+            ],
+          })
+        : undefined,
+    );
     expect(
       await screen.findByRole("heading", { name: "账户统计" }),
     ).toBeTruthy();
+    await screen.findByText("所选期间或部门暂无费用记录。");
+    expect(screen.queryByRole("button", { name: "手动编辑" })).toBeNull();
+    expect(screen.queryByText(/当月记录随上游账号更新/)).toBeNull();
+    expect(screen.queryByText(/总计仅包含已计价费用/)).toBeNull();
+    expect(screen.queryByText(/本机模拟账号/)).toBeNull();
   });
 
   it("lets admins assign the group leader role", async () => {
@@ -476,9 +515,55 @@ describe("App", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "费用部门" }), {
       target: { value: "运营部-EZARC" },
     });
-    expect(screen.getAllByText("$120.00")).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByText("$120.00")).toHaveLength(2));
     expect(screen.queryByText("$80.00")).toBeNull();
     expect(screen.queryByText("$40.00")).toBeNull();
+  });
+
+  it("shows all months for one department and compares all recorded years without redundant filters", async () => {
+    const currentYear = new Date()
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+      .slice(0, 4);
+    const priorYear = String(Number(currentYear) - 1);
+    const item = (monthlyUsd: number) => ({
+      department: "运营部-EZARC",
+      monthlyUsd,
+      accountCount: 2,
+      unpricedCount: 0,
+    });
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage/account-costs"
+        ? Response.json({
+            configured: true,
+            unpricedCount: 0,
+            items: [item(60)],
+            history: [
+              { month: `${priorYear}-01`, items: [item(20)] },
+              { month: `${currentYear}-01`, items: [item(40)] },
+              { month: `${currentYear}-02`, items: [item(60)] },
+            ],
+          })
+        : undefined,
+    );
+    await screen.findAllByText("$60.00");
+    fireEvent.change(screen.getByRole("combobox", { name: "费用部门" }), {
+      target: { value: "运营部-EZARC" },
+    });
+    const chart = await screen.findByRole("group", {
+      name: "部门订阅费用趋势图",
+    });
+    expect(within(chart).getByText("1月")).toBeTruthy();
+    expect(within(chart).getByText("12月")).toBeTruthy();
+    expect(within(chart).getByText("$40.00")).toBeTruthy();
+    expect(within(chart).getByText("$60.00")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "费用月份" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "费用年份" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "按年" }));
+    expect(screen.queryByRole("combobox", { name: "费用年份" })).toBeNull();
+    expect(within(chart).getByText(`${priorYear}年`)).toBeTruthy();
+    expect(within(chart).getByText(`${currentYear}年`)).toBeTruthy();
+    expect(within(chart).getAllByText("$100.00").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/账号月数/)).toBeNull();
   });
 
   it("edits an unrecognized monthly fee in a dialog and refreshes the total", async () => {

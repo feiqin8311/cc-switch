@@ -4,3 +4,5 @@ admin/dist/
 .vitest/
 .env
 *.log
+
+server/data-account-preview/

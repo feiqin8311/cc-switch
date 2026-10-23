@@ -31,6 +31,7 @@ const EnvSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   /** Sub2API admin panel, used to list ChatGPT/Codex 5h/7d windows. */
+  DEMO_UPSTREAM_ACCOUNTS: z.enum(["true", "false"]).default("false"),
   SUB2API_URL: z.string().optional(),
   SUB2API_EMAIL: z.string().optional(),
   SUB2API_PASSWORD: z.string().optional(),
@@ -45,6 +46,7 @@ const EnvSchema = z.object({
 
 export interface AppConfig {
   env: "development" | "production" | "test";
+  demoUpstreamAccounts: boolean;
   host: string;
   port: number;
   databaseUrl?: string;
@@ -91,6 +93,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     env: e.NODE_ENV,
+    demoUpstreamAccounts:
+      e.NODE_ENV !== "production" && e.DEMO_UPSTREAM_ACCOUNTS === "true",
     host: e.HOST,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,

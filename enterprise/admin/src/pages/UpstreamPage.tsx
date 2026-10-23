@@ -70,6 +70,11 @@ export function UpstreamPage() {
           </Button>
         }
       />
+      {q.data?.demo && (
+        <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-xs text-amber-700">
+          本机测试数据 · 模拟账号未连接上游服务，可用于账户统计和费用编辑。
+        </p>
+      )}
       {loading && <LoadingState label="正在读取上游账号…" />}
       {q.isError && (
         <ErrorState error={q.error} onRetry={() => void q.refetch()} />
