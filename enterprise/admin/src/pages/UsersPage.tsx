@@ -4,6 +4,7 @@ import {
   AdminMenuSchema,
   adminMenusForRole,
   CODING_PLAN_ACCOUNT_ID,
+  CODING_PLAN_ACCOUNT_NAME,
   type CreateUserRequest,
   ListUsersResponseSchema,
   OffboardUserResponseSchema,
@@ -884,7 +885,7 @@ function AccountChecklist({
       ? [
           {
             id: CODING_PLAN_ACCOUNT_ID,
-            name: "Libraton-火山方舟Codin Plan",
+            name: CODING_PLAN_ACCOUNT_NAME,
             platform: "volcengine",
           },
         ]

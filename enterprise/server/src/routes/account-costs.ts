@@ -1,5 +1,6 @@
 import {
   CODING_PLAN_ACCOUNT_ID,
+  CODING_PLAN_ACCOUNT_NAME,
   ManualAccountCostsRequestSchema,
   UsageAccountCostsResponseSchema,
 } from "@ccse/contracts";
@@ -33,7 +34,7 @@ export async function accountCostsRoutes(
         ? [
             {
               id: CODING_PLAN_ACCOUNT_ID,
-              name: "火山方舟 Coding Plan",
+              name: CODING_PLAN_ACCOUNT_NAME,
               platform: "volcengine",
               planType: codingPlan.subscription?.planType ?? null,
             },

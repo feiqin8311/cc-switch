@@ -2,6 +2,7 @@ import type {
   CodingPlanUsageResponse,
   CodingPlanWindow,
 } from "@ccse/contracts";
+import { CODING_PLAN_ACCOUNT_NAME } from "@ccse/contracts";
 import { AccountUsageCard, fmtResetAt } from "./UpstreamAccountCard";
 
 const WINDOWS: { id: CodingPlanWindow["id"]; label: string }[] = [
@@ -26,7 +27,7 @@ export function CodingPlanUsageCard({
   const active =
     data.subscription?.status === "Running" || data.status === "Running";
   const error = data.error ?? (refreshFailed ? "刷新失败，请稍后重试。" : null);
-  const name = "Libraton-火山方舟Codin Plan";
+  const name = CODING_PLAN_ACCOUNT_NAME;
   const resetAt = fmtResetAt(data.subscription?.expiresAt ?? null);
   return (
     <AccountUsageCard
