@@ -9,6 +9,34 @@ import type { Db } from "../db/client.ts";
 import { settings } from "../db/schema.ts";
 
 const MANUAL_PREFIX = "usage-account-cost:";
+const SNAPSHOT_PREFIX = "usage-account-month:";
+export function currentCostMonth(): string {
+  return new Date()
+    .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })
+    .slice(0, 7);
+}
+export async function saveCostMonth(
+  db: Db,
+  month: string,
+  items: UsageAccountCostsResponse["items"],
+) {
+  const value = { month, items };
+  const updatedAt = new Date();
+  await db
+    .insert(settings)
+    .values({ key: SNAPSHOT_PREFIX + month, value, updatedAt })
+    .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt } });
+}
+export async function readCostMonths(db: Db) {
+  const rows = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(like(settings.key, `${SNAPSHOT_PREFIX}%`));
+  return rows.map(
+    (row) =>
+      row.value as { month: string; items: UsageAccountCostsResponse["items"] },
+  );
+}
 export function manualCostKey(account: {
   accountId: number;
   platform: string;

@@ -578,6 +578,8 @@ export const ManualAccountCostDetailSchema = ManualAccountCostSchema.extend({
 
 /** Live subscription estimates grouped from upstream account names. */
 export const UsageAccountCostsResponseSchema = z.object({
+  recordedMonths: z.array(z.string()).default([]),
+  availableMonths: z.array(z.string()).default([]),
   manualAccounts: z.array(ManualAccountCostDetailSchema).default([]),
   configured: z.boolean(),
   items: z.array(

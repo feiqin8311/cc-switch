@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { accountFromSub2Api, listUpstreamAccounts } from "../src/sub2api.ts";
-import { aggregateAccountCosts } from "../src/usage/account-costs.ts";
+import {
+  aggregateAccountCosts,
+  saveCostMonth,
+} from "../src/usage/account-costs.ts";
 import { ADMIN, bearer, login, setup } from "./helpers.ts";
 
 vi.mock("../src/sub2api.ts", async (original) => ({
@@ -34,6 +37,39 @@ const accounts = [
 ];
 
 describe("live upstream subscription costs", () => {
+  it("keeps historical months separate and sums recorded months for the selected year", async () => {
+    const ctx = await setup();
+    try {
+      const row = (monthlyUsd: number) => [
+        {
+          department: "Libraton组",
+          monthlyUsd,
+          accountCount: 1,
+          unpricedCount: 0,
+        },
+      ];
+      await saveCostMonth(ctx.db, "2020-01", row(20));
+      await saveCostMonth(ctx.db, "2020-02", row(40));
+      await saveCostMonth(ctx.db, "2021-01", row(100));
+      const session = await login(ctx.app, ADMIN.username, ADMIN.password);
+      const get = (period: string, value: string) =>
+        ctx.app.inject({
+          method: "GET",
+          url: `/api/v1/admin/usage/account-costs?period=${period}&value=${value}`,
+          headers: bearer(session.accessToken),
+        });
+      const january = (await get("month", "2020-01")).json();
+      expect(january.items[0].monthlyUsd).toBe(20);
+      expect(january.manualAccounts).toEqual([]);
+      const annual = (await get("year", "2020")).json();
+      expect(annual.items[0].monthlyUsd).toBe(60);
+      expect(annual.recordedMonths).toEqual(["2020-01", "2020-02"]);
+      expect((await get("month", "2019-01")).json().items).toEqual([]);
+      expect((await get("month", "2020-13")).statusCode).toBe(400);
+    } finally {
+      await ctx.close();
+    }
+  });
   it("reads the real plan SKU without exposing credentials", () => {
     expect(fixture("test", "prolite").planType).toBe("prolite");
     expect(JSON.stringify(fixture("test"))).not.toContain("do-not-expose");
