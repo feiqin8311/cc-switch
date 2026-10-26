@@ -858,6 +858,113 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "手动编辑" })).toBeTruthy();
   });
 
+  it("switches token charts between users and summed departments with active filters", async () => {
+    const base = {
+      date: "2026-10-12",
+      userId: "alice",
+      username: "alice",
+      groupName: "研发",
+      providerId: "openai-main",
+      model: "gpt-5",
+      requests: 1,
+      inputTokens: 1200,
+      outputTokens: 300,
+    };
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage"
+        ? Response.json({
+            items: [
+              base,
+              {
+                ...base,
+                date: "2026-10-13",
+                providerId: "yida-sub2api",
+                model: "gpt-5.6-terra",
+                inputTokens: 800,
+                outputTokens: 200,
+              },
+              {
+                ...base,
+                userId: "bob",
+                username: "bob",
+                providerId: "yida-sub2api",
+                inputTokens: 4000,
+                outputTokens: 100,
+              },
+              {
+                ...base,
+                userId: "carol",
+                username: "carol",
+                groupName: "设计",
+                inputTokens: 700,
+              },
+              {
+                ...base,
+                userId: admin.id,
+                username: "admin",
+                groupName: "",
+                inputTokens: 50,
+                outputTokens: 10,
+              },
+            ],
+          })
+        : undefined,
+    );
+    const userChart = await screen.findByRole("figure", {
+      name: "按用户 tokens",
+    });
+    expect(
+      within(userChart).getByTitle("alice：输入 2,000，输出 500"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "按用户 tokens" }));
+    fireEvent.click(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: "按部门 tokens",
+      }),
+    );
+    const departments = () =>
+      screen.getByRole("figure", { name: "按部门 tokens" });
+    expect(
+      within(departments()).getByTitle("研发：输入 6,000，输出 600"),
+    ).toBeTruthy();
+    expect(within(departments()).getByTitle("6,600 tokens")).toBeTruthy();
+    expect(
+      within(departments())
+        .getAllByText(/^(研发|设计|未分组)$/)
+        .map((node) => node.textContent),
+    ).toEqual(["研发", "设计", "未分组"]);
+    expect(
+      within(departments()).getByTitle("未分组：输入 50，输出 10"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "按供应商筛选" }));
+    fireEvent.click(screen.getByRole("option", { name: "openai-main" }));
+    expect(
+      within(departments()).getByTitle("研发：输入 1,200，输出 300"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
+    fireEvent.click(screen.getByRole("option", { name: "alice" }));
+    expect(within(departments()).queryByText("设计")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "清空筛选" }));
+    expect(within(departments()).getByTitle("6,600 tokens")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "按组筛选" }));
+    fireEvent.click(screen.getByRole("option", { name: "设计" }));
+    expect(within(departments()).queryByText("研发")).toBeNull();
+    const tokenSelector = screen.getByRole("button", { name: "按部门 tokens" });
+    fireEvent.mouseDown(tokenSelector);
+    fireEvent.click(tokenSelector);
+    fireEvent.click(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: "按用户 tokens",
+      }),
+    );
+    const filteredUsers = screen.getByRole("figure", { name: "按用户 tokens" });
+    expect(within(filteredUsers).getByText("carol")).toBeTruthy();
+    expect(within(filteredUsers).queryByText("bob")).toBeNull();
+  });
+
   it("filters usage by user, group and provider", async () => {
     renderAt("/usage", permissionsForRole("admin"));
     expect(
