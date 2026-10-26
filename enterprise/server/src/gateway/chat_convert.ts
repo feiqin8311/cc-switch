@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import type { TokenUsage } from "./usage.ts";
+import { readUsage, type TokenUsage, ZERO_USAGE } from "./usage.ts";
 
 export interface ChatMessage {
   role: string;
@@ -102,15 +102,12 @@ export class ChatToResponsesTransformer {
   private readonly decoder = new TextDecoder();
   private pending = "";
   private createdEmitted = false;
-  private responseId = `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  private responseId =
+    `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   private accumulatedText = "";
   private completedEmitted = false;
 
-  usage: TokenUsage = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cachedTokens: 0,
-  };
+  usage: TokenUsage = { ...ZERO_USAGE };
 
   push(chunk: Uint8Array): Uint8Array[] {
     const text = this.decoder.decode(chunk, { stream: true });
@@ -171,6 +168,9 @@ export class ChatToResponsesTransformer {
     const out: Uint8Array[] = [];
 
     // 1. Emit created event on first chunk
+    if (typeof parsed.model === "string" && parsed.model.trim()) {
+      this.usage.model = parsed.model.trim();
+    }
     if (!this.createdEmitted) {
       this.createdEmitted = true;
       if (typeof parsed.id === "string") {
@@ -190,18 +190,20 @@ export class ChatToResponsesTransformer {
 
     // 2. Extract usage if present
     if (typeof parsed.usage === "object" && parsed.usage !== null) {
-      const u = parsed.usage as Record<string, unknown>;
-      if (typeof u.prompt_tokens === "number") {
-        this.usage.inputTokens = u.prompt_tokens;
-      }
-      if (typeof u.completion_tokens === "number") {
-        this.usage.outputTokens = u.completion_tokens;
-      }
-      const details = u.prompt_tokens_details as
-        | Record<string, unknown>
-        | undefined;
-      if (details && typeof details.cached_tokens === "number") {
-        this.usage.cachedTokens = details.cached_tokens;
+      const usage = readUsage(parsed.usage, parsed.model ?? this.usage.model);
+      if (usage) {
+        const raw = parsed.usage as Record<string, unknown>;
+        this.usage = {
+          ...usage,
+          inputTokens:
+            typeof (raw.prompt_tokens ?? raw.input_tokens) === "number"
+              ? usage.inputTokens
+              : this.usage.inputTokens,
+          outputTokens:
+            typeof (raw.completion_tokens ?? raw.output_tokens) === "number"
+              ? usage.outputTokens
+              : this.usage.outputTokens,
+        };
       }
     }
 
@@ -250,6 +252,7 @@ export class ChatToResponsesTransformer {
         type: "response.completed",
         response: {
           id: this.responseId,
+          ...(this.usage.model ? { model: this.usage.model } : {}),
           status: "completed",
           output: [
             {
@@ -267,6 +270,7 @@ export class ChatToResponsesTransformer {
             input_tokens: this.usage.inputTokens,
             input_tokens_details: {
               cached_tokens: this.usage.cachedTokens,
+              cache_write_tokens: this.usage.cacheCreationTokens,
             },
             output_tokens: this.usage.outputTokens,
             total_tokens: this.usage.inputTokens + this.usage.outputTokens,
@@ -288,13 +292,9 @@ export function convertChatJsonToResponsesJson(
   const msg = (firstChoice.message ?? {}) as Record<string, unknown>;
   const content = typeof msg.content === "string" ? msg.content : "";
 
-  const usage = (chatJson.usage ?? {}) as Record<string, unknown>;
-  const inputTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
-  const outputTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
-  const cachedTokens =
-    typeof (usage.prompt_tokens_details as Record<string, unknown>)?.cached_tokens === "number"
-      ? ((usage.prompt_tokens_details as Record<string, unknown>).cached_tokens as number)
-      : 0;
+  const usage = readUsage(chatJson.usage, chatJson.model) ?? ZERO_USAGE;
+  const { inputTokens, outputTokens, cachedTokens, cacheCreationTokens } =
+    usage;
 
   const id =
     typeof chatJson.id === "string"
@@ -303,6 +303,7 @@ export function convertChatJsonToResponsesJson(
 
   return {
     id,
+    ...(usage.model ? { model: usage.model } : {}),
     object: "response",
     status: "completed",
     output: [
@@ -322,6 +323,7 @@ export function convertChatJsonToResponsesJson(
       input_tokens: inputTokens,
       input_tokens_details: {
         cached_tokens: cachedTokens,
+        cache_write_tokens: cacheCreationTokens,
       },
       output_tokens: outputTokens,
       total_tokens: inputTokens + outputTokens,

@@ -155,6 +155,10 @@ export const usageRecords = pgTable(
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     cachedTokens: integer("cached_tokens").notNull().default(0),
+    /** NULL identifies old records, whose cache writes were not collected. */
+    cacheCreationTokens: integer("cache_creation_tokens"),
+    /** Upstream response model when supplied; otherwise the requested model. */
+    pricingModel: text("pricing_model"),
     status: integer("status").notNull(),
     latencyMs: integer("latency_ms").notNull(),
     deviceId: uuid("device_id"),

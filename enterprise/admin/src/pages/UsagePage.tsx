@@ -1,23 +1,23 @@
 import {
-  UsageAccountCostsResponseSchema,
+  DeviceUsageResponseSchema,
   normalizeAccountCostDepartment,
   type UsageAccountCostsResponse,
-  DeviceUsageResponseSchema,
+  UsageAccountCostsResponseSchema,
   UsageResponseSchema,
   type UsageRow,
 } from "@ccse/contracts";
 import {
   keepPreviousData,
-  useQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
   BarChart3,
   CalendarDays,
   ChevronDown,
-  Search,
   Pencil,
+  Search,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -32,16 +32,16 @@ import {
   Button,
   Card,
   Dialog,
-  InlineError,
   EmptyState,
   ErrorState,
   Field,
+  InlineError,
   inputClass,
   LoadingState,
   MultiSelect,
   PageHeader,
-  type SelectOption,
   Select,
+  type SelectOption,
   Spinner,
   tableClass,
   tdClass,
@@ -58,8 +58,8 @@ import {
   rangeForPreset,
   type UtcRangePreset,
 } from "../lib/format";
-import { useUsers } from "./UsersPage";
 import { OfflineAccountCostsDialog } from "./OfflineAccountCostsDialog";
+import { useUsers } from "./UsersPage";
 
 const MAX_DAYS = 92;
 const PAGE_SIZE = 10;
@@ -70,6 +70,9 @@ interface Totals {
   requests: number;
   inputTokens: number;
   outputTokens: number;
+  estimatedCostUsd: number | null;
+  unpricedRequests: number;
+  legacyRequests: number;
 }
 
 function aggregate(
@@ -88,12 +91,21 @@ function aggregate(
         requests: 0,
         inputTokens: 0,
         outputTokens: 0,
+        estimatedCostUsd: null,
+        unpricedRequests: 0,
+        legacyRequests: 0,
       };
       map.set(key, t);
     }
     t.requests += r.requests;
     t.inputTokens += r.inputTokens;
     t.outputTokens += r.outputTokens;
+    if (r.estimatedCostUsd !== null) {
+      t.estimatedCostUsd = (t.estimatedCostUsd ?? 0) + r.estimatedCostUsd;
+    }
+    t.unpricedRequests +=
+      r.unpricedRequests ?? (r.estimatedCostUsd === null ? r.requests : 0);
+    t.legacyRequests += r.legacyRequests;
   }
   return [...map.values()].sort(
     (a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
@@ -673,6 +685,13 @@ export function UsagePage() {
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
             <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
           </div>
+          <p className="text-xs text-muted-foreground">
+            费用按内置模型参考单价估算，普通输入、输出、缓存命中和缓存写入分别计价，
+            不含订阅费用分摊、供应商折扣、长上下文或时段加价。单价更新后历史估算会随之变化；
+            无匹配单价的请求不计入金额，并标注未计价或部分计价。
+            {rows.some((row) => row.legacyRequests > 0) &&
+              "旧记录未采集缓存写入和上游计价模型，按请求模型估算，缓存写入按 0 处理，金额可能偏低。"}
+          </p>
           <DetailsTable rows={detailRows} />
         </div>
       )}
@@ -2300,6 +2319,46 @@ function ManualAccountCostsDialog({
   );
 }
 
+const usdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
+
+function EstimatedCost({
+  row,
+}: {
+  row: Pick<
+    UsageRow,
+    "estimatedCostUsd" | "unpricedRequests" | "requests" | "legacyRequests"
+  >;
+}) {
+  const cost = row.estimatedCostUsd;
+  const unpriced = row.unpricedRequests ?? (cost === null ? row.requests : 0);
+  const explanation = [
+    "按模型参考单价估算（USD）",
+    unpriced > 0 ? `${unpriced} 次请求无匹配单价，未计入金额` : "",
+    row.legacyRequests > 0
+      ? `${row.legacyRequests} 次旧请求未采集缓存写入，按 0 处理`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("；");
+  return (
+    <span className="whitespace-nowrap" title={explanation}>
+      {cost === null
+        ? "未计价"
+        : cost > 0 && cost < 0.000001
+          ? "<$0.000001"
+          : usdFormatter.format(cost)}
+      {cost !== null && unpriced > 0 && (
+        <span className="ml-1 text-xs text-muted-foreground">（部分）</span>
+      )}
+    </span>
+  );
+}
+
 function DetailsTable({ rows }: { rows: UsageRow[] }) {
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [rows]);
@@ -2311,7 +2370,7 @@ function DetailsTable({ rows }: { rows: UsageRow[] }) {
       <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
         明细
       </h2>
-      <table className={tableClass}>
+      <table className={tableClass} aria-label="明细">
         <thead>
           <tr>
             <th className={thClass}>日期</th>
@@ -2322,6 +2381,7 @@ function DetailsTable({ rows }: { rows: UsageRow[] }) {
             <th className={numTh}>输入 tokens</th>
             <th className={numTh}>输出 tokens</th>
             <th className={numTh}>总 tokens</th>
+            <th className={`${numTh} whitespace-nowrap`}>估算费用（USD）</th>
           </tr>
         </thead>
         <tbody>
@@ -2339,6 +2399,9 @@ function DetailsTable({ rows }: { rows: UsageRow[] }) {
               <td className={num}>{formatNumber(r.outputTokens)}</td>
               <td className={num}>
                 {formatNumber(r.inputTokens + r.outputTokens)}
+              </td>
+              <td className={num}>
+                <EstimatedCost row={r} />
               </td>
             </tr>
           ))}
@@ -2414,7 +2477,7 @@ function TokenChart({
             return (
               <div
                 key={d.key}
-                className="flex h-full min-w-12 flex-1 flex-col items-center justify-end gap-1.5"
+                className={`flex h-full flex-1 flex-col items-center justify-end gap-1.5 ${grouping === "department" ? "min-w-max" : "min-w-12"}`}
               >
                 <span
                   className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
@@ -2433,7 +2496,10 @@ function TokenChart({
                   />
                   <div className="bg-brand" style={{ height: `${outPct}%` }} />
                 </div>
-                <span className="max-w-16 truncate text-xs" title={d.name}>
+                <span
+                  className={`text-xs ${grouping === "department" ? "whitespace-nowrap" : "max-w-16 truncate"}`}
+                  title={d.name}
+                >
                   {d.name}
                 </span>
               </div>
@@ -2477,7 +2543,7 @@ function TotalsTable({
       <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
         {title}
       </h2>
-      <table className={tableClass}>
+      <table className={tableClass} aria-label={title}>
         <thead>
           <tr>
             <th className={thClass}>{keyLabel}</th>
@@ -2485,6 +2551,7 @@ function TotalsTable({
             <th className={numTh}>输入</th>
             <th className={numTh}>输出</th>
             <th className={numTh}>合计</th>
+            <th className={`${numTh} whitespace-nowrap`}>估算费用（USD）</th>
           </tr>
         </thead>
         <tbody>
@@ -2496,6 +2563,9 @@ function TotalsTable({
               <td className={num}>{formatNumber(t.outputTokens)}</td>
               <td className={num}>
                 {formatNumber(t.inputTokens + t.outputTokens)}
+              </td>
+              <td className={num}>
+                <EstimatedCost row={t} />
               </td>
             </tr>
           ))}
