@@ -1175,7 +1175,7 @@ function AccountStats() {
                             />
                           ))}
                           <div
-                            className="relative h-7 transition-[width] duration-300"
+                            className="relative transition-[width] duration-300"
                             style={{
                               width: `${(item.monthlyUsd / chartMax) * 100}%`,
                             }}
@@ -1380,11 +1380,11 @@ function AccountCostStack({
 }) {
   const [selected, setSelected] = useState<CostAccount | null>(null);
   const paid = accounts.filter((account) => account.monthlyUsd > 0);
-  return (
-    <div
-      className={`relative flex size-full ${vertical ? "flex-col-reverse" : ""}`}
-      onMouseLeave={() => setSelected(null)}
-    >
+  const compact = paid.filter(
+    (account) => total > 0 && (account.monthlyUsd / total) * 100 < 15,
+  );
+  const bar = (
+    <div className={`flex ${vertical ? "h-full flex-col-reverse" : "h-7 w-full"}`}>
       {paid.length ? (
         paid.map((account) => {
           const share = total > 0 ? (account.monthlyUsd / total) * 100 : 0;
@@ -1400,7 +1400,7 @@ function AccountCostStack({
                 [vertical ? "height" : "width"]: `${share}%`,
                 backgroundColor: colors.get(accountIdentity(account)),
               }}
-              className={`shrink-0 border-white/30 text-[10px] text-white outline-none focus-visible:ring-2 focus-visible:ring-ring ${vertical ? "w-full border-t first:rounded-b-sm last:rounded-t-md" : "h-full border-r last:rounded-r-md"}`}
+              className={`shrink-0 whitespace-nowrap border-white/30 text-[10px] tabular-nums text-white outline-none focus-visible:ring-2 focus-visible:ring-ring ${vertical ? "w-full border-t first:rounded-b-sm last:rounded-t-md" : "h-full border-r last:rounded-r-md"}`}
               onMouseEnter={() => setSelected(account)}
               onFocus={() => setSelected(account)}
               onBlur={() => setSelected(null)}
@@ -1416,6 +1416,33 @@ function AccountCostStack({
         })
       ) : (
         <div className="size-full rounded-r-md bg-brand" />
+      )}
+    </div>
+  );
+  return (
+    <div
+      className={`relative flex ${vertical ? "size-full flex-col-reverse" : "w-full flex-col"}`}
+      onMouseLeave={() => setSelected(null)}
+    >
+      {bar}
+      {!vertical && compact.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] tabular-nums text-muted-foreground">
+          {compact.map((account) => (
+            <span
+              key={`${account.platform}:${account.accountId}`}
+              className="inline-flex items-center gap-1 whitespace-nowrap"
+              title={account.name}
+            >
+              <span
+                className="size-1.5 rounded-full"
+                style={{
+                  backgroundColor: colors.get(accountIdentity(account)),
+                }}
+              />
+              ${account.monthlyUsd.toFixed(2)}
+            </span>
+          ))}
+        </div>
       )}
       {selected && (
         <div
