@@ -8,10 +8,10 @@ import { createAuthenticate } from "./auth/guard.ts";
 import type { AppConfig } from "./config.ts";
 import type { Db } from "./db/client.ts";
 import { registerErrorHandlers } from "./errors.ts";
+import { accountCostsRoutes } from "./routes/account-costs.ts";
 import { adminConversationRoutes } from "./routes/admin-conversations.ts";
 import { adminProviderRoutes } from "./routes/admin-providers.ts";
 import { adminUserRoutes } from "./routes/admin-users.ts";
-import { accountCostsRoutes } from "./routes/account-costs.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { clientRoutes } from "./routes/client.ts";
 import { codingPlanRoutes } from "./routes/coding-plan.ts";
@@ -44,8 +44,15 @@ export async function buildApp(
             level: config.logLevel,
             redact: [
               "req.headers.authorization",
+              "req.headers.cookie",
+              "res.headers.set-cookie",
+              "req.body.username",
               "req.body.password",
+              "req.body.currentPassword",
+              "req.body.newPassword",
               "req.body.refreshToken",
+              "res.body.accessToken",
+              "res.body.refreshToken",
               "req.body.apiKey",
               "req.body.providers[*].apiKey",
               "req.body.deviceSecret",
@@ -59,6 +66,16 @@ export async function buildApp(
 
   app.decorateRequest("auth", null);
   registerErrorHandlers(app);
+
+  app.addHook("onRequest", async (req, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Frame-Options", "DENY");
+    if (req.url.startsWith(`${API_PREFIX}/`)) {
+      reply.header("Cache-Control", "no-store");
+      reply.header("Pragma", "no-cache");
+    }
+  });
 
   const deps: AppDeps = {
     db,

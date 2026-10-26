@@ -345,6 +345,97 @@ afterEach(() => {
 const tabNames = () => screen.queryAllByRole("tab").map((t) => t.textContent);
 
 describe("App", () => {
+  it("confirms deletion of selected users and skips the current account", async () => {
+    let remaining = [admin, leaver, departed];
+    const deleted: string[] = [];
+    renderAt("/users", permissionsForRole("admin"), admin, (route, init) => {
+      if (init?.method === "DELETE") {
+        deleted.push(route);
+        remaining = remaining.filter((u) => route !== `/admin/users/${u.id}`);
+        return new Response(null, { status: 204 });
+      }
+      if (route === "/admin/users") return Response.json({ items: remaining });
+      return undefined;
+    });
+    await screen.findByText("bob");
+    expect(screen.queryByRole("button", { name: /删除用户/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 admin" }));
+    expect(
+      (screen.getByRole("button", { name: "删除用户" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 bob" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 carol" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除用户 (2)" }));
+    const dialog = screen.getByRole("dialog", { name: "批量删除用户" });
+    expect(within(dialog).getByText(/已跳过当前登录账号/)).toBeTruthy();
+    expect(deleted).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(deleted).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "删除用户 (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除 2 个用户" }));
+    await screen.findByText("已删除 2 个用户");
+    expect(deleted).toEqual([
+      `/admin/users/${leaver.id}`,
+      `/admin/users/${departed.id}`,
+    ]);
+    await waitFor(() => {
+      expect(screen.queryByRole("checkbox", { name: "选择 bob" })).toBeNull();
+      expect(screen.queryByRole("checkbox", { name: "选择 carol" })).toBeNull();
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 admin" }));
+    expect(screen.queryByRole("button", { name: /删除用户/ })).toBeNull();
+  });
+
+  it("retains failed deletions for retry without deleting successful users again", async () => {
+    let remaining = [admin, leaver, departed];
+    let failCarol = true;
+    const deleted: string[] = [];
+    renderAt("/users", permissionsForRole("admin"), admin, (route, init) => {
+      if (init?.method === "DELETE") {
+        deleted.push(route);
+        if (route === `/admin/users/${departed.id}` && failCarol) {
+          return Response.json(
+            { error: { code: "internal", message: "暂时无法删除" } },
+            { status: 500 },
+          );
+        }
+        remaining = remaining.filter((u) => route !== `/admin/users/${u.id}`);
+        return new Response(null, { status: 204 });
+      }
+      if (route === "/admin/users") return Response.json({ items: remaining });
+      return undefined;
+    });
+    await screen.findByText("bob");
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 bob" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 carol" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除用户 (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除 2 个用户" }));
+    expect(
+      await screen.findByText(/1 个用户删除失败，已保留勾选：carol/),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole("checkbox", { name: "选择 bob" })).toBeNull(),
+    );
+    expect(
+      (screen.getByRole("checkbox", { name: "选择 carol" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    failCarol = false;
+    fireEvent.click(screen.getByRole("button", { name: "删除用户 (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除 1 个用户" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /删除用户/ })).toBeNull(),
+    );
+    expect(deleted).toEqual([
+      `/admin/users/${leaver.id}`,
+      `/admin/users/${departed.id}`,
+      `/admin/users/${departed.id}`,
+    ]);
+  });
+
   it.each(["edit", "bulk"])(
     "saves a Coding Plan usage-window assignment from %s",
     async (mode) => {
@@ -359,6 +450,9 @@ describe("App", () => {
         fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
       }
       const dialog = screen.getByRole("dialog");
+      expect(
+        within(dialog).queryByRole("button", { name: /删除用户/ }),
+      ).toBeNull();
       const checkbox = await within(dialog).findByRole("checkbox", {
         name: /Libraton-火山方舟Codin Plan/,
       });
@@ -392,6 +486,7 @@ describe("App", () => {
     await screen.findByText("bob");
     expect(screen.queryByRole("button", { name: "新建用户" })).toBeNull();
     expect(screen.queryByRole("button", { name: /设置用量窗口/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /删除用户/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "离职" })).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     const adminRow = screen

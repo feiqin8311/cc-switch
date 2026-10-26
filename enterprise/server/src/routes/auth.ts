@@ -53,12 +53,11 @@ export async function authRoutes(
       await verifyAgainstDummy(body.password);
     }
 
-    if (!user || !ok) {
+    if (!user || !ok || user.disabled) {
       perAccount.recordFailure(accountKey);
       perIp.recordFailure(req.ip);
       throw unauthorized("Invalid username or password");
     }
-    if (user.disabled) throw unauthorized("Account is disabled");
 
     perAccount.reset(accountKey);
     req.log.info({ userId: user.id }, "login");

@@ -91,6 +91,7 @@ describe("ApiClient", () => {
     expect(auth(1)).toBe("Bearer access-1");
     expect(auth(3)).toBe("Bearer access-2");
     expect(tokens.get()).toBe("refresh-2");
+    expect(calls.every((call) => call.init.cache === "no-store")).toBe(true);
   });
 
   it("shares one refresh between concurrent 401s", async () => {
