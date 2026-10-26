@@ -7,6 +7,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
 import pg from "pg";
+import { lockDataDirectory } from "./process-lock.ts";
 import * as schema from "./schema.ts";
 
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -40,11 +41,35 @@ export async function openDatabase(
   }
 
   const dataDir = opts.pgliteDataDir ?? "memory://";
-  if (!dataDir.startsWith("memory://")) {
+  const persistent = !dataDir.startsWith("memory://");
+  if (persistent) {
     mkdirSync(dataDir, { recursive: true });
   }
-  const client = new PGlite(dataDir);
-  const db = drizzlePglite(client, { schema });
-  await migratePglite(db, { migrationsFolder });
-  return { db, kind: "pglite", close: () => client.close() };
+  const unlock = persistent ? await lockDataDirectory(dataDir) : async () => {};
+  let client: PGlite | undefined;
+  try {
+    client = await PGlite.create(dataDir);
+    const db = drizzlePglite(client, { schema });
+    await migratePglite(db, { migrationsFolder });
+    let closing: Promise<void> | undefined;
+    return {
+      db,
+      kind: "pglite",
+      close: () =>
+        (closing ??= (async () => {
+          try {
+            await client!.close();
+          } finally {
+            await unlock();
+          }
+        })()),
+    };
+  } catch (error) {
+    try {
+      await client?.close();
+    } finally {
+      await unlock();
+    }
+    throw error;
+  }
 }

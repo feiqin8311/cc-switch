@@ -108,6 +108,13 @@ interface Filters {
 
 const NO_FILTERS: Filters = { userIds: [], groups: [], providerIds: [] };
 
+type TokenGrouping = "user" | "department";
+
+const TOKEN_GROUPING_OPTIONS = [
+  { value: "user", label: "按用户 tokens" },
+  { value: "department", label: "按部门 tokens" },
+] as const;
+
 /** Fields shared by gateway and device usage rows that the filters look at. */
 interface Filterable {
   userId: string;
@@ -333,6 +340,7 @@ export function UsagePage() {
   });
 
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [tokenGrouping, setTokenGrouping] = useState<TokenGrouping>("user");
   const filtering =
     filters.userIds.length +
       filters.groups.length +
@@ -422,6 +430,15 @@ export function UsagePage() {
         rows,
         (r) => r.userId,
         (r) => r.username,
+      ),
+    [rows],
+  );
+  const byDepartment = useMemo(
+    () =>
+      aggregate(
+        rows,
+        (r) => r.groupName,
+        (r) => groupLabel(r.groupName),
       ),
     [rows],
   );
@@ -647,7 +664,11 @@ export function UsagePage() {
         </Card>
       ) : (
         <div className="flex flex-col gap-6">
-          {byUser.length > 0 && <UserTokenChart rows={byUser} />}
+          <TokenChart
+            rows={tokenGrouping === "department" ? byDepartment : byUser}
+            grouping={tokenGrouping}
+            onGroupingChange={setTokenGrouping}
+          />
           <div className="grid gap-5 xl:grid-cols-2">
             <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
             <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
@@ -1380,9 +1401,6 @@ function AccountCostStack({
 }) {
   const [selected, setSelected] = useState<CostAccount | null>(null);
   const paid = accounts.filter((account) => account.monthlyUsd > 0);
-  const compact = paid.filter(
-    (account) => total > 0 && (account.monthlyUsd / total) * 100 < 15,
-  );
   const bar = (
     <div className={`flex ${vertical ? "h-full flex-col-reverse" : "h-7 w-full"}`}>
       {paid.length ? (
@@ -1400,7 +1418,7 @@ function AccountCostStack({
                 [vertical ? "height" : "width"]: `${share}%`,
                 backgroundColor: colors.get(accountIdentity(account)),
               }}
-              className={`shrink-0 whitespace-nowrap border-white/30 text-[10px] tabular-nums text-white outline-none focus-visible:ring-2 focus-visible:ring-ring ${vertical ? "w-full border-t first:rounded-b-sm last:rounded-t-md" : "h-full border-r last:rounded-r-md"}`}
+              className={`relative z-10 shrink-0 whitespace-nowrap border-white/30 text-[10px] tabular-nums text-white outline-none focus-visible:ring-2 focus-visible:ring-ring ${vertical ? "w-full border-t first:rounded-b-sm last:rounded-t-md" : "h-full border-r last:rounded-r-md"}`}
               onMouseEnter={() => setSelected(account)}
               onFocus={() => setSelected(account)}
               onBlur={() => setSelected(null)}
@@ -1408,9 +1426,7 @@ function AccountCostStack({
                 setSelected((current) => (current === account ? null : account))
               }
             >
-              {!vertical && share >= 15
-                ? `$${account.monthlyUsd.toFixed(2)}`
-                : null}
+              {!vertical ? `$${account.monthlyUsd.toFixed(2)}` : null}
             </button>
           );
         })
@@ -1425,25 +1441,6 @@ function AccountCostStack({
       onMouseLeave={() => setSelected(null)}
     >
       {bar}
-      {!vertical && compact.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] tabular-nums text-muted-foreground">
-          {compact.map((account) => (
-            <span
-              key={`${account.platform}:${account.accountId}`}
-              className="inline-flex items-center gap-1 whitespace-nowrap"
-              title={account.name}
-            >
-              <span
-                className="size-1.5 rounded-full"
-                style={{
-                  backgroundColor: colors.get(accountIdentity(account)),
-                }}
-              />
-              ${account.monthlyUsd.toFixed(2)}
-            </span>
-          ))}
-        </div>
-      )}
       {selected && (
         <div
           role="tooltip"
@@ -2357,7 +2354,16 @@ function DetailsTable({ rows }: { rows: UsageRow[] }) {
   );
 }
 
-function UserTokenChart({ rows }: { rows: Totals[] }) {
+function TokenChart({
+  rows,
+  grouping,
+  onGroupingChange,
+}: {
+  rows: Totals[];
+  grouping: TokenGrouping;
+  onGroupingChange: (grouping: TokenGrouping) => void;
+}) {
+  const title = grouping === "department" ? "按部门 tokens" : "按用户 tokens";
   const data = rows.map((t) => ({
     key: t.key,
     name: typeof t.label === "string" ? t.label : t.key,
@@ -2375,9 +2381,17 @@ function UserTokenChart({ rows }: { rows: Totals[] }) {
 
   return (
     <Card>
-      <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
-        按用户 tokens
-      </h2>
+      <div className="border-b border-border/50 px-4 py-2.5">
+        <h2 className="sr-only">{title}</h2>
+        <div className="w-44">
+          <Select
+            aria-label="tokens 统计维度"
+            value={grouping}
+            onChange={(value) => onGroupingChange(value as TokenGrouping)}
+            options={TOKEN_GROUPING_OPTIONS}
+          />
+        </div>
+      </div>
       <div className="flex items-center gap-4 px-4 pt-3 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2 rounded-sm bg-foreground/80" />
@@ -2388,7 +2402,7 @@ function UserTokenChart({ rows }: { rows: Totals[] }) {
           输出
         </span>
       </div>
-      <div className="overflow-x-auto px-4 pb-4 pt-2">
+      <figure aria-label={title} className="overflow-x-auto px-4 pb-4 pt-2">
         <div
           className="flex h-56 items-end gap-3"
           style={{ minWidth: `${Math.max(data.length * 56, 240)}px` }}
@@ -2426,7 +2440,7 @@ function UserTokenChart({ rows }: { rows: Totals[] }) {
             );
           })}
         </div>
-      </div>
+      </figure>
     </Card>
   );
 }
