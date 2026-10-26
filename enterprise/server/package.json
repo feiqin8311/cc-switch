@@ -8,6 +8,7 @@
     "start": "node src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p .",
+    "seed:usage": "node scripts/seed-usage-demo.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

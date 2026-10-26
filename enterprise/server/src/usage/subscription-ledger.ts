@@ -24,6 +24,8 @@ const CycleSchema = z.object({
 const AccountSchema = z.object({
   accountId: z.number(),
   platform: z.string(),
+  // Keep the latest display name separate from the historical charge snapshots.
+  currentName: z.string().optional(),
   cycles: z.array(CycleSchema),
 });
 export type LedgerAccount = z.infer<typeof AccountSchema>;
@@ -62,7 +64,7 @@ export async function readLedger(
   return rows.map((row) => AccountSchema.parse(row.value));
 }
 
-/** No live-list subtraction: only append cycles, or complete an unpriced/undated cycle. */
+/** Refresh account names while retaining recorded cycles and charge assignments. */
 export async function recordSubscriptions(
   db: Db,
   sources: ChargeSource[],
@@ -71,9 +73,10 @@ export async function recordSubscriptions(
 ) {
   const existing = await readLedger(db, demo);
   const sourceMap = new Map(
-    sources
-      .filter((source) => accountDepartment(source.name))
-      .map((source) => [JSON.stringify([source.platform, source.id]), source]),
+    sources.map((source) => [
+      JSON.stringify([source.platform, source.id]),
+      source,
+    ]),
   );
   const identities = new Map(
     existing.map((account) => [
@@ -82,7 +85,8 @@ export async function recordSubscriptions(
     ]),
   );
   for (const [key, source] of sourceMap)
-    identities.set(key, { accountId: source.id, platform: source.platform });
+    if (accountDepartment(source.name))
+      identities.set(key, { accountId: source.id, platform: source.platform });
   for (const [identity, account] of identities) {
     const key = prefix(demo) + identity;
     await db.transaction(async (tx) => {
@@ -97,7 +101,8 @@ export async function recordSubscriptions(
         .for("update");
       const stored = AccountSchema.parse(row!.value);
       const source = sourceMap.get(identity);
-      if (source) {
+      if (source) stored.currentName = source.name;
+      if (source && accountDepartment(source.name)) {
         const inferred = subscriptionCycle(source.subscriptionExpiresAt);
         let cycle = inferred
           ? stored.cycles.find((cycle) => cycle.expires === inferred.expires)
@@ -211,7 +216,7 @@ export function ledgerManualAccounts(accounts: LedgerAccount[]) {
         accountId: account.accountId,
         platform: account.platform,
         planType: cycle.planType,
-        name: cycle.name,
+        name: account.currentName ?? cycle.name,
         department: cycle.department,
         monthlyUsd: cycle.amount,
         billingMonth: cycle.month,

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { accountFromSub2Api, listUpstreamAccounts } from "../src/sub2api.ts";
+import { settings } from "../src/db/schema.ts";
 import {
   aggregateAccountCosts,
   currentCostMonth,
@@ -8,6 +9,8 @@ import {
 import {
   recordSubscriptions,
   ledgerMonths,
+  ledgerManualAccounts,
+  readLedger,
   subscriptionCycle,
 } from "../src/usage/subscription-ledger.ts";
 import { ADMIN, bearer, login, setup } from "./helpers.ts";
@@ -153,6 +156,145 @@ describe("subscription renewal ledger", () => {
       ).toBe(80);
       expect(annual.recordedMonths).toEqual(["2026-09", "2026-10"]);
       expect((await get("2026-13")).statusCode).toBe(400);
+    } finally {
+      await ctx.close();
+    }
+  });
+  it("syncs editor names by platform and ID without changing historical charges or duplicating cycles", async () => {
+    const ctx = await setup(env);
+    try {
+      const session = await login(ctx.app, ADMIN.username, ADMIN.password);
+      const headers = bearer(session.accessToken);
+      const get = () =>
+        ctx.app.inject({
+          method: "GET",
+          url: "/api/v1/admin/usage/account-costs?period=month&value=2026-09",
+          headers,
+        });
+      const grok = (id: number, name: string) => ({
+        ...fixture(id, name, "unknown", null),
+        platform: "grok",
+        planType: null,
+      });
+      const originalSources = [
+        grok(1, "Luwu-Grok"),
+        grok(2, "Luwu-Grok"),
+        grok(3, "Yida-Grok"),
+        fixture(2, "Fubin-GPT", "plus", null),
+        fixture(4, "EZARC-paid"),
+      ];
+      vi.mocked(listUpstreamAccounts).mockResolvedValue(originalSources);
+      const originalResponse = await get();
+      expect(originalResponse.statusCode).toBe(200);
+      const originalHistory = originalResponse.json().history;
+      const originalLedger = await readLedger(ctx.db);
+
+      vi.mocked(listUpstreamAccounts).mockResolvedValue([
+        grok(1, "Luwu-Grok"),
+        grok(2, "Pengxiang-Grok"),
+        grok(3, "Yida-Grok"),
+        fixture(2, "Fubin-GPT-renamed", "plus", null),
+        fixture(4, "产品部-renamed"),
+      ]);
+      const renamedResponse = await get();
+      expect(renamedResponse.statusCode).toBe(200);
+      const renamed = renamedResponse.json();
+      expect(renamed.manualAccounts).toHaveLength(4);
+      expect(renamed.manualAccounts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            accountId: 1,
+            platform: "grok",
+            name: "Luwu-Grok",
+          }),
+          expect.objectContaining({
+            accountId: 2,
+            platform: "grok",
+            name: "Pengxiang-Grok",
+          }),
+          expect.objectContaining({
+            accountId: 3,
+            platform: "grok",
+            name: "Yida-Grok",
+          }),
+          expect.objectContaining({
+            accountId: 2,
+            platform: "openai",
+            name: "Fubin-GPT-renamed",
+            monthlyUsd: 20,
+          }),
+        ]),
+      );
+      expect(renamed.history).toEqual(originalHistory);
+      await get();
+      const refreshedLedger = await readLedger(ctx.db);
+      expect(refreshedLedger).toHaveLength(originalLedger.length);
+      for (const account of refreshedLedger) {
+        const original = originalLedger.find(
+          (item) =>
+            item.accountId === account.accountId &&
+            item.platform === account.platform,
+        );
+        expect(account.cycles).toEqual(original?.cycles);
+      }
+
+      vi.mocked(listUpstreamAccounts).mockRejectedValue(
+        new Error("upstream unavailable"),
+      );
+      const cached = (await get()).json();
+      expect(cached.manualAccounts).toEqual(renamed.manualAccounts);
+      expect(cached.history).toEqual(originalHistory);
+    } finally {
+      await ctx.close();
+    }
+  });
+  it("syncs names for legacy ledger entries and retains the exclusion of new Kevin accounts", async () => {
+    const ctx = await setup();
+    try {
+      const legacy = {
+        accountId: 2,
+        platform: "grok",
+        cycles: [
+          {
+            expires: null,
+            month: null,
+            name: "Luwu-Grok",
+            department: "技术部&独立站&TK",
+            planType: null,
+            amount: null,
+            automaticPricing: false,
+          },
+        ],
+      };
+      await ctx.db.insert(settings).values({
+        key: 'subscription-ledger:["grok",2]',
+        value: legacy,
+      });
+      expect(ledgerManualAccounts(await readLedger(ctx.db))[0]?.name).toBe(
+        "Luwu-Grok",
+      );
+      const sources = [
+        {
+          id: 2,
+          platform: "grok",
+          name: "Pengxiang-Grok",
+          planType: null,
+          subscriptionExpiresAt: null,
+        },
+      ];
+      let ledger = await recordSubscriptions(ctx.db, sources, new Map());
+      expect(ledgerManualAccounts(ledger)[0]?.name).toBe("Pengxiang-Grok");
+      expect(ledger[0]?.cycles).toEqual(legacy.cycles);
+
+      sources[0]!.name = "Kevin-Grok";
+      ledger = await recordSubscriptions(
+        ctx.db,
+        [...sources, { ...sources[0]!, id: 99 }],
+        new Map(),
+      );
+      expect(ledger).toHaveLength(1);
+      expect(ledgerManualAccounts(ledger)[0]?.name).toBe("Kevin-Grok");
+      expect(ledger[0]?.cycles).toEqual(legacy.cycles);
     } finally {
       await ctx.close();
     }
