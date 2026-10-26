@@ -8,6 +8,7 @@ import {
   UpdateProviderRequestSchema,
   UsageQuerySchema,
   type UsageResponse,
+  type UsageRow,
 } from "@ccse/contracts";
 import { and, asc, count, eq, gte, lt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -29,6 +30,7 @@ import { AppError, notFound, parseBody } from "../errors.ts";
 import { hashDeviceSecret } from "../fleet/store.ts";
 import type { ProviderRow } from "../gateway/auth.ts";
 import { generateGatewayKey, hashGatewayKey } from "../gateway/keys.ts";
+import { estimateCostUsd } from "../gateway/pricing.ts";
 import { encryptSecret, secretHint } from "../secrets.ts";
 import { assertUsersExist } from "../users/dto.ts";
 import { groupScope } from "../users/scope.ts";
@@ -247,6 +249,10 @@ export async function adminProviderRoutes(
       }
 
       const date = sql<string>`to_char(${usageRecords.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+      // Responses/Chat input is inclusive of caches. Clamp per request before
+      // summing so invalid cache counts cannot distort other requests' costs.
+      const cacheRead = sql`least(greatest(${usageRecords.inputTokens}, 0), greatest(${usageRecords.cachedTokens}, 0))`;
+      const cacheWrite = sql`least(greatest(${usageRecords.inputTokens} - ${cacheRead}, 0), greatest(coalesce(${usageRecords.cacheCreationTokens}, 0), 0))`;
       const rows = await db
         .select({
           date,
@@ -255,6 +261,7 @@ export async function adminProviderRoutes(
           groupName: users.groupName,
           providerId: usageRecords.providerId,
           model: usageRecords.model,
+          pricingModel: usageRecords.pricingModel,
           requests: count(),
           inputTokens:
             sql<number>`coalesce(sum(${usageRecords.inputTokens}), 0)`.mapWith(
@@ -262,6 +269,19 @@ export async function adminProviderRoutes(
             ),
           outputTokens:
             sql<number>`coalesce(sum(${usageRecords.outputTokens}), 0)`.mapWith(
+              Number,
+            ),
+          freshInputTokens:
+            sql<number>`coalesce(sum(greatest(${usageRecords.inputTokens} - ${cacheRead} - ${cacheWrite}, 0)), 0)`.mapWith(
+              Number,
+            ),
+          cachedTokens: sql<number>`coalesce(sum(${cacheRead}), 0)`.mapWith(
+            Number,
+          ),
+          cacheCreationTokens:
+            sql<number>`coalesce(sum(${cacheWrite}), 0)`.mapWith(Number),
+          legacyRequests:
+            sql<number>`count(*) filter (where ${usageRecords.cacheCreationTokens} is null)`.mapWith(
               Number,
             ),
         })
@@ -281,6 +301,7 @@ export async function adminProviderRoutes(
           users.groupName,
           usageRecords.providerId,
           usageRecords.model,
+          usageRecords.pricingModel,
         )
         .orderBy(
           date,
@@ -288,7 +309,56 @@ export async function adminProviderRoutes(
           asc(usageRecords.providerId),
           asc(usageRecords.model),
         );
-      const res: UsageResponse = { items: rows };
+      // A requested model can route to several upstream pricing models in one
+      // day. Price those separately, then merge back into the displayed row.
+      const items = new Map<string, UsageRow>();
+      for (const row of rows) {
+        const cost = estimateCostUsd(
+          row.pricingModel || row.model,
+          row.freshInputTokens,
+          row.outputTokens,
+          row.cachedTokens,
+          row.cacheCreationTokens,
+        );
+        const key = JSON.stringify([
+          row.date,
+          row.userId,
+          row.providerId,
+          row.model,
+        ]);
+        let item = items.get(key);
+        if (!item) {
+          item = {
+            date: row.date,
+            userId: row.userId,
+            username: row.username,
+            groupName: row.groupName,
+            providerId: row.providerId,
+            model: row.model,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedTokens: 0,
+            cacheCreationTokens: 0,
+            estimatedCostUsd: null,
+            unpricedRequests: 0,
+            legacyRequests: 0,
+          };
+          items.set(key, item);
+        }
+        item.requests += row.requests;
+        item.inputTokens += row.inputTokens;
+        item.outputTokens += row.outputTokens;
+        item.cachedTokens += row.cachedTokens;
+        item.cacheCreationTokens += row.cacheCreationTokens;
+        item.legacyRequests += row.legacyRequests;
+        if (cost === null) {
+          item.unpricedRequests = (item.unpricedRequests ?? 0) + row.requests;
+        } else {
+          item.estimatedCostUsd = (item.estimatedCostUsd ?? 0) + cost;
+        }
+      }
+      const res: UsageResponse = { items: [...items.values()] };
       return res;
     },
   );

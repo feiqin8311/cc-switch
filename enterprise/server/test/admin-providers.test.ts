@@ -293,6 +293,11 @@ describe("admin usage", () => {
         requests: 2,
         inputTokens: 30,
         outputTokens: 3,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        estimatedCostUsd: 0.0000675,
+        unpricedRequests: 0,
+        legacyRequests: 2,
       },
       {
         date: "2026-03-01",
@@ -304,6 +309,11 @@ describe("admin usage", () => {
         requests: 1,
         inputTokens: 5,
         outputTokens: 5,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        estimatedCostUsd: 0.00001125,
+        unpricedRequests: 0,
+        legacyRequests: 1,
       },
       {
         date: "2026-03-01",
@@ -315,6 +325,11 @@ describe("admin usage", () => {
         requests: 1,
         inputTokens: 7,
         outputTokens: 3,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        estimatedCostUsd: 0.00003875,
+        unpricedRequests: 0,
+        legacyRequests: 1,
       },
       {
         date: "2026-03-02",
@@ -326,8 +341,100 @@ describe("admin usage", () => {
         requests: 1,
         inputTokens: 100,
         outputTokens: 10,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        estimatedCostUsd: 0.000225,
+        unpricedRequests: 0,
+        legacyRequests: 1,
       },
     ]);
+  });
+
+  it("prices each upstream model with caches once and preserves unknown costs", async () => {
+    const base = {
+      userId: adminId,
+      providerId: "p1",
+      model: "routed-model",
+      status: 200,
+      latencyMs: 10,
+      createdAt: new Date("2026-03-01T12:00:00Z"),
+    };
+    await ctx.db.insert(usageRecords).values([
+      {
+        ...base,
+        pricingModel: "gpt-6-luna",
+        inputTokens: 1000,
+        outputTokens: 200,
+        cachedTokens: 600,
+        cacheCreationTokens: 100,
+      },
+      {
+        ...base,
+        pricingModel: "gpt-5.6-terra",
+        inputTokens: 1000,
+        outputTokens: 200,
+        cachedTokens: 600,
+        cacheCreationTokens: 100,
+      },
+      {
+        ...base,
+        pricingModel: "unknown-model",
+        inputTokens: 1000,
+        outputTokens: 200,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+      },
+      // Bad cache counts are clamped per request, not against the day's total.
+      {
+        ...base,
+        model: "gpt-6-luna",
+        inputTokens: 10,
+        outputTokens: 0,
+        cachedTokens: 100,
+        cacheCreationTokens: 50,
+      },
+      {
+        ...base,
+        model: "gpt-6-luna",
+        inputTokens: 1000,
+        outputTokens: 0,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+      },
+      {
+        ...base,
+        model: "unknown-model",
+        inputTokens: 100,
+        outputTokens: 50,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+      },
+    ]);
+    const response = await api(
+      "GET",
+      "/admin/usage?from=2026-03-01&to=2026-03-01",
+    );
+    expect(response.statusCode).toBe(200);
+    const rows = UsageResponseSchema.parse(response.json()).items;
+    expect(rows).toHaveLength(3);
+    const routed = rows.find((row) => row.model === "routed-model");
+    expect(routed).toMatchObject({
+      requests: 3,
+      cachedTokens: 1200,
+      cacheCreationTokens: 200,
+      unpricedRequests: 1,
+      legacyRequests: 0,
+    });
+    // Luna: (300*.1 + 200*.5 + 600*.01 + 100*.125)/1M = .0001485
+    // Terra: (300*2 + 200*12 + 600*.2 + 100*2.5)/1M = .00337
+    expect(routed?.estimatedCostUsd).toBeCloseTo(0.0035185, 12);
+    expect(
+      rows.find((row) => row.model === "gpt-6-luna")?.estimatedCostUsd,
+    ).toBeCloseTo(0.0001001, 12);
+    expect(rows.find((row) => row.model === "unknown-model")).toMatchObject({
+      estimatedCostUsd: null,
+      unpricedRequests: 1,
+    });
   });
 
   it("validates the date range", async () => {

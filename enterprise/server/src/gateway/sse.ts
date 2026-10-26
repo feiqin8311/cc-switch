@@ -120,9 +120,12 @@ export class SseUsageParser {
       return;
     }
     if (typeof parsed !== "object" || parsed === null) return;
-    const obj = parsed as { type?: unknown; response?: { usage?: unknown } };
+    const obj = parsed as {
+      type?: unknown;
+      response?: { usage?: unknown; model?: unknown };
+    };
     if (name !== COMPLETED && obj.type !== COMPLETED) return;
-    const usage = readUsage(obj.response?.usage);
+    const usage = readUsage(obj.response?.usage, obj.response?.model);
     if (usage) this.usage = usage;
   }
 }

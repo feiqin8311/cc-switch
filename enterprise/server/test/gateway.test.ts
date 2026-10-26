@@ -25,11 +25,12 @@ const completedEvent = {
   type: "response.completed",
   response: {
     id: "resp_1",
+    model: "gpt-5",
     status: "completed",
     output: [{ type: "message", content: [{ text: "Hé🙂llo" }] }],
     usage: {
       input_tokens: 120,
-      input_tokens_details: { cached_tokens: 20 },
+      input_tokens_details: { cached_tokens: 20, cache_write_tokens: 5 },
       output_tokens: 30,
       total_tokens: 150,
     },
@@ -468,6 +469,8 @@ describe("gateway forwarding", () => {
       inputTokens: 120,
       outputTokens: 30,
       cachedTokens: 20,
+      cacheCreationTokens: 5,
+      pricingModel: "gpt-5",
     });
   });
 

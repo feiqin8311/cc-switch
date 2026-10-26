@@ -29,7 +29,12 @@ function stream(eol: string, named = true): Buffer {
   );
 }
 
-const expected = { inputTokens: 120, outputTokens: 30, cachedTokens: 20 };
+const expected = {
+  inputTokens: 120,
+  outputTokens: 30,
+  cachedTokens: 20,
+  cacheCreationTokens: 0,
+};
 
 describe("SseUsageParser", () => {
   for (const eol of ["\n", "\r\n", "\r"]) {
@@ -85,6 +90,7 @@ describe("SseUsageParser", () => {
       inputTokens: 1,
       outputTokens: 2,
       cachedTokens: 0,
+      cacheCreationTokens: 0,
     });
   });
 

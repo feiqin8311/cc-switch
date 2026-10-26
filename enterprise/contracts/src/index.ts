@@ -556,6 +556,14 @@ export const UsageRowSchema = z.object({
   requests: z.number().int(),
   inputTokens: z.number().int(),
   outputTokens: z.number().int(),
+  cachedTokens: z.number().int().nonnegative().default(0),
+  cacheCreationTokens: z.number().int().nonnegative().default(0),
+  /** Estimate at bundled model prices, not an upstream charge or subscription cost. */
+  estimatedCostUsd: z.number().finite().nonnegative().nullable().default(null),
+  /** Requests whose pricing model has no matching unit prices. */
+  unpricedRequests: z.number().int().nonnegative().optional(),
+  /** Old records that predate collection of cache writes and the pricing model. */
+  legacyRequests: z.number().int().nonnegative().default(0),
 });
 export type UsageRow = z.infer<typeof UsageRowSchema>;
 export const UsageResponseSchema = z.object({ items: z.array(UsageRowSchema) });

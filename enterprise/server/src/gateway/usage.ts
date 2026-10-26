@@ -6,12 +6,15 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
+  cacheCreationTokens: number;
+  model?: string;
 }
 
 export const ZERO_USAGE: TokenUsage = {
   inputTokens: 0,
   outputTokens: 0,
   cachedTokens: 0,
+  cacheCreationTokens: 0,
 };
 
 export function startOfUtcDay(now: Date = new Date()): Date {
@@ -61,18 +64,33 @@ const toCount = (v: unknown): number =>
   typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
 
 /** Reads an OpenAI Responses API `usage` object; null when absent/malformed. */
-export function readUsage(value: unknown): TokenUsage | null {
+export function readUsage(value: unknown, model?: unknown): TokenUsage | null {
   if (typeof value !== "object" || value === null) return null;
   const u = value as Record<string, unknown>;
-  if (typeof u.input_tokens !== "number" && typeof u.output_tokens !== "number")
+  if (
+    typeof u.input_tokens !== "number" &&
+    typeof u.output_tokens !== "number" &&
+    typeof u.prompt_tokens !== "number" &&
+    typeof u.completion_tokens !== "number"
+  )
     return null;
-  const details = u.input_tokens_details as
+  const details = (u.input_tokens_details ?? u.prompt_tokens_details) as
     | Record<string, unknown>
     | null
     | undefined;
   return {
-    inputTokens: toCount(u.input_tokens),
-    outputTokens: toCount(u.output_tokens),
-    cachedTokens: toCount(details?.cached_tokens),
+    inputTokens: toCount(u.input_tokens ?? u.prompt_tokens),
+    outputTokens: toCount(u.output_tokens ?? u.completion_tokens),
+    cachedTokens:
+      toCount(details?.cached_tokens) ||
+      toCount(u.cache_read_input_tokens) ||
+      toCount(u.prompt_cache_hit_tokens),
+    cacheCreationTokens:
+      toCount(details?.cache_write_tokens) ||
+      toCount(u.cache_write_input_tokens) ||
+      toCount(u.cache_creation_input_tokens),
+    ...(typeof model === "string" && model.trim()
+      ? { model: model.trim() }
+      : {}),
   };
 }

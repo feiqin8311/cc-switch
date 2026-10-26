@@ -965,6 +965,108 @@ describe("App", () => {
     expect(within(filteredUsers).queryByText("bob")).toBeNull();
   });
 
+  it("adds estimated USD costs to all three usage tables and marks incomplete totals", async () => {
+    const base = {
+      date: "2026-10-26",
+      userId: "alice",
+      username: "alice",
+      groupName: "研发",
+      providerId: "main",
+      model: "gpt-6-luna",
+      requests: 1,
+      inputTokens: 1000,
+      outputTokens: 100,
+      estimatedCostUsd: 1.25,
+      unpricedRequests: 0,
+      legacyRequests: 1,
+    };
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage"
+        ? Response.json({
+            items: [
+              base,
+              {
+                ...base,
+                date: "2026-10-25",
+                estimatedCostUsd: 2.5,
+                legacyRequests: 0,
+              },
+              {
+                ...base,
+                model: "unknown-model",
+                estimatedCostUsd: null,
+                unpricedRequests: 1,
+              },
+              {
+                ...base,
+                userId: "bob",
+                username: "bob",
+                model: "unknown-model",
+                estimatedCostUsd: null,
+                unpricedRequests: 1,
+              },
+            ],
+          })
+        : undefined,
+    );
+    const users = await screen.findByRole("table", { name: "按用户汇总" });
+    const models = screen.getByRole("table", { name: "按模型汇总" });
+    const details = screen.getByRole("table", { name: "明细" });
+    for (const table of [users, models, details]) {
+      expect(
+        within(table).getAllByRole("columnheader").at(-1)?.textContent,
+      ).toBe("估算费用（USD）");
+    }
+    const alice = within(users).getByText("alice").closest("tr");
+    if (!alice) throw new Error("missing user row");
+    expect(within(alice).getByText("$3.75")).toBeTruthy();
+    expect(within(alice).getByText("（部分）")).toBeTruthy();
+    const bob = within(users).getByText("bob").closest("tr");
+    if (!bob) throw new Error("missing user row");
+    expect(within(bob).getByText("未计价")).toBeTruthy();
+    expect(within(models).getByText("$3.75")).toBeTruthy();
+    expect(within(details).getByText("$1.25")).toBeTruthy();
+    expect(within(details).getByText("$2.50")).toBeTruthy();
+    expect(screen.getByText(/旧记录未采集缓存写入和上游计价模型/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "bob" }));
+    expect(within(users).queryByText("$3.75")).toBeNull();
+    expect(within(users).getByText("未计价")).toBeTruthy();
+    expect(within(details).queryByText("$1.25")).toBeNull();
+  });
+
+  it("sums USD over all detail pages instead of just the current page", async () => {
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage"
+        ? Response.json({
+            items: Array.from({ length: 11 }, (_, i) => ({
+              date: `2026-10-${String(i + 1).padStart(2, "0")}`,
+              userId: "alice",
+              username: "alice",
+              providerId: "main",
+              model: "gpt-6-luna",
+              requests: 1,
+              inputTokens: 1000,
+              outputTokens: 100,
+              estimatedCostUsd: 0.01,
+            })),
+          })
+        : undefined,
+    );
+    const users = await screen.findByRole("table", { name: "按用户汇总" });
+    const models = screen.getByRole("table", { name: "按模型汇总" });
+    const details = screen.getByRole("table", { name: "明细" });
+    expect(within(users).getByText("$0.11")).toBeTruthy();
+    expect(within(models).getByText("$0.11")).toBeTruthy();
+    expect(within(details).getAllByText("$0.01")).toHaveLength(10);
+    const card = details.parentElement;
+    if (!card) throw new Error("missing detail card");
+    fireEvent.click(within(card).getByRole("button", { name: "下一页" }));
+    expect(within(details).getAllByText("$0.01")).toHaveLength(1);
+    expect(within(users).getByText("$0.11")).toBeTruthy();
+  });
+
   it("filters usage by user, group and provider", async () => {
     renderAt("/usage", permissionsForRole("admin"));
     expect(

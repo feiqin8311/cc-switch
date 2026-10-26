@@ -5,13 +5,13 @@ import { usageRecords } from "../db/schema.ts";
 import { AppError } from "../errors.ts";
 import { decryptSecret } from "../secrets.ts";
 import type { GatewayContext } from "./auth.ts";
-import { SseUsageParser } from "./sse.ts";
-import { readUsage, type TokenUsage, ZERO_USAGE } from "./usage.ts";
 import {
   ChatToResponsesTransformer,
   convertChatJsonToResponsesJson,
   convertResponsesToChatRequest,
 } from "./chat_convert.ts";
+import { SseUsageParser } from "./sse.ts";
+import { readUsage, type TokenUsage, ZERO_USAGE } from "./usage.ts";
 
 /** Max non-streaming upstream response that is buffered and relayed. */
 export const MAX_BUFFERED_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -143,6 +143,8 @@ async function forwardRaw(
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         cachedTokens: usage.cachedTokens,
+        cacheCreationTokens: usage.cacheCreationTokens,
+        pricingModel: usage.model ?? model,
         status,
         latencyMs: Date.now() - started,
         deviceId: ctx.deviceId,
@@ -309,14 +311,17 @@ async function forwardRaw(
 
   if (contentType.toLowerCase().includes("json")) {
     try {
-      const parsed = JSON.parse(payload.toString("utf8")) as Record<string, unknown>;
+      const parsed = JSON.parse(payload.toString("utf8")) as Record<
+        string,
+        unknown
+      >;
       if (isChatCompletions && upstream.status === 200) {
         const converted = convertChatJsonToResponsesJson(parsed);
-        usage = readUsage(converted.usage);
+        usage = readUsage(parsed.usage, parsed.model);
         finalPayload = Buffer.from(JSON.stringify(converted));
         finalContentType = "application/json; charset=utf-8";
       } else {
-        usage = readUsage(parsed?.usage);
+        usage = readUsage(parsed?.usage, parsed.model);
       }
     } catch {
       usage = null;
