@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
+import { BrandMark } from "../components/BrandMark";
 import {
   Button,
   Field,
@@ -10,8 +11,6 @@ import {
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { describeError } from "../lib/format";
-
-import { BrandMark } from "../components/BrandMark";
 
 function loginErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -53,6 +52,7 @@ export function LoginPage() {
       navigate(from, { replace: true });
     } catch (err) {
       setError(loginErrorMessage(err));
+      setPassword("");
       setPending(false);
     }
   };

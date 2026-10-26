@@ -363,6 +363,7 @@ export class ApiClient {
         headers,
         body,
         signal: req.signal,
+        cache: "no-store",
       });
     } catch (err) {
       if (req.signal?.aborted) throw err;

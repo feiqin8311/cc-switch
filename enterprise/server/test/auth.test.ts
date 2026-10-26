@@ -3,7 +3,9 @@ import {
   ErrorResponseSchema,
   SessionResponseSchema,
 } from "@ccse/contracts";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { users } from "../src/db/schema.ts";
 import { ADMIN, bearer, login, setup, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext;
@@ -15,6 +17,65 @@ afterEach(async () => {
 });
 
 describe("auth", () => {
+  it("prevents caching of successful and failed authentication responses", async () => {
+    const first = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: ADMIN,
+    });
+    expect(first.statusCode).toBe(200);
+    const session = SessionResponseSchema.parse(first.json());
+    expect(first.json().user).not.toHaveProperty("password");
+    expect(first.json().user).not.toHaveProperty("passwordHash");
+    const failed = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: { ...ADMIN, password: "wrong-password" },
+    });
+    expect(failed.statusCode).toBe(401);
+    const refreshed = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/refresh",
+      payload: { refreshToken: session.refreshToken },
+    });
+    expect(refreshed.statusCode).toBe(200);
+    for (const response of [first, failed, refreshed]) {
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(response.headers.pragma).toBe("no-cache");
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    }
+  });
+
+  it("preserves HTTP login compatibility in production", async () => {
+    ctx.config.env = "production";
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: ADMIN,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(SessionResponseSchema.parse(res.json()).refreshToken).toBeTruthy();
+  });
+
+  it("does not disclose whether an account is disabled", async () => {
+    await ctx.db
+      .update(users)
+      .set({ disabled: true })
+      .where(eq(users.username, ADMIN.username));
+    const disabled = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: ADMIN,
+    });
+    const unknown = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      payload: { ...ADMIN, username: "nonexistent-user" },
+    });
+    expect(disabled.statusCode).toBe(401);
+    expect(disabled.json()).toEqual(unknown.json());
+  });
+
   it("logs in and returns a session matching the contract", async () => {
     const session = await login(ctx.app, ADMIN.username, ADMIN.password);
     expect(SessionResponseSchema.parse(session).user.role).toBe("admin");

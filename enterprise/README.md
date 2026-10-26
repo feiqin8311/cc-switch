@@ -139,6 +139,12 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
   session. Replaying a used token revokes the whole session.
 - Login: argon2id, 5 failures / 15 min per account+IP, 30 per IP.
 
+登录接口与现有 HTTP 访问方式保持兼容。管理 API 的响应禁止缓存，日志对账号、
+密码及令牌字段脱敏；禁用账号使用统一登录错误，减少账号状态泄露。
+这些措施不提供传输加密：公网 HTTP 仍会以明文传输密码和令牌。
+需要防止网络窃听时，应在服务器前配置 HTTPS（参考 `server/nginx.conf.example`）；
+HTTPS 也不会隐藏浏览器开发者工具中由本机发出的请求内容。
+
 ## Features
 
 | Area | Server | Desktop client (`src-tauri/src/enterprise/`) |

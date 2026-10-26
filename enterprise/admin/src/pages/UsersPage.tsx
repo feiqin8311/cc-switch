@@ -85,6 +85,7 @@ export function UsersPage() {
   const [offboarding, setOffboarding] = useState<User | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [deletingUsers, setDeletingUsers] = useState<User[] | null>(null);
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const allUsers = users.data?.items ?? [];
   const groupNames = [
@@ -97,6 +98,50 @@ export function UsersPage() {
     (u) => groupFilter === null || u.groupName === groupFilter,
   );
   const selectedUsers = filteredUsers.filter((u) => selected.includes(u.id));
+  const deletableUsers = selectedUsers.filter((u) => u.id !== session.user.id);
+  const deleteTargets = (deletingUsers ?? []).filter(
+    (u) => u.id !== session.user.id,
+  );
+
+  const remove = useMutation({
+    mutationFn: async (targets: User[]) => {
+      if (!isAdmin) throw new Error("仅管理员可以删除用户");
+      return Promise.all(
+        targets
+          .filter((u) => u.id !== session.user.id)
+          .map(async (user) => {
+            try {
+              await client.request(`/admin/users/${user.id}`, {
+                method: "DELETE",
+              });
+              return { user, error: null };
+            } catch (err) {
+              return { user, error: describeError(err) };
+            }
+          }),
+      );
+    },
+    onSuccess: (results) => {
+      const deletedIds = new Set(
+        results.filter((r) => r.error === null).map((r) => r.user.id),
+      );
+      const failed = results.filter((r) => r.error !== null);
+      qc.invalidateQueries({ queryKey: USERS_KEY });
+      qc.invalidateQueries({ queryKey: ["admin", "user-options"] });
+      setSelected((prev) => prev.filter((id) => !deletedIds.has(id)));
+      setDeletingUsers(null);
+      if (deletedIds.size > 0)
+        toast.success(`已删除 ${deletedIds.size} 个用户`);
+      if (failed.length > 0) {
+        toast.error(
+          `${failed.length} 个用户删除失败，已保留勾选：${failed
+            .map((r) => `${r.user.username}（${r.error}）`)
+            .join("、")}`,
+        );
+      }
+    },
+    onError: (err) => toast.error(`删除用户失败：${describeError(err)}`),
+  });
 
   const offboard = useMutation({
     mutationFn: (user: User) =>
@@ -144,6 +189,23 @@ export function UsersPage() {
                 <Plus className="size-3.5" />
                 新建用户
               </Button>
+              {selectedUsers.length > 0 && (
+                <Button
+                  variant="danger"
+                  disabled={deletableUsers.length === 0 || remove.isPending}
+                  title={
+                    deletableUsers.length === 0
+                      ? "不能删除当前登录账号"
+                      : undefined
+                  }
+                  onClick={() => setDeletingUsers([...selectedUsers])}
+                >
+                  删除用户
+                  {deletableUsers.length > 0
+                    ? ` (${deletableUsers.length})`
+                    : ""}
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -374,11 +436,41 @@ export function UsersPage() {
           key={editing.id}
           user={editing}
           isSelf={editing.id === session.user.id}
-          canDelete={isAdmin && editing.id !== session.user.id}
           roleOnly={!isAdmin}
           onClose={() => setEditing(null)}
         />
       )}
+      <ConfirmDialog
+        open={isAdmin && deletingUsers !== null}
+        title="批量删除用户"
+        danger
+        confirmLabel={`确认删除 ${deleteTargets.length} 个用户`}
+        pending={remove.isPending}
+        message={
+          <>
+            <p>
+              确定删除以下 {deleteTargets.length}{" "}
+              个用户吗？账号及其关联的会话、设备、用量记录和已留存对话会被清除，且无法恢复。
+            </p>
+            <ul className="my-3 max-h-40 list-disc overflow-y-auto pl-5">
+              {deleteTargets.map((u) => (
+                <li key={u.id}>{u.username}</li>
+              ))}
+            </ul>
+            {deletingUsers?.some((u) => u.id === session.user.id) && (
+              <p>已跳过当前登录账号，不会删除自己。</p>
+            )}
+          </>
+        }
+        onCancel={() => {
+          if (!remove.isPending) setDeletingUsers(null);
+        }}
+        onConfirm={() => {
+          if (isAdmin && deleteTargets.length > 0 && !remove.isPending) {
+            remove.mutate(deleteTargets);
+          }
+        }}
+      />
       <ConfirmDialog
         open={offboarding !== null}
         title="办理离职"
@@ -586,13 +678,11 @@ function CreateUserDialog({ onClose }: { onClose(): void }) {
 function EditUserDialog({
   user,
   isSelf,
-  canDelete,
   roleOnly = false,
   onClose,
 }: {
   user: User;
   isSelf: boolean;
-  canDelete: boolean;
   roleOnly?: boolean;
   onClose(): void;
 }) {
@@ -613,7 +703,6 @@ function EditUserDialog({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const update = useMutation({
     mutationFn: (body: UpdateUserRequest) =>
@@ -638,18 +727,6 @@ function EditUserDialog({
       if (Object.keys(fields).length > 0) setErrors(fields);
       else setFormError(describeError(err));
     },
-  });
-
-  const remove = useMutation({
-    mutationFn: () =>
-      client.request(`/admin/users/${user.id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: USERS_KEY });
-      qc.invalidateQueries({ queryKey: ["admin", "user-options"] });
-      toast.success(`已删除用户 ${user.username}`);
-      onClose();
-    },
-    onError: (err) => toast.error(`删除用户失败：${describeError(err)}`),
   });
 
   const onSubmit = (e: FormEvent) => {
@@ -697,167 +774,138 @@ function EditUserDialog({
   };
 
   return (
-    <>
-      <Dialog
-        open
-        title={`编辑用户 ${user.username}`}
-        onClose={onClose}
-        footer={
-          <>
-            {canDelete && (
-              <Button
-                variant="danger"
-                disabled={update.isPending || remove.isPending}
-                onClick={() => setDeleteOpen(true)}
-                className="mr-auto"
-              >
-                删除用户
-              </Button>
-            )}
-            <Button onClick={onClose}>取消</Button>
-            <Button
-              type="submit"
-              form="edit-user-form"
-              variant="primary"
-              disabled={update.isPending || remove.isPending}
-            >
-              {update.isPending && <Spinner className="size-3" />}
-              保存
-            </Button>
-          </>
-        }
+    <Dialog
+      open
+      title={`编辑用户 ${user.username}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button
+            type="submit"
+            form="edit-user-form"
+            variant="primary"
+            disabled={update.isPending}
+          >
+            {update.isPending && <Spinner className="size-3" />}
+            保存
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="edit-user-form"
+        noValidate
+        onSubmit={onSubmit}
+        className="grid grid-cols-2 gap-3"
       >
-        <form
-          id="edit-user-form"
-          noValidate
-          onSubmit={onSubmit}
-          className="grid grid-cols-2 gap-3"
+        <Field
+          label="用户名"
+          htmlFor="eu-username"
+          error={errors.username}
+          hint={
+            roleOnly ? undefined : "员工用新用户名登录，已登录的设备不受影响"
+          }
+          className="col-span-2"
         >
-          <Field
-            label="用户名"
-            htmlFor="eu-username"
-            error={errors.username}
-            hint={
-              roleOnly ? undefined : "员工用新用户名登录，已登录的设备不受影响"
-            }
-            className="col-span-2"
-          >
-            <input
-              id="eu-username"
-              className={inputClass}
-              aria-invalid={!!errors.username}
-              autoComplete="off"
-              value={username}
-              readOnly={roleOnly}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </Field>
-          <Field
-            label="组"
-            htmlFor="eu-group"
-            error={errors.groupName}
-            hint={roleOnly ? undefined : "留空表示不分组"}
-          >
-            <input
-              id="eu-group"
-              className={inputClass}
-              aria-invalid={!!errors.groupName}
-              value={groupName}
-              readOnly={roleOnly}
-              onChange={(e) => setGroupName(e.target.value)}
-            />
-          </Field>
-          <Field
-            label="角色"
-            htmlFor="eu-role"
-            error={errors.role}
-            hint={isSelf ? "不能修改自己的角色" : undefined}
-          >
-            <RoleSelect
-              id="eu-role"
-              value={role}
-              onChange={setRole}
-              disabled={isSelf}
-              roles={roleOnly ? ["member", "viewer"] : ROLES}
-            />
-          </Field>
-          {!roleOnly && (
-            <>
-              <div className="col-span-2">
-                <AccountChecklist
-                  ids={upstreamAccountIds}
-                  onChange={setUpstreamAccountIds}
-                  disabled={role === "admin"}
-                  hint={
-                    role === "admin"
-                      ? "管理员始终能看全部上游账号"
-                      : "勾选该员工在桌面「用量窗口」和网页后台「上游账号」中能看到的账号；网页入口需另行勾选管理菜单权限"
-                  }
-                />
-              </div>
-              <div className="col-span-2">
-                <MenuChecklist
-                  menus={adminMenus ?? adminMenusForRole(role)}
-                  disabled={role === "admin"}
-                  onChange={setAdminMenus}
-                />
-              </div>
-              <Field
-                label="重置密码"
-                htmlFor="eu-password"
-                error={errors.password}
-                hint="留空则不修改；至少 6 位"
-              >
-                <input
-                  id="eu-password"
-                  type="password"
-                  autoComplete="new-password"
-                  className={inputClass}
-                  aria-invalid={!!errors.password}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </Field>
-              <Field
-                label="账号状态"
-                htmlFor="eu-enabled"
-                hint={isSelf ? "不能禁用自己" : disabled ? "已禁用" : "已启用"}
-              >
-                <div className="flex h-8 items-center">
-                  <Switch
-                    id="eu-enabled"
-                    label="启用账号"
-                    checked={!disabled}
-                    disabled={isSelf}
-                    onChange={(on) => setDisabled(!on)}
-                  />
-                </div>
-              </Field>
-            </>
-          )}
-          <div className="col-span-2">
-            <InlineError>{formError}</InlineError>
-          </div>
-        </form>
-      </Dialog>
-      <ConfirmDialog
-        open={deleteOpen && canDelete}
-        title="删除用户"
-        danger
-        confirmLabel="确认删除"
-        pending={remove.isPending}
-        message={
+          <input
+            id="eu-username"
+            className={inputClass}
+            aria-invalid={!!errors.username}
+            autoComplete="off"
+            value={username}
+            readOnly={roleOnly}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="组"
+          htmlFor="eu-group"
+          error={errors.groupName}
+          hint={roleOnly ? undefined : "留空表示不分组"}
+        >
+          <input
+            id="eu-group"
+            className={inputClass}
+            aria-invalid={!!errors.groupName}
+            value={groupName}
+            readOnly={roleOnly}
+            onChange={(e) => setGroupName(e.target.value)}
+          />
+        </Field>
+        <Field
+          label="角色"
+          htmlFor="eu-role"
+          error={errors.role}
+          hint={isSelf ? "不能修改自己的角色" : undefined}
+        >
+          <RoleSelect
+            id="eu-role"
+            value={role}
+            onChange={setRole}
+            disabled={isSelf}
+            roles={roleOnly ? ["member", "viewer"] : ROLES}
+          />
+        </Field>
+        {!roleOnly && (
           <>
-            确定删除用户 <b>{user.username}</b>{" "}
-            吗？删除后该账号及其关联的会话、设备、用量记录和已留存对话会被清除，且无法恢复。
+            <div className="col-span-2">
+              <AccountChecklist
+                ids={upstreamAccountIds}
+                onChange={setUpstreamAccountIds}
+                disabled={role === "admin"}
+                hint={
+                  role === "admin"
+                    ? "管理员始终能看全部上游账号"
+                    : "勾选该员工在桌面「用量窗口」和网页后台「上游账号」中能看到的账号；网页入口需另行勾选管理菜单权限"
+                }
+              />
+            </div>
+            <div className="col-span-2">
+              <MenuChecklist
+                menus={adminMenus ?? adminMenusForRole(role)}
+                disabled={role === "admin"}
+                onChange={setAdminMenus}
+              />
+            </div>
+            <Field
+              label="重置密码"
+              htmlFor="eu-password"
+              error={errors.password}
+              hint="留空则不修改；至少 6 位"
+            >
+              <input
+                id="eu-password"
+                type="password"
+                autoComplete="new-password"
+                className={inputClass}
+                aria-invalid={!!errors.password}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="账号状态"
+              htmlFor="eu-enabled"
+              hint={isSelf ? "不能禁用自己" : disabled ? "已禁用" : "已启用"}
+            >
+              <div className="flex h-8 items-center">
+                <Switch
+                  id="eu-enabled"
+                  label="启用账号"
+                  checked={!disabled}
+                  disabled={isSelf}
+                  onChange={(on) => setDisabled(!on)}
+                />
+              </div>
+            </Field>
           </>
-        }
-        onCancel={() => setDeleteOpen(false)}
-        onConfirm={() => {
-          if (canDelete) remove.mutate();
-        }}
-      />
-    </>
+        )}
+        <div className="col-span-2">
+          <InlineError>{formError}</InlineError>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
