@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
-  type ReactNode,
   useEffect,
   useId,
   useMemo,
@@ -66,7 +65,7 @@ const PAGE_SIZE = 10;
 
 interface Totals {
   key: string;
-  label: ReactNode;
+  label: string;
   requests: number;
   inputTokens: number;
   outputTokens: number;
@@ -78,7 +77,7 @@ interface Totals {
 function aggregate(
   rows: UsageRow[],
   keyOf: (r: UsageRow) => string,
-  labelOf: (r: UsageRow) => ReactNode,
+  labelOf: (r: UsageRow) => string,
 ): Totals[] {
   const map = new Map<string, Totals>();
   for (const r of rows) {
@@ -120,11 +119,12 @@ interface Filters {
 
 const NO_FILTERS: Filters = { userIds: [], groups: [], providerIds: [] };
 
-type TokenGrouping = "user" | "department";
+type TokenGrouping = "user" | "department" | "model";
 
 const TOKEN_GROUPING_OPTIONS = [
   { value: "user", label: "按用户 tokens" },
   { value: "department", label: "按部门 tokens" },
+  { value: "model", label: "按模型 tokens" },
 ] as const;
 
 /** Fields shared by gateway and device usage rows that the filters look at. */
@@ -158,6 +158,13 @@ function optionsOf(
 
 const num = `${tdClass} text-right tabular-nums`;
 const numTh = `${thClass} text-right`;
+
+function formatCompactTokens(value: number): string {
+  const format = (scaled: number) => scaled.toFixed(2).replace(/\.?0+$/, "");
+  if (value >= 1_000_000) return `${format(value / 1_000_000)}M`;
+  if (value >= 1_000) return `${format(value / 1_000)}K`;
+  return formatNumber(value);
+}
 
 const RANGE_PRESETS: { id: UtcRangePreset; label: string }[] = [
   { id: "today", label: "今天" },
@@ -459,14 +466,7 @@ export function UsagePage() {
       aggregate(
         rows,
         (r) => `${r.providerId}\u0000${r.model}`,
-        (r) => (
-          <>
-            <span className="font-mono">{r.model}</span>
-            <span className="ml-1 text-xs text-muted-foreground">
-              {r.providerId}
-            </span>
-          </>
-        ),
+        (r) => `${r.model} · ${r.providerId}`,
       ),
     [rows],
   );
@@ -633,12 +633,17 @@ export function UsagePage() {
             概览指标
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
-            <Stat label="请求数" value={grand.requests} />
-            <Stat label="输入 tokens" value={grand.inputTokens} />
-            <Stat label="输出 tokens" value={grand.outputTokens} />
+            <Stat label="请求数" value={grand.requests} unit="次" />
+            <Stat label="输入 tokens" value={grand.inputTokens} compact />
+            <Stat
+              label="输出 tokens"
+              value={grand.outputTokens}
+              compact
+            />
             <Stat
               label="总 tokens"
               value={grand.inputTokens + grand.outputTokens}
+              compact
             />
           </div>
         </Card>
@@ -677,14 +682,14 @@ export function UsagePage() {
       ) : (
         <div className="flex flex-col gap-6">
           <TokenChart
-            rows={tokenGrouping === "department" ? byDepartment : byUser}
+            rows={
+              { user: byUser, department: byDepartment, model: byModel }[
+                tokenGrouping
+              ]
+            }
             grouping={tokenGrouping}
             onGroupingChange={setTokenGrouping}
           />
-          <div className="grid gap-5 xl:grid-cols-2">
-            <TotalsTable title="按用户汇总" keyLabel="用户" rows={byUser} />
-            <TotalsTable title="按模型汇总" keyLabel="模型" rows={byModel} />
-          </div>
           <p className="text-xs text-muted-foreground">
             费用按内置模型参考单价估算，普通输入、输出、缓存命中和缓存写入分别计价，
             不含订阅费用分摊、供应商折扣、长上下文或时段加价。单价更新后历史估算会随之变化；
@@ -1264,75 +1269,116 @@ function AccountStats() {
                 </p>
               )}
             </div>
-            {isAdmin && (
-              <>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
-                  <p className="text-[11px] text-muted-foreground">
-                    {trendView
-                      ? period === "month"
-                        ? `${month.slice(0, 4)} 年 · 已记录 ${(department ? timeline : (multiSeries[0]?.points ?? [])).filter((item, index) => (department ? item.recorded : multiSeries.some((series) => series.points[index]?.recorded))).length} 个月；缺失月份不补算`
-                        : `共 ${(department ? timeline : (multiSeries[0]?.points ?? [])).length} 年记录；各年费用仅汇总已记录月份`
-                      : period === "month"
-                        ? `${month} · ${month === currentMonth ? "续费费用按订阅周期入账，停用或删除账号不扣减" : "历史月度记录"}`
-                        : `${year} 年 · 已记录 ${data.recordedMonths.length} 个月；未记录月份不补算`}
-                  </p>
-                  {isAdmin && data.manualAccounts.length > 0 && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setEditing(true)}
-                    >
-                      <Pencil className="size-3.5" />
-                      手动编辑
-                    </Button>
-                  )}
-                </div>
-                {unpriced > 0 && (
-                  <p className="mt-2 text-[11px] text-amber-700" role="status">
-                    {unpriced} 项套餐费用待补充，总计仅包含已计价费用。
-                  </p>
-                )}
-                {unpriced === 0 && data.manualAccounts.length > 0 && (
-                  <p
-                    className="mt-2 text-[11px] text-muted-foreground"
-                    role="status"
-                  >
-                    未识别套餐的费用已手动补充。
-                  </p>
-                )}
-                {data.pendingDateCount > 0 && (
-                  <p className="mt-2 text-[11px] text-amber-700">
-                    {data.pendingDateCount}{" "}
-                    个订阅缺少真实套餐到期时间，暂未归入月份；可通过手动编辑确认入账月份。
-                  </p>
-                )}
-                {data.legacySnapshotCount > 0 && (
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    旧版月度快照已保留供核对，不与续费记录重复累计。
-                  </p>
-                )}
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  月付套餐按真实订阅到期时间前推一个月估算续费月份；已入账记录保留，重复同步不重复计费。
-                </p>
-                {data.demo && (
-                  <p className="mt-2 text-[11px] text-amber-700">
-                    本机模拟账号，未连接上游服务；测试月度记录单独保存。
-                  </p>
-                )}
-              </>
-            )}
           </>
         )}
         {isAdmin && (
-          <div className="mt-2 flex justify-end">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setEditingAccounts(true)}
-            >
-              <Pencil className="size-3.5" />
-              编辑账户
-            </Button>
+          <div className="mt-4 border-t border-border/50 pt-4">
+            <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60">
+              {data &&
+                (data.manualAccounts.length > 0 ||
+                  unpriced > 0 ||
+                  data.pendingDateCount > 0) && (
+                  <div
+                    className={`flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 ${unpriced > 0 || data.pendingDateCount > 0 ? "bg-amber-500/5" : "bg-muted/20"}`}
+                  >
+                    <div className="min-w-0 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-xs font-medium">
+                          上游订阅计费信息
+                        </h3>
+                        {(unpriced > 0 || data.pendingDateCount > 0) && (
+                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                            待补充
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className="space-y-1 text-xs leading-5"
+                        role="status"
+                      >
+                        {unpriced > 0 && (
+                          <p className="text-amber-700 dark:text-amber-400">
+                            {unpriced}{" "}
+                            项套餐费用待补充，当前合计仅包含已计价费用。
+                          </p>
+                        )}
+                        {data.pendingDateCount > 0 && (
+                          <p className="text-amber-700 dark:text-amber-400">
+                            {data.pendingDateCount}{" "}
+                            个订阅缺少到期时间，确认入账月份后才能计入统计。
+                          </p>
+                        )}
+                        {unpriced === 0 && data.pendingDateCount === 0 && (
+                          <p className="text-muted-foreground">
+                            未识别套餐的费用已补充，可查看已填写的计费信息。
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {data.manualAccounts.length > 0 && (
+                      <Button
+                        size="sm"
+                        className="sm:min-w-32"
+                        onClick={() => setEditing(true)}
+                      >
+                        <Pencil className="size-3.5" />
+                        {unpriced > 0 || data.pendingDateCount > 0
+                          ? "补充计费信息"
+                          : "查看计费信息"}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              <div className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                <div className="min-w-0 space-y-1.5">
+                  <h3 className="text-xs font-medium">手动账号</h3>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    登记未接入上游的账号，维护所属部门、入账月份和费用。
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="sm:min-w-32"
+                  onClick={() => setEditingAccounts(true)}
+                >
+                  <Pencil className="size-3.5" />
+                  管理手动账号
+                </Button>
+              </div>
+            </div>
+            {data && (
+              <details className="group mt-3 text-[11px] text-muted-foreground">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                  <span>
+                    {trendView
+                      ? period === "month"
+                        ? `${month.slice(0, 4)} 年 · 已记录 ${(department ? timeline : (multiSeries[0]?.points ?? [])).filter((item, index) => (department ? item.recorded : multiSeries.some((series) => series.points[index]?.recorded))).length} 个月`
+                        : `共 ${(department ? timeline : (multiSeries[0]?.points ?? [])).length} 年记录`
+                      : period === "month"
+                        ? `${month} · 按入账月份汇总`
+                        : `${year} 年 · 已记录 ${data.recordedMonths.length} 个月`}
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-1 group-hover:text-foreground">
+                    统计说明
+                    <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                  </span>
+                </summary>
+                <div className="mt-2 space-y-1.5 rounded-lg bg-muted/30 p-3 leading-5">
+                  <p>
+                    月付套餐按到期时间前推一个月估算入账月份；缺少到期时间时需手动确认。
+                  </p>
+                  <p>
+                    已入账的订阅费用会保留，停用或删除上游账号不扣减；重复同步不会重复入账。
+                  </p>
+                  <p>年度费用仅汇总已有记录的月份，未记录月份不补算。</p>
+                </div>
+              </details>
+            )}
+            {data?.demo && (
+              <p className="mt-3 text-[11px] text-amber-700 dark:text-amber-400">
+                当前为模拟数据，未连接上游服务；测试记录单独保存。
+              </p>
+            )}
           </div>
         )}
       </Card>
@@ -1421,7 +1467,9 @@ function AccountCostStack({
   const [selected, setSelected] = useState<CostAccount | null>(null);
   const paid = accounts.filter((account) => account.monthlyUsd > 0);
   const bar = (
-    <div className={`flex ${vertical ? "h-full flex-col-reverse" : "h-7 w-full"}`}>
+    <div
+      className={`flex ${vertical ? "h-full flex-col-reverse" : "h-7 w-full"}`}
+    >
       {paid.length ? (
         paid.map((account) => {
           const share = total > 0 ? (account.monthlyUsd / total) * 100 : 0;
@@ -2426,22 +2474,17 @@ function TokenChart({
   grouping: TokenGrouping;
   onGroupingChange: (grouping: TokenGrouping) => void;
 }) {
-  const title = grouping === "department" ? "按部门 tokens" : "按用户 tokens";
+  const title = TOKEN_GROUPING_OPTIONS.find(
+    (option) => option.value === grouping,
+  )!.label;
   const data = rows.map((t) => ({
     key: t.key,
-    name: typeof t.label === "string" ? t.label : t.key,
+    name: t.label,
     input: t.inputTokens,
     output: t.outputTokens,
     total: t.inputTokens + t.outputTokens,
   }));
   const max = Math.max(...data.map((d) => d.total), 1);
-  const formatCompactTokens = (value: number) => {
-    const format = (scaled: number) => scaled.toFixed(2).replace(/\.?0+$/, "");
-    if (value >= 1_000_000) return `${format(value / 1_000_000)}M`;
-    if (value >= 1_000) return `${format(value / 1_000)}K`;
-    return formatNumber(value);
-  };
-
   return (
     <Card>
       <div className="border-b border-border/50 px-4 py-2.5">
@@ -2477,7 +2520,9 @@ function TokenChart({
             return (
               <div
                 key={d.key}
-                className={`flex h-full flex-1 flex-col items-center justify-end gap-1.5 ${grouping === "department" ? "min-w-max" : "min-w-12"}`}
+                role="group"
+                aria-label={d.name}
+                className={`flex h-full flex-1 flex-col items-center justify-end gap-1.5 ${grouping !== "user" ? "min-w-max" : "min-w-12"}`}
               >
                 <span
                   className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
@@ -2497,7 +2542,7 @@ function TokenChart({
                   <div className="bg-brand" style={{ height: `${outPct}%` }} />
                 </div>
                 <span
-                  className={`text-xs ${grouping === "department" ? "whitespace-nowrap" : "max-w-16 truncate"}`}
+                  className={`text-xs ${grouping !== "user" ? "whitespace-nowrap" : "max-w-16 truncate"}`}
                   title={d.name}
                 >
                   {d.name}
@@ -2511,72 +2556,26 @@ function TokenChart({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({
+  label,
+  value,
+  compact = false,
+  unit,
+}: {
+  label: string;
+  value: number;
+  compact?: boolean;
+  unit?: string;
+}) {
   return (
     <Card className="p-4">
       <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
       <div className="mt-1.5 text-2xl font-serif font-normal text-foreground tabular-nums">
-        {formatNumber(value)}
+        {compact ? formatCompactTokens(value) : formatNumber(value)}
+        {unit && <span className="ml-1 text-sm">{unit}</span>}
       </div>
-    </Card>
-  );
-}
-
-function TotalsTable({
-  title,
-  keyLabel,
-  rows,
-}: {
-  title: string;
-  keyLabel: string;
-  rows: Totals[];
-}) {
-  const [page, setPage] = useState(0);
-  useEffect(() => setPage(0), [rows]);
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  return (
-    <Card className="overflow-x-auto">
-      <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
-        {title}
-      </h2>
-      <table className={tableClass} aria-label={title}>
-        <thead>
-          <tr>
-            <th className={thClass}>{keyLabel}</th>
-            <th className={numTh}>请求数</th>
-            <th className={numTh}>输入</th>
-            <th className={numTh}>输出</th>
-            <th className={numTh}>合计</th>
-            <th className={`${numTh} whitespace-nowrap`}>估算费用（USD）</th>
-          </tr>
-        </thead>
-        <tbody>
-          {pageRows.map((t) => (
-            <tr key={t.key} className={trClass}>
-              <td className={tdClass}>{t.label}</td>
-              <td className={num}>{formatNumber(t.requests)}</td>
-              <td className={num}>{formatNumber(t.inputTokens)}</td>
-              <td className={num}>{formatNumber(t.outputTokens)}</td>
-              <td className={num}>
-                {formatNumber(t.inputTokens + t.outputTokens)}
-              </td>
-              <td className={num}>
-                <EstimatedCost row={t} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <Pagination
-        page={page}
-        pageCount={pageCount}
-        total={rows.length}
-        onPageChange={setPage}
-      />
     </Card>
   );
 }

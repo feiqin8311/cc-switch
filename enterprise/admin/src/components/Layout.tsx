@@ -116,7 +116,8 @@ export function Layout() {
 
       {/* Main Content Area */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-9">
+        {/* Contain positioned descendants within the content scroll area. */}
+        <main className="relative min-h-0 flex-1 overflow-y-auto px-6 py-8 md:px-10 md:py-9">
           <div className="mx-auto w-full max-w-6xl">
             <Outlet />
           </div>

@@ -34,6 +34,23 @@ costs and the Coding Plan fee can be filled manually. Demo monthly snapshots
 are stored separately. Set the flag to `false` to return to live accounts.
 The flag is ignored in production.
 
+### 本机用量图表测试数据
+
+先停止本机企业 API（PGlite 同一时间只能由一个进程打开），在 `enterprise/` 下运行：
+
+```bash
+pnpm --filter @ccse/server seed:usage
+# 可选：指定天数、UTC 截止日期或 server/ 下的其他本机数据目录
+pnpm --filter @ccse/server seed:usage --days 45 --to 2026-10-26 --data-dir data
+```
+
+然后重新启动 `pnpm dev` 和 `pnpm dev:admin`，打开用量统计，选择近 7 天、近 30 天或自定义日期测试。
+默认向 `server/data/pglite` 追加最近 45 天的 6,480 条用量，包含 36 个 `demo_usage_` 测试用户、
+8 个带“测试·”前缀的部门及 4 名未分组成员，涵盖 4 个测试供应商、12 个模型与供应商组合，
+包括长名称、低用量、零输出、缓存、旧请求、未计价与部分计价场景。
+相同日期重复执行不会重复插入。脚本只操作本机已有的 PGlite 数据库，不读取 `DATABASE_URL`，
+不调用上游服务，也不创建可调用真实上游的模型服务；测试用户使用随机密码。
+
 ## Admin console
 
 Web console for users, gateway providers, usage, conversation audit, the

@@ -423,7 +423,7 @@ describe("App", () => {
     expect((group as HTMLInputElement).value).toBe("运营部-LIBRATON");
     expect((group as HTMLInputElement).readOnly).toBe(true);
     expect(screen.queryByRole("button", { name: "按组筛选" })).toBeNull();
-    await screen.findByText("按用户汇总");
+    await screen.findByRole("figure", { name: "按用户 tokens" });
     fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
     expect(await screen.findByRole("option", { name: "bob" })).toBeTruthy();
   });
@@ -455,7 +455,7 @@ describe("App", () => {
     await screen.findByRole("group", { name: "部门订阅费用趋势图" });
     expect(screen.getAllByText("$40.00").length).toBeGreaterThan(0);
     expect(screen.queryByRole("combobox", { name: "费用部门" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "手动编辑" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "补充计费信息" })).toBeNull();
     expect(screen.queryByText("$120.00")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "折线图" }));
     expect(
@@ -493,7 +493,7 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "账户统计" }),
     ).toBeTruthy();
     await screen.findByText("所选期间或部门暂无费用记录。");
-    expect(screen.queryByRole("button", { name: "手动编辑" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "补充计费信息" })).toBeNull();
     expect(screen.queryByText(/当月记录随上游账号更新/)).toBeNull();
     expect(screen.queryByText(/总计仅包含已计价费用/)).toBeNull();
     expect(screen.queryByText(/本机模拟账号/)).toBeNull();
@@ -516,7 +516,7 @@ describe("App", () => {
     ["/devices", "设备管理", "还没有电脑上报"],
     ["/devices?tab=profiles", "设备管理", "还没有配置方案"],
     ["/devices?tab=providers", "设备管理", "openai-main"],
-    ["/usage", "用量统计", "按用户汇总"],
+    ["/usage", "用量统计", "按用户 tokens"],
     ["/upstream", "上游账号", "Feiqin-Gpt"],
     ["/skills", "Skills", "代码评审"],
     ["/mcp", "MCP", "还没有 MCP 服务器"],
@@ -843,7 +843,9 @@ describe("App", () => {
         });
       return undefined;
     });
-    fireEvent.click(await screen.findByRole("button", { name: "手动编辑" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "补充计费信息" }),
+    );
     const dialog = screen.getByRole("dialog", { name: "编辑未识别套餐费用" });
     fireEvent.change(within(dialog).getByLabelText("每月费用（USD）"), {
       target: { value: "35.50" },
@@ -853,12 +855,14 @@ describe("App", () => {
     expect(monthlyUsd).toBe(35.5);
     expect(screen.getAllByText("$35.50")).toHaveLength(2);
     expect(
-      await screen.findByText("未识别套餐的费用已手动补充。"),
+      await screen.findByText(
+        "未识别套餐的费用已补充，可查看已填写的计费信息。",
+      ),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "手动编辑" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "查看计费信息" })).toBeTruthy();
   });
 
-  it("switches token charts between users and summed departments with active filters", async () => {
+  it("switches token charts between users, departments and models with active filters", async () => {
     const base = {
       date: "2026-10-12",
       userId: "alice",
@@ -938,6 +942,36 @@ describe("App", () => {
       within(departments()).getByTitle("未分组：输入 50，输出 10"),
     ).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "按部门 tokens" }));
+    fireEvent.click(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: "按模型 tokens",
+      }),
+    );
+    const models = screen.getByRole("figure", { name: "按模型 tokens" });
+    expect(
+      within(models).getByTitle("gpt-5 · openai-main：输入 1,950，输出 610"),
+    ).toBeTruthy();
+    expect(
+      within(models)
+        .getAllByRole("group")
+        .map((node) => node.getAttribute("aria-label")),
+    ).toEqual([
+      "gpt-5 · yida-sub2api",
+      "gpt-5 · openai-main",
+      "gpt-5.6-terra · yida-sub2api",
+    ]);
+    expect(screen.queryByRole("table", { name: "按用户汇总" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "按模型汇总" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "按用户汇总" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "按模型汇总" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "按模型 tokens" }));
+    fireEvent.click(
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: "按部门 tokens",
+      }),
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "按供应商筛选" }));
     fireEvent.click(screen.getByRole("option", { name: "openai-main" }));
     expect(
@@ -963,9 +997,24 @@ describe("App", () => {
     const filteredUsers = screen.getByRole("figure", { name: "按用户 tokens" });
     expect(within(filteredUsers).getByText("carol")).toBeTruthy();
     expect(within(filteredUsers).queryByText("bob")).toBeNull();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "tokens 统计维度" }),
+      {
+        target: { value: "model" },
+      },
+    );
+    const filteredModels = screen.getByRole("figure", {
+      name: "按模型 tokens",
+    });
+    expect(within(filteredModels).getAllByRole("group")).toHaveLength(1);
+    expect(
+      within(filteredModels).getByTitle(
+        "gpt-5 · openai-main：输入 700，输出 300",
+      ),
+    ).toBeTruthy();
   });
 
-  it("adds estimated USD costs to all three usage tables and marks incomplete totals", async () => {
+  it("shows only tokens in all chart dimensions while keeping costs in details", async () => {
     const base = {
       date: "2026-10-26",
       userId: "alice",
@@ -1009,34 +1058,40 @@ describe("App", () => {
           })
         : undefined,
     );
-    const users = await screen.findByRole("table", { name: "按用户汇总" });
-    const models = screen.getByRole("table", { name: "按模型汇总" });
+    const users = await screen.findByRole("figure", { name: "按用户 tokens" });
     const details = screen.getByRole("table", { name: "明细" });
-    for (const table of [users, models, details]) {
-      expect(
-        within(table).getAllByRole("columnheader").at(-1)?.textContent,
-      ).toBe("估算费用（USD）");
+    expect(
+      within(details).getAllByRole("columnheader").at(-1)?.textContent,
+    ).toBe("估算费用（USD）");
+    const alice = within(users).getByRole("group", { name: "alice" });
+    expect(within(alice).getByTitle("3,300 tokens")).toBeTruthy();
+    for (const [value, label] of [
+      ["user", "按用户 tokens"],
+      ["department", "按部门 tokens"],
+      ["model", "按模型 tokens"],
+    ]) {
+      fireEvent.change(
+        screen.getByRole("combobox", { name: "tokens 统计维度" }),
+        { target: { value } },
+      );
+      const chart = screen.getByRole("figure", { name: label });
+      expect(within(chart).queryByLabelText("估算费用（USD）")).toBeNull();
+      expect(within(chart).queryByText(/\$|未计价|（部分）/)).toBeNull();
     }
-    const alice = within(users).getByText("alice").closest("tr");
-    if (!alice) throw new Error("missing user row");
-    expect(within(alice).getByText("$3.75")).toBeTruthy();
-    expect(within(alice).getByText("（部分）")).toBeTruthy();
-    const bob = within(users).getByText("bob").closest("tr");
-    if (!bob) throw new Error("missing user row");
-    expect(within(bob).getByText("未计价")).toBeTruthy();
-    expect(within(models).getByText("$3.75")).toBeTruthy();
+    const models = screen.getByRole("figure", { name: "按模型 tokens" });
+    expect(within(models).getAllByTitle("2,200 tokens")).toHaveLength(2);
     expect(within(details).getByText("$1.25")).toBeTruthy();
     expect(within(details).getByText("$2.50")).toBeTruthy();
     expect(screen.getByText(/旧记录未采集缓存写入和上游计价模型/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
     fireEvent.click(await screen.findByRole("option", { name: "bob" }));
-    expect(within(users).queryByText("$3.75")).toBeNull();
-    expect(within(users).getByText("未计价")).toBeTruthy();
+    expect(within(models).getByTitle("1,100 tokens")).toBeTruthy();
+    expect(within(details).getByText("未计价")).toBeTruthy();
     expect(within(details).queryByText("$1.25")).toBeNull();
   });
 
-  it("sums USD over all detail pages instead of just the current page", async () => {
+  it("sums chart tokens over all detail pages while keeping costs in each detail row", async () => {
     renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
       route === "/admin/usage"
         ? Response.json({
@@ -1054,17 +1109,24 @@ describe("App", () => {
           })
         : undefined,
     );
-    const users = await screen.findByRole("table", { name: "按用户汇总" });
-    const models = screen.getByRole("table", { name: "按模型汇总" });
+    const users = await screen.findByRole("figure", { name: "按用户 tokens" });
     const details = screen.getByRole("table", { name: "明细" });
-    expect(within(users).getByText("$0.11")).toBeTruthy();
-    expect(within(models).getByText("$0.11")).toBeTruthy();
+    expect(within(users).getByTitle("12,100 tokens")).toBeTruthy();
     expect(within(details).getAllByText("$0.01")).toHaveLength(10);
     const card = details.parentElement;
     if (!card) throw new Error("missing detail card");
     fireEvent.click(within(card).getByRole("button", { name: "下一页" }));
     expect(within(details).getAllByText("$0.01")).toHaveLength(1);
-    expect(within(users).getByText("$0.11")).toBeTruthy();
+    expect(within(users).getByTitle("12,100 tokens")).toBeTruthy();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "tokens 统计维度" }),
+      {
+        target: { value: "model" },
+      },
+    );
+    const models = screen.getByRole("figure", { name: "按模型 tokens" });
+    expect(within(models).getByTitle("12,100 tokens")).toBeTruthy();
+    expect(within(models).queryByText(/\$/)).toBeNull();
   });
 
   it("filters usage by user, group and provider", async () => {
@@ -1075,19 +1137,19 @@ describe("App", () => {
     const requests = () =>
       screen.getByText("请求数", { selector: "div" }).nextElementSibling
         ?.textContent;
-    expect(requests()).toBe("8");
+    expect(requests()).toBe("8 次");
 
     fireEvent.click(screen.getByRole("button", { name: "按组筛选" }));
     fireEvent.click(await screen.findByRole("option", { name: "研发" }));
-    expect(requests()).toBe("5");
+    expect(requests()).toBe("5 次");
     expect(screen.queryAllByText("gpt-5")).toHaveLength(0);
 
     // Ungrouped admin + 研发 bob, then narrow to one provider.
     fireEvent.click(screen.getByRole("option", { name: "未分组" }));
-    expect(requests()).toBe("8");
+    expect(requests()).toBe("8 次");
     fireEvent.click(screen.getByRole("button", { name: "按供应商筛选" }));
     fireEvent.click(await screen.findByRole("option", { name: "openai-main" }));
-    expect(requests()).toBe("3");
+    expect(requests()).toBe("3 次");
 
     fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
     fireEvent.click(await screen.findByRole("option", { name: "bob" }));
