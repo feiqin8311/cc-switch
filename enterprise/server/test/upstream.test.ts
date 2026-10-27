@@ -177,3 +177,112 @@ describe("upstream account pagination", () => {
     }
   });
 });
+
+describe("Sub2API connection diagnostics", () => {
+  it.each([
+    ["ECONNREFUSED", "连接被拒绝"],
+    ["ENOTFOUND", "无法解析上游域名"],
+    ["UND_ERR_CONNECT_TIMEOUT", "连接上游超时"],
+    ["CERT_HAS_EXPIRED", "上游 HTTPS 证书已过期"],
+  ])("explains %s without exposing credentials", async (code, description) => {
+    clearSub2ApiTokenCache();
+    const cause = Object.assign(new Error("private connection details"), {
+      code,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new TypeError("fetch failed", { cause })),
+    );
+    try {
+      const error = await listUpstreamAccounts({
+        url: "https://embedded-user:embedded-password@upstream.test/private?token=private-query",
+        email: "private-email@example.com",
+        password: "private-password",
+      }).then(
+        () => null,
+        (failure: unknown) => failure as Error,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(error?.message).toContain("登录上游失败");
+      expect(error?.message).toContain(description);
+      expect(error?.message).toContain(code);
+      expect(error?.message).toContain("https://upstream.test");
+      for (const secret of [
+        "embedded-user",
+        "embedded-password",
+        "/private",
+        "private-query",
+        "private-email",
+        "private-password",
+        "private connection details",
+      ])
+        expect(error?.message).not.toContain(secret);
+      expect(error?.cause).toBeInstanceOf(TypeError);
+    } finally {
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
+  });
+
+  it("identifies account-list failures after a successful login, including nested IPv4/IPv6 errors", async () => {
+    clearSub2ApiTokenCache();
+    const cause = new AggregateError([
+      Object.assign(new Error("IPv4 connection failed"), {
+        code: "ECONNREFUSED",
+      }),
+      Object.assign(new Error("IPv6 connection failed"), {
+        code: "ENETUNREACH",
+      }),
+    ]);
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          data: { access_token: "test-token", expires_in: 3600 },
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError("fetch failed", { cause }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      await expect(
+        listUpstreamAccounts({
+          url: "https://upstream.test",
+          email: "test@example.com",
+          password: "test-only",
+        }),
+      ).rejects.toThrow(
+        "读取账号列表失败：连接被拒绝，请检查上游服务和端口（ECONNREFUSED）；无法访问上游网络（ENETUNREACH）；连接地址：https://upstream.test",
+      );
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
+  });
+
+  it("reports request timeouts even when no system error code is present", async () => {
+    clearSub2ApiTokenCache();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(
+          new DOMException("Request timed out", "TimeoutError"),
+        ),
+    );
+    try {
+      await expect(
+        listUpstreamAccounts({
+          url: "https://upstream.test",
+          email: "test@example.com",
+          password: "test-only",
+        }),
+      ).rejects.toThrow("登录上游失败：请求上游超时");
+    } finally {
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
+  });
+});

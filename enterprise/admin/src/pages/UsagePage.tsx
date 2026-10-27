@@ -466,7 +466,7 @@ export function UsagePage() {
       aggregate(
         rows,
         (r) => `${r.providerId}\u0000${r.model}`,
-        (r) => `${r.model} · ${r.providerId}`,
+        (r) => r.model,
       ),
     [rows],
   );

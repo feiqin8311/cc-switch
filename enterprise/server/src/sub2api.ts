@@ -147,10 +147,84 @@ function envelopeData(body: unknown): unknown {
   return body;
 }
 
+function connectionFailure(error: unknown): string {
+  const pending: unknown[] = [error];
+  const seen = new Set<unknown>();
+  const reasons = new Set<string>();
+  const descriptions: Record<string, string> = {
+    ECONNREFUSED: "连接被拒绝，请检查上游服务和端口",
+    ENOTFOUND: "无法解析上游域名",
+    EAI_AGAIN: "上游域名解析暂时失败",
+    ETIMEDOUT: "连接上游超时",
+    UND_ERR_CONNECT_TIMEOUT: "连接上游超时",
+    UND_ERR_HEADERS_TIMEOUT: "等待上游响应超时",
+    UND_ERR_BODY_TIMEOUT: "读取上游响应超时",
+    ECONNRESET: "上游连接被中断",
+    EPIPE: "上游连接被中断",
+    UND_ERR_SOCKET: "上游连接被中断",
+    ENETUNREACH: "无法访问上游网络",
+    EHOSTUNREACH: "无法访问上游主机",
+    CERT_HAS_EXPIRED: "上游 HTTPS 证书已过期",
+    DEPTH_ZERO_SELF_SIGNED_CERT: "上游 HTTPS 证书不受信任",
+    SELF_SIGNED_CERT_IN_CHAIN: "上游 HTTPS 证书不受信任",
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: "无法验证上游 HTTPS 证书",
+    ERR_TLS_CERT_ALTNAME_INVALID: "上游 HTTPS 证书与域名不匹配",
+    ERR_INVALID_URL: "上游地址格式无效",
+  };
+  while (pending.length > 0 && seen.size < 20) {
+    const entry = pending.shift();
+    if (!entry || typeof entry !== "object" || seen.has(entry)) continue;
+    seen.add(entry);
+    const detail = entry as {
+      code?: unknown;
+      name?: unknown;
+      cause?: unknown;
+      errors?: unknown;
+    };
+    if (
+      typeof detail.code === "string" &&
+      Object.hasOwn(descriptions, detail.code)
+    )
+      reasons.add(`${descriptions[detail.code]}（${detail.code}）`);
+    else if (detail.name === "TimeoutError") reasons.add("请求上游超时");
+    else if (detail.name === "AbortError") reasons.add("请求上游已中止");
+    pending.push(detail.cause);
+    if (Array.isArray(detail.errors)) pending.push(...detail.errors);
+  }
+  return [...reasons].join("；") || "无法建立上游连接";
+}
+
+async function fetchSub2Api(
+  cfg: Sub2ApiConfig,
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetch(`${cfg.url}${path}`, init);
+  } catch (error) {
+    let origin = "地址格式无效";
+    try {
+      // Exclude user info, paths and query strings from the public diagnostic.
+      origin = new URL(cfg.url).origin;
+    } catch {
+      // The request error still carries the original cause for server logs.
+    }
+    const stage = path.startsWith("/api/v1/auth/login")
+      ? "登录上游"
+      : path.startsWith("/api/v1/admin/accounts/usage/")
+        ? "读取账号用量"
+        : "读取账号列表";
+    throw new Error(
+      `${stage}失败：${connectionFailure(error)}；连接地址：${origin}`,
+      { cause: error },
+    );
+  }
+}
+
 async function login(cfg: Sub2ApiConfig): Promise<string> {
   const now = Date.now();
   if (cache && cache.exp > now + 30_000) return cache.token;
-  const res = await fetch(`${cfg.url}/api/v1/auth/login`, {
+  const res = await fetchSub2Api(cfg, "/api/v1/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: cfg.email, password: cfg.password }),
@@ -179,7 +253,7 @@ async function authed(
   init: RequestInit = {},
 ): Promise<unknown> {
   const once = async (token: string) => {
-    const res = await fetch(`${cfg.url}${path}`, {
+    const res = await fetchSub2Api(cfg, path, {
       ...init,
       headers: {
         ...(init.headers ?? {}),
