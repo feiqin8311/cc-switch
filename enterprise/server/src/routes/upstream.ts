@@ -53,6 +53,7 @@ export async function upstreamRoutes(
         items,
       });
     } catch (e) {
+      app.log.warn({ err: e }, "Sub2API account synchronization failed");
       const message = e instanceof Error ? e.message : String(e);
       return UpstreamAccountsResponseSchema.parse({
         configured: true,

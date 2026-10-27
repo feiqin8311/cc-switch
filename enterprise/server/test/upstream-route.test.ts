@@ -268,6 +268,50 @@ describe("upstream accounts", () => {
     }
   });
 
+  it("returns actionable connection errors to web and desktop without exposing login secrets", async () => {
+    clearSub2ApiTokenCache();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(
+        new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connection refused"), {
+            code: "ECONNREFUSED",
+          }),
+        }),
+      ),
+    );
+    const ctx = await setup({
+      SUB2API_URL: "https://upstream.test",
+      SUB2API_EMAIL: "private@example.com",
+      SUB2API_PASSWORD: "test-private-password",
+    });
+    try {
+      const session = await login(ctx.app, ADMIN.username, ADMIN.password);
+      for (const url of [
+        "/api/v1/admin/upstream/accounts",
+        "/api/v1/client/upstream/accounts",
+      ]) {
+        const response = await ctx.app.inject({
+          url,
+          headers: bearer(session.accessToken),
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          configured: true,
+          items: [],
+          error: expect.stringContaining("ECONNREFUSED"),
+        });
+        expect(response.json().error).toContain("https://upstream.test");
+        expect(response.body).not.toContain("private@example.com");
+        expect(response.body).not.toContain("test-private-password");
+      }
+    } finally {
+      await ctx.close();
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
+  });
+
   it("returns configured:false when Sub2API env is unset", async () => {
     const ctx = await setup();
     try {
