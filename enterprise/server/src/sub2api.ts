@@ -1,9 +1,12 @@
 /** Talk to an unmodified Sub2API admin API. Tokens stay in this process. */
+import { ProxyAgent } from "undici";
 
 export interface Sub2ApiConfig {
   url: string;
   email: string;
   password: string;
+  /** HTTP(S) proxy for Sub2API admin and model requests; may include encoded credentials. */
+  proxyUrl?: string;
 }
 
 export interface UpstreamWindow {
@@ -39,6 +42,33 @@ interface CachedToken {
 }
 
 let cache: CachedToken | null = null;
+const proxyAgents = new WeakMap<Sub2ApiConfig, ProxyAgent>();
+
+/** Share the proxy with gateway providers hosted at the configured Sub2API origin. */
+export function fetchWithSub2ApiProxy(
+  cfg: Sub2ApiConfig | null,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const request: RequestInit & { dispatcher?: ProxyAgent } = { ...init };
+  if (cfg?.proxyUrl && new URL(url).origin === new URL(cfg.url).origin) {
+    let agent = proxyAgents.get(cfg);
+    if (!agent) {
+      agent = new ProxyAgent(cfg.proxyUrl);
+      proxyAgents.set(cfg, agent);
+    }
+    request.dispatcher = agent;
+  }
+  return fetch(url, request);
+}
+
+export async function closeSub2ApiConnections(
+  cfg: Sub2ApiConfig,
+): Promise<void> {
+  const agent = proxyAgents.get(cfg);
+  proxyAgents.delete(cfg);
+  await agent?.close();
+}
 
 function num(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
@@ -200,7 +230,7 @@ async function fetchSub2Api(
   init: RequestInit,
 ): Promise<Response> {
   try {
-    return await fetch(`${cfg.url}${path}`, init);
+    return await fetchWithSub2ApiProxy(cfg, `${cfg.url}${path}`, init);
   } catch (error) {
     let origin = "地址格式无效";
     try {
@@ -282,6 +312,20 @@ async function authed(
   return envelopeData(body);
 }
 
+/** Grok accounts are currently excluded from enterprise synchronization. */
+function isGrokAccount(item: Record<string, unknown>): boolean {
+  const platform = str(item.platform)?.trim().toLowerCase();
+  return (
+    platform === "xai" ||
+    platform === "x.ai" ||
+    [
+      str(item.platform),
+      str(item.name),
+      ...groupNames(item.groups ?? item.account_groups),
+    ].some((value) => value != null && /grok/i.test(value))
+  );
+}
+
 export async function listUpstreamAccounts(
   cfg: Sub2ApiConfig,
 ): Promise<UpstreamAccount[]> {
@@ -299,12 +343,16 @@ export async function listUpstreamAccounts(
     )
       break;
   }
-  const ids = items
-    .map((it) =>
-      it && typeof it === "object"
-        ? Math.floor(num((it as { id: unknown }).id))
-        : 0,
-    )
+  // Filter after pagination so excluded accounts still count toward upstream totals.
+  // Use the same list for usage requests and responses to avoid syncing Grok usage.
+  const syncedItems = items.filter(
+    (it): it is Record<string, unknown> =>
+      !!it &&
+      typeof it === "object" &&
+      !isGrokAccount(it as Record<string, unknown>),
+  );
+  const ids = syncedItems
+    .map((it) => Math.floor(num(it.id)))
     .filter((id) => id > 0);
   let usageMap: Record<string, Record<string, unknown>> = {};
   if (ids.length > 0) {
@@ -321,14 +369,10 @@ export async function listUpstreamAccounts(
       // List extra still has cached 5h/7d percents.
     }
   }
-  return items
-    .filter(
-      (it): it is Record<string, unknown> => !!it && typeof it === "object",
-    )
-    .map((it) => {
-      const id = String(Math.floor(num(it.id)));
-      return accountFromSub2Api(it, usageMap[id]);
-    });
+  return syncedItems.map((it) => {
+    const id = String(Math.floor(num(it.id)));
+    return accountFromSub2Api(it, usageMap[id]);
+  });
 }
 
 /** Tests / login-failure recovery. */

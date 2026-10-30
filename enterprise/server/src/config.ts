@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import pkg from "../package.json" with { type: "json" };
+import type { Sub2ApiConfig } from "./sub2api.ts";
 
 const EnvSchema = z.object({
   NODE_ENV: z
@@ -35,6 +36,19 @@ const EnvSchema = z.object({
   SUB2API_URL: z.string().optional(),
   SUB2API_EMAIL: z.string().optional(),
   SUB2API_PASSWORD: z.string().optional(),
+  SUB2API_PROXY_URL: z
+    .string()
+    .trim()
+    .refine((value) => {
+      if (!value) return true;
+      try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol);
+      } catch {
+        return false;
+      }
+    }, "must be an HTTP(S) proxy URL")
+    .optional(),
   VOLCENGINE_ACCESS_KEY_ID: z.string().optional(),
   VOLCENGINE_SECRET_ACCESS_KEY: z.string().optional(),
   VOLCENGINE_REGION: z
@@ -60,7 +74,7 @@ export interface AppConfig {
   updatesDir: string;
   admin: { username: string; password?: string };
   /** Present when SUB2API_URL + email + password are all set. */
-  sub2api: { url: string; email: string; password: string } | null;
+  sub2api: Sub2ApiConfig | null;
   volcengine: {
     accessKeyId: string;
     secretAccessKey: string;
@@ -117,7 +131,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       const email = e.SUB2API_EMAIL?.trim();
       const password = e.SUB2API_PASSWORD;
       if (!url || !email || !password) return null;
-      return { url: url.replace(/\/$/, ""), email, password };
+      return {
+        url: url.replace(/\/$/, ""),
+        email,
+        password,
+        ...(e.SUB2API_PROXY_URL ? { proxyUrl: e.SUB2API_PROXY_URL } : {}),
+      };
     })(),
     logLevel: e.LOG_LEVEL,
     volcengine: (() => {

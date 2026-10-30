@@ -28,10 +28,11 @@ describe("upstream accounts", () => {
           return Response.json({ data: { usage: {} } });
         return Response.json({
           data: {
-            total: 2,
+            total: 3,
             items: [
               { id: 39, name: "产品部-GPT", platform: "openai" },
               { id: 12, name: "其他部门-GPT", platform: "openai" },
+              { id: 99, name: "Kevin-Grok", platform: "grok" },
             ],
           },
         });
@@ -65,7 +66,7 @@ describe("upstream accounts", () => {
             password: "password-123",
             role,
             adminMenus: ["upstream", "users", "usage"],
-            upstreamAccountIds: [39],
+            upstreamAccountIds: [39, 99],
           },
         });
         expect(created.statusCode).toBe(201);

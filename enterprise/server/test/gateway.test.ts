@@ -3,7 +3,7 @@ import {
   type IncomingHttpHeaders,
   type ServerResponse,
 } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect } from "node:net";
 import {
   ClientConfigResponseSchema,
   ErrorResponseSchema,
@@ -267,6 +267,65 @@ function errorCode(res: { json(): unknown }) {
 
 // ---------------------------------------------------------------------------
 
+describe("Sub2API gateway proxy", () => {
+  it("proxies model requests at the Sub2API origin and keeps other providers direct", async () => {
+    const tunnels: string[] = [];
+    const proxy = createServer();
+    proxy.on("connect", (req, socket, head) => {
+      tunnels.push(req.url ?? "");
+      const target = new URL(upstream.baseUrl);
+      const remote = connect(Number(target.port), target.hostname, () => {
+        socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length) remote.write(head);
+        remote.pipe(socket);
+        socket.pipe(remote);
+      });
+      socket.on("error", () => remote.destroy());
+      remote.on("error", () => socket.destroy());
+      socket.on("close", () => remote.destroy());
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+    ctx.config.sub2api = {
+      url: "http://sub2api.invalid",
+      email: "test@example.com",
+      password: "test-only",
+      proxyUrl: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+    };
+    try {
+      await createProvider({ baseUrl: "http://sub2api.invalid/v1" });
+      const member = await loginAs("member");
+      const key = await issueKey(member.accessToken);
+      const proxied = await callResponses(key, {
+        model: "gpt-5",
+        stream: false,
+      });
+      expect(proxied.statusCode).toBe(200);
+      expect(tunnels.length).toBeGreaterThan(0);
+      expect(tunnels.every((host) => host === "sub2api.invalid:80")).toBe(true);
+      expect(upstream.received[0]?.url).toBe("/v1/responses");
+      expect(upstream.received[0]?.headers.authorization).toBe(
+        `Bearer ${UPSTREAM_KEY}`,
+      );
+      expect(
+        upstream.received[0]?.headers["proxy-authorization"],
+      ).toBeUndefined();
+
+      const tunnelCount = tunnels.length;
+      await patchProvider("openai-main", { baseUrl: upstream.baseUrl });
+      const direct = await callResponses(key, {
+        model: "gpt-5",
+        stream: false,
+      });
+      expect(direct.statusCode).toBe(200);
+      expect(tunnels).toHaveLength(tunnelCount);
+    } finally {
+      // Close pooled tunnels before waiting for the test proxy to stop.
+      await ctx.app.close();
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+    }
+  });
+});
+
 describe("gateway keys", () => {
   it("issues gk_ keys and replaces the session's previous key", async () => {
     await createProvider();
@@ -364,7 +423,10 @@ describe("gateway authorization", () => {
     ).toBe(404);
 
     // 1. Empty allowedUserIds and allowedGroups -> 403 (全员不可用)
-    await patchProvider("openai-main", { allowedUserIds: [], allowedGroups: [] });
+    await patchProvider("openai-main", {
+      allowedUserIds: [],
+      allowedGroups: [],
+    });
     const emptyNotAllowed = await callResponses(key, { model: "gpt-5" });
     expect(emptyNotAllowed.statusCode).toBe(403);
     expect(errorCode(emptyNotAllowed)).toBe("forbidden");

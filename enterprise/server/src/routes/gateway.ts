@@ -96,15 +96,7 @@ export async function gatewayRoutes(
         );
       }
       await enforceQuota(ctx);
-      await forwardResponses(
-        db,
-        config.secretsKey,
-        ctx,
-        model,
-        body,
-        req,
-        reply,
-      );
+      await forwardResponses(db, config, ctx, model, body, req, reply);
       return reply;
     },
   );
@@ -122,7 +114,7 @@ export async function gatewayRoutes(
       await enforceQuota(ctx);
       await forwardPassthrough(
         db,
-        config.secretsKey,
+        config,
         ctx,
         model,
         body,
