@@ -3,8 +3,8 @@ import type { UserRow } from "../src/db/schema.ts";
 import { visibleUpstreamAccounts } from "../src/routes/upstream.ts";
 import {
   accountFromSub2Api,
-  listUpstreamAccounts,
   clearSub2ApiTokenCache,
+  listUpstreamAccounts,
 } from "../src/sub2api.ts";
 
 function user(role: UserRow["role"], ids: number[]): UserRow {
@@ -131,6 +131,72 @@ describe("visibleUpstreamAccounts", () => {
 });
 
 describe("upstream account pagination", () => {
+  it.each([false, true])(
+    "excludes Grok accounts and usage across pages (all excluded: %s)",
+    async (allExcluded) => {
+      clearSub2ApiTokenCache();
+      const pages: string[] = [];
+      const usageIds: number[][] = [];
+      const excluded = [
+        { platform: " GrOk " },
+        { platform: "XAI" },
+        { platform: "x.ai" },
+        { name: "Kevin-Grok", platform: "openai" },
+        { groups: [{ name: "grok-default" }] },
+        { account_groups: ["GROK-default"] },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/auth/login"))
+            return Response.json({
+              data: { access_token: "test-token", expires_in: 3600 },
+            });
+          if (url.pathname.endsWith("/usage/batch")) {
+            usageIds.push(JSON.parse(String(init?.body)).account_ids);
+            return Response.json({ data: { usage: {} } });
+          }
+          const page = url.searchParams.get("page") ?? "";
+          pages.push(page);
+          return Response.json({
+            data: {
+              total: 101,
+              items:
+                page === "1"
+                  ? Array.from({ length: 100 }, (_, index) => ({
+                      id: index + 1,
+                      ...excluded[index % excluded.length],
+                    }))
+                  : [
+                      {
+                        id: 101,
+                        name: allExcluded ? "Yida-Grok" : "Fubin-GPT",
+                        platform: "openai",
+                      },
+                    ],
+            },
+          });
+        }),
+      );
+      try {
+        const accounts = await listUpstreamAccounts({
+          url: "https://upstream.test",
+          email: "test@example.com",
+          password: "test-only",
+        });
+        expect(pages).toEqual(["1", "2"]);
+        expect(accounts.map((account) => account.id)).toEqual(
+          allExcluded ? [] : [101],
+        );
+        expect(usageIds).toEqual(allExcluded ? [] : [[101]]);
+      } finally {
+        vi.unstubAllGlobals();
+        clearSub2ApiTokenCache();
+      }
+    },
+  );
+
   it("includes accounts beyond the first page with their subscription tiers", async () => {
     clearSub2ApiTokenCache();
     const pages: string[] = [];

@@ -1,9 +1,11 @@
 import type { ServerResponse } from "node:http";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { AppConfig } from "../config.ts";
 import type { Db } from "../db/client.ts";
 import { usageRecords } from "../db/schema.ts";
 import { AppError } from "../errors.ts";
 import { decryptSecret } from "../secrets.ts";
+import { fetchWithSub2ApiProxy } from "../sub2api.ts";
 import type { GatewayContext } from "./auth.ts";
 import {
   ChatToResponsesTransformer,
@@ -71,7 +73,7 @@ function waitForDrain(res: ServerResponse): Promise<void> {
  */
 export async function forwardResponses(
   db: Db,
-  secretsKey: Buffer,
+  config: AppConfig,
   ctx: GatewayContext,
   model: string,
   body: unknown,
@@ -81,7 +83,7 @@ export async function forwardResponses(
   const convertChat = ctx.provider.wireApi === "chat_completions";
   await forwardRaw(
     db,
-    secretsKey,
+    config,
     ctx,
     model,
     convertChat ? convertResponsesToChatRequest(body, model) : body,
@@ -98,7 +100,7 @@ export async function forwardResponses(
  */
 export async function forwardPassthrough(
   db: Db,
-  secretsKey: Buffer,
+  config: AppConfig,
   ctx: GatewayContext,
   model: string,
   body: unknown,
@@ -108,7 +110,7 @@ export async function forwardPassthrough(
 ): Promise<void> {
   await forwardRaw(
     db,
-    secretsKey,
+    config,
     ctx,
     model,
     body,
@@ -121,7 +123,7 @@ export async function forwardPassthrough(
 
 async function forwardRaw(
   db: Db,
-  secretsKey: Buffer,
+  config: AppConfig,
   ctx: GatewayContext,
   model: string,
   upstreamBody: unknown,
@@ -159,7 +161,7 @@ async function forwardRaw(
 
   let apiKey: string;
   try {
-    apiKey = decryptSecret(secretsKey, provider.apiKeyEnc);
+    apiKey = decryptSecret(config.secretsKey, provider.apiKeyEnc);
   } catch {
     log.error("cannot decrypt provider api key");
     throw new AppError(500, "internal", "Provider is misconfigured");
@@ -190,12 +192,16 @@ async function forwardRaw(
 
   let upstream: Response;
   try {
-    upstream = await fetch(upstreamUrl(provider.baseUrl, upstreamPath), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(upstreamBody),
-      signal: controller.signal,
-    });
+    upstream = await fetchWithSub2ApiProxy(
+      config.sub2api,
+      upstreamUrl(provider.baseUrl, upstreamPath),
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(upstreamBody),
+        signal: controller.signal,
+      },
+    );
   } catch (err) {
     reply.raw.off("close", onClientClose);
     await record(clientGone ? CLIENT_CLOSED_STATUS : 502, ZERO_USAGE);

@@ -20,6 +20,7 @@ import { gatewayRoutes } from "./routes/gateway.ts";
 import { marketRoutes } from "./routes/market.ts";
 import { retentionRoutes } from "./routes/retention.ts";
 import { upstreamRoutes } from "./routes/upstream.ts";
+import { closeSub2ApiConnections } from "./sub2api.ts";
 import { registerUpdates } from "./updates.ts";
 import { createCodingPlanReader } from "./volcengine.ts";
 
@@ -65,6 +66,9 @@ export async function buildApp(
   });
 
   app.decorateRequest("auth", null);
+  app.addHook("onClose", async () => {
+    if (config.sub2api) await closeSub2ApiConnections(config.sub2api);
+  });
   registerErrorHandlers(app);
 
   app.addHook("onRequest", async (req, reply) => {

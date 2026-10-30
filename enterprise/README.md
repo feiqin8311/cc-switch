@@ -84,6 +84,17 @@ in `sessionStorage` (per tab).
 Migrations live in `server/drizzle/` and are applied on startup. After changing
 `server/src/db/schema.ts` run `pnpm --filter @ccse/server db:generate`.
 
+### Sub2API 出站代理
+
+当服务端无法直连 Sub2API 时，在 `enterprise/.env` 设置 `SUB2API_PROXY_URL`，例如
+`http://user:password@host.docker.internal:17890`，然后重新创建 Docker 服务容器：
+`docker compose up -d --build server`。本机运行后端时可使用 `127.0.0.1`。
+代理用户名和密码中的特殊字符需要 URL 编码；此处填写 HTTP(S) 代理地址，VPN 订阅链接不能直接使用。
+代理必须能从后端容器访问，并且代理规则需要把 Sub2API 域名分配给可用节点。
+此设置用于 Sub2API 的登录、账号列表和用量请求，也用于目标与 `SUB2API_URL` 同源
+（协议、域名和端口一致）的模型供应商请求，包括 Responses、Chat Completions 和图片接口。
+留空时直连，其他目标的供应商沿用原有网络出口。
+
 ### 火山方舟 Coding Plan 用量
 
 管理员「上游账号」页在现有 Sub2API 账号列表末尾展示火山方舟 Coding Plan 卡片，沿用相同的两列卡片、状态和黑色用量进度条，显示 5 小时、周、订阅月使用率及重置时间、套餐档位与到期时间。页面顶部的「刷新」同时更新两个来源，未配置 Sub2API 时也可单独显示火山方舟账号。
