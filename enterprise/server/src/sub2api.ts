@@ -1,5 +1,6 @@
 /** Talk to an unmodified Sub2API admin API. Tokens stay in this process. */
 import { ProxyAgent } from "undici";
+import { isGrokAccount } from "./upstream-account-policy.ts";
 
 export interface Sub2ApiConfig {
   url: string;
@@ -310,20 +311,6 @@ async function authed(
     throw new Error(msg);
   }
   return envelopeData(body);
-}
-
-/** Grok accounts are currently excluded from enterprise synchronization. */
-function isGrokAccount(item: Record<string, unknown>): boolean {
-  const platform = str(item.platform)?.trim().toLowerCase();
-  return (
-    platform === "xai" ||
-    platform === "x.ai" ||
-    [
-      str(item.platform),
-      str(item.name),
-      ...groupNames(item.groups ?? item.account_groups),
-    ].some((value) => value != null && /grok/i.test(value))
-  );
 }
 
 export async function listUpstreamAccounts(

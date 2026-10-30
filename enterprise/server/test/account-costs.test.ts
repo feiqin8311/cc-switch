@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { accountFromSub2Api, listUpstreamAccounts } from "../src/sub2api.ts";
 import { settings } from "../src/db/schema.ts";
+import { accountFromSub2Api, listUpstreamAccounts } from "../src/sub2api.ts";
 import {
   aggregateAccountCosts,
   currentCostMonth,
   saveCostMonth,
 } from "../src/usage/account-costs.ts";
 import {
-  recordSubscriptions,
-  ledgerMonths,
   ledgerManualAccounts,
+  ledgerMonths,
   readLedger,
+  recordSubscriptions,
   subscriptionCycle,
 } from "../src/usage/subscription-ledger.ts";
 import { ADMIN, bearer, login, setup } from "./helpers.ts";
@@ -45,6 +45,109 @@ const env = {
 };
 
 describe("subscription renewal ledger", () => {
+  it.each([false, true])(
+    "excludes legacy Grok charges and pending fees (upstream unavailable: %s)",
+    async (unavailable) => {
+      const ctx = await setup(env);
+      try {
+        const cycle = {
+          expires: null,
+          month: null,
+          name: "Other",
+          department: "技术部&独立站&TK",
+          planType: null,
+          amount: null,
+          automaticPricing: false,
+        };
+        const excluded = [
+          { accountId: 10, platform: "grok", currentName: "Pengxiang" },
+          { accountId: 11, platform: " XAI ", currentName: "Yida" },
+          { accountId: 12, platform: "x.ai", currentName: "Luwu" },
+          { accountId: 13, platform: "openai", currentName: "Yida-Grok" },
+          { accountId: 14, platform: "openai", currentName: "Renamed" },
+        ].map((account) => ({
+          ...account,
+          cycles: [
+            { ...cycle, name: "Luwu-Grok" },
+            { ...cycle, name: "Luwu-Grok", month: "2026-09", amount: 30 },
+          ],
+        }));
+        // Legacy entries were recorded before Grok synchronization was disabled.
+        await ctx.db.insert(settings).values(
+          excluded.map((account) => ({
+            key: `subscription-ledger:${JSON.stringify([account.platform, account.accountId])}`,
+            value: account,
+          })),
+        );
+        await recordSubscriptions(
+          ctx.db,
+          [fixture(1, "Fubin-GPT"), fixture(2, "Other-GPT", "plus", null)],
+          new Map(),
+        );
+        if (unavailable)
+          vi.mocked(listUpstreamAccounts).mockRejectedValue(
+            new Error("upstream unavailable"),
+          );
+        else
+          vi.mocked(listUpstreamAccounts).mockResolvedValue([
+            fixture(99, "New-Grok", "unknown", null),
+          ]);
+        const session = await login(ctx.app, ADMIN.username, ADMIN.password);
+        const headers = bearer(session.accessToken);
+        const url = "/api/v1/admin/usage/account-costs";
+        for (const period of ["month&value=2026-09", "year&value=2026"]) {
+          const response = await ctx.app.inject({
+            url: `${url}?period=${period}`,
+            headers,
+          });
+          expect(response.statusCode).toBe(200);
+          const result = response.json();
+          expect(result.pendingDateCount).toBe(1);
+          expect(
+            result.manualAccounts.map(
+              (account: { accountId: number }) => account.accountId,
+            ),
+          ).toEqual([2]);
+          expect(result.items[0]).toMatchObject({
+            monthlyUsd: 20,
+            accountCount: 1,
+            unpricedCount: 0,
+          });
+          expect(result.history).toHaveLength(1);
+          expect(result.history[0].items[0].monthlyUsd).toBe(20);
+          expect(result.availableMonths).toEqual(["2026-09"]);
+          expect(JSON.stringify(result)).not.toMatch(/grok|xai|x\.ai/i);
+        }
+        if (!unavailable) {
+          const write = await ctx.app.inject({
+            method: "PUT",
+            url: `${url}/manual`,
+            headers,
+            payload: {
+              items: [
+                {
+                  accountId: 10,
+                  platform: "grok",
+                  planType: null,
+                  monthlyUsd: 30,
+                },
+              ],
+            },
+          });
+          expect(write.statusCode).toBe(403);
+        }
+        expect(await readLedger(ctx.db)).toHaveLength(2);
+        const stored = await ctx.db.select().from(settings);
+        expect(
+          stored.filter((row) => row.key.startsWith("subscription-ledger:"))
+            .length,
+        ).toBe(7);
+      } finally {
+        await ctx.close();
+      }
+    },
+  );
+
   it("reads expiry from upstream data and parent inheritance, never quota resets or access-token expiry", () => {
     expect(fixture(1, "a").subscriptionExpiresAt).toBe("2026-10-23T08:00:00Z");
     expect(JSON.stringify(fixture(1, "a"))).not.toContain("do-not-expose");
@@ -79,6 +182,8 @@ describe("subscription renewal ledger", () => {
       fixture(3, "Libraton-Gpt2"),
       fixture(4, "Kevin-Grok", "pro"),
       fixture(5, "Other"),
+      fixture(6, "Pengxiang-Grok", "pro"),
+      { ...fixture(7, "Yida", "pro"), platform: "grok" },
     ]);
     expect(rows.map((row) => row.monthlyUsd)).toEqual([120, 20, 20]);
     expect(
@@ -171,15 +276,15 @@ describe("subscription renewal ledger", () => {
           url: "/api/v1/admin/usage/account-costs?period=month&value=2026-09",
           headers,
         });
-      const grok = (id: number, name: string) => ({
+      const anthropic = (id: number, name: string) => ({
         ...fixture(id, name, "unknown", null),
-        platform: "grok",
+        platform: "anthropic",
         planType: null,
       });
       const originalSources = [
-        grok(1, "Luwu-Grok"),
-        grok(2, "Luwu-Grok"),
-        grok(3, "Yida-Grok"),
+        anthropic(1, "Luwu-Claude"),
+        anthropic(2, "Luwu-Claude"),
+        anthropic(3, "Yida-Claude"),
         fixture(2, "Fubin-GPT", "plus", null),
         fixture(4, "EZARC-paid"),
       ];
@@ -190,9 +295,9 @@ describe("subscription renewal ledger", () => {
       const originalLedger = await readLedger(ctx.db);
 
       vi.mocked(listUpstreamAccounts).mockResolvedValue([
-        grok(1, "Luwu-Grok"),
-        grok(2, "Pengxiang-Grok"),
-        grok(3, "Yida-Grok"),
+        anthropic(1, "Luwu-Claude"),
+        anthropic(2, "Pengxiang-Claude"),
+        anthropic(3, "Yida-Claude"),
         fixture(2, "Fubin-GPT-renamed", "plus", null),
         fixture(4, "产品部-renamed"),
       ]);
@@ -204,18 +309,18 @@ describe("subscription renewal ledger", () => {
         expect.arrayContaining([
           expect.objectContaining({
             accountId: 1,
-            platform: "grok",
-            name: "Luwu-Grok",
+            platform: "anthropic",
+            name: "Luwu-Claude",
           }),
           expect.objectContaining({
             accountId: 2,
-            platform: "grok",
-            name: "Pengxiang-Grok",
+            platform: "anthropic",
+            name: "Pengxiang-Claude",
           }),
           expect.objectContaining({
             accountId: 3,
-            platform: "grok",
-            name: "Yida-Grok",
+            platform: "anthropic",
+            name: "Yida-Claude",
           }),
           expect.objectContaining({
             accountId: 2,
@@ -253,12 +358,12 @@ describe("subscription renewal ledger", () => {
     try {
       const legacy = {
         accountId: 2,
-        platform: "grok",
+        platform: "anthropic",
         cycles: [
           {
             expires: null,
             month: null,
-            name: "Luwu-Grok",
+            name: "Luwu-Claude",
             department: "技术部&独立站&TK",
             planType: null,
             amount: null,
@@ -267,33 +372,33 @@ describe("subscription renewal ledger", () => {
         ],
       };
       await ctx.db.insert(settings).values({
-        key: 'subscription-ledger:["grok",2]',
+        key: 'subscription-ledger:["anthropic",2]',
         value: legacy,
       });
       expect(ledgerManualAccounts(await readLedger(ctx.db))[0]?.name).toBe(
-        "Luwu-Grok",
+        "Luwu-Claude",
       );
       const sources = [
         {
           id: 2,
-          platform: "grok",
-          name: "Pengxiang-Grok",
+          platform: "anthropic",
+          name: "Pengxiang-Claude",
           planType: null,
           subscriptionExpiresAt: null,
         },
       ];
       let ledger = await recordSubscriptions(ctx.db, sources, new Map());
-      expect(ledgerManualAccounts(ledger)[0]?.name).toBe("Pengxiang-Grok");
+      expect(ledgerManualAccounts(ledger)[0]?.name).toBe("Pengxiang-Claude");
       expect(ledger[0]?.cycles).toEqual(legacy.cycles);
 
-      sources[0]!.name = "Kevin-Grok";
+      sources[0]!.name = "Kevin-Claude";
       ledger = await recordSubscriptions(
         ctx.db,
         [...sources, { ...sources[0]!, id: 99 }],
         new Map(),
       );
       expect(ledger).toHaveLength(1);
-      expect(ledgerManualAccounts(ledger)[0]?.name).toBe("Kevin-Grok");
+      expect(ledgerManualAccounts(ledger)[0]?.name).toBe("Kevin-Claude");
       expect(ledger[0]?.cycles).toEqual(legacy.cycles);
     } finally {
       await ctx.close();

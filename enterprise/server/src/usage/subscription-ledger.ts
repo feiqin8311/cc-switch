@@ -1,15 +1,16 @@
-import { z } from "zod";
-import { eq, like } from "drizzle-orm";
 import type {
   ManualAccountCost,
   UsageAccountCostsResponse,
 } from "@ccse/contracts";
+import { eq, like } from "drizzle-orm";
+import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { settings } from "../db/schema.ts";
+import { isGrokAccount } from "../upstream-account-policy.ts";
 import {
   accountDepartment,
-  monthlySubscriptionUsd,
   manualCostKey,
+  monthlySubscriptionUsd,
 } from "./account-costs.ts";
 
 const CycleSchema = z.object({
@@ -61,7 +62,17 @@ export async function readLedger(
     .select({ value: settings.value })
     .from(settings)
     .where(like(settings.key, `${prefix(demo)}%`));
-  return rows.map((row) => AccountSchema.parse(row.value));
+  // Old Grok entries remain stored but are excluded even when upstream is unavailable.
+  return rows
+    .map((row) => AccountSchema.parse(row.value))
+    .filter(
+      (account) =>
+        !isGrokAccount({
+          platform: account.platform,
+          name: account.currentName,
+        }) &&
+        !account.cycles.some((cycle) => isGrokAccount({ name: cycle.name })),
+    );
 }
 
 /** Refresh account names while retaining recorded cycles and charge assignments. */
@@ -73,10 +84,9 @@ export async function recordSubscriptions(
 ) {
   const existing = await readLedger(db, demo);
   const sourceMap = new Map(
-    sources.map((source) => [
-      JSON.stringify([source.platform, source.id]),
-      source,
-    ]),
+    sources
+      .filter((source) => !isGrokAccount(source))
+      .map((source) => [JSON.stringify([source.platform, source.id]), source]),
   );
   const identities = new Map(
     existing.map((account) => [

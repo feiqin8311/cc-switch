@@ -7,6 +7,7 @@ import { ManualAccountCostSchema } from "@ccse/contracts";
 import { like } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { settings } from "../db/schema.ts";
+import { isGrokAccount } from "../upstream-account-policy.ts";
 
 const MANUAL_PREFIX = "usage-account-cost:";
 const SNAPSHOT_PREFIX = "usage-account-month:";
@@ -128,6 +129,7 @@ export function aggregateAccountCosts(
 ): UsageAccountCostsResponse["items"] {
   const groups = new Map<string, UsageAccountCostsResponse["items"][number]>();
   for (const account of accounts) {
+    if (isGrokAccount(account)) continue;
     const department = accountDepartment(account.name);
     if (!department) continue;
     const group = groups.get(department) ?? {
