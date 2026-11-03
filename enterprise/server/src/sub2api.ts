@@ -1,6 +1,5 @@
 /** Talk to an unmodified Sub2API admin API. Tokens stay in this process. */
 import { ProxyAgent } from "undici";
-import { isGrokAccount } from "./upstream-account-policy.ts";
 
 export interface Sub2ApiConfig {
   url: string;
@@ -330,13 +329,8 @@ export async function listUpstreamAccounts(
     )
       break;
   }
-  // Filter after pagination so excluded accounts still count toward upstream totals.
-  // Use the same list for usage requests and responses to avoid syncing Grok usage.
   const syncedItems = items.filter(
-    (it): it is Record<string, unknown> =>
-      !!it &&
-      typeof it === "object" &&
-      !isGrokAccount(it as Record<string, unknown>),
+    (it): it is Record<string, unknown> => !!it && typeof it === "object",
   );
   const ids = syncedItems
     .map((it) => Math.floor(num(it.id)))

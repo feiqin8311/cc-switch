@@ -131,94 +131,33 @@ describe("visibleUpstreamAccounts", () => {
 });
 
 describe("upstream account pagination", () => {
-  it.each([false, true])(
-    "excludes Grok accounts and usage across pages (all excluded: %s)",
-    async (allExcluded) => {
-      clearSub2ApiTokenCache();
-      const pages: string[] = [];
-      const usageIds: number[][] = [];
-      const excluded = [
-        { platform: " GrOk " },
-        { platform: "XAI" },
-        { platform: "x.ai" },
-        { name: "Kevin-Grok", platform: "openai" },
-        { groups: [{ name: "grok-default" }] },
-        { account_groups: ["GROK-default"] },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
-          const url = new URL(String(input));
-          if (url.pathname.endsWith("/auth/login"))
-            return Response.json({
-              data: { access_token: "test-token", expires_in: 3600 },
-            });
-          if (url.pathname.endsWith("/usage/batch")) {
-            usageIds.push(JSON.parse(String(init?.body)).account_ids);
-            return Response.json({ data: { usage: {} } });
-          }
-          const page = url.searchParams.get("page") ?? "";
-          pages.push(page);
-          return Response.json({
-            data: {
-              total: 101,
-              items:
-                page === "1"
-                  ? Array.from({ length: 100 }, (_, index) => ({
-                      id: index + 1,
-                      ...excluded[index % excluded.length],
-                    }))
-                  : [
-                      {
-                        id: 101,
-                        name: allExcluded ? "Yida-Grok" : "Fubin-GPT",
-                        platform: "openai",
-                      },
-                    ],
-            },
-          });
-        }),
-      );
-      try {
-        const accounts = await listUpstreamAccounts({
-          url: "https://upstream.test",
-          email: "test@example.com",
-          password: "test-only",
-        });
-        expect(pages).toEqual(["1", "2"]);
-        expect(accounts.map((account) => account.id)).toEqual(
-          allExcluded ? [] : [101],
-        );
-        expect(usageIds).toEqual(allExcluded ? [] : [[101]]);
-      } finally {
-        vi.unstubAllGlobals();
-        clearSub2ApiTokenCache();
-      }
-    },
-  );
-
-  it("includes accounts beyond the first page with their subscription tiers", async () => {
+  it("syncs Grok accounts and their usage beyond the first page", async () => {
     clearSub2ApiTokenCache();
-    const pages: string[] = [];
+    const pages: Array<string | null> = [];
+    const usageRequests: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
         const url = new URL(String(input));
         if (url.pathname.endsWith("/auth/login"))
           return Response.json({
             data: { access_token: "test-token", expires_in: 3600 },
           });
-        if (url.pathname.endsWith("/usage/batch"))
-          return Response.json({ data: { usage: {} } });
-        pages.push(url.searchParams.get("page")!);
+        if (url.pathname.endsWith("/usage/batch")) {
+          usageRequests.push(JSON.parse(String(init?.body)));
+          return Response.json({
+            data: { usage: { "101": { five_hour: { utilization: 27 } } } },
+          });
+        }
+        pages.push(url.searchParams.get("page"));
         const first = url.searchParams.get("page") === "1";
         return Response.json({
           data: {
             total: 101,
             items: Array.from({ length: first ? 100 : 1 }, (_, index) => ({
               id: first ? index + 1 : 101,
-              name: first ? `Account-${index}` : "EZARC-added",
-              platform: "openai",
+              name: first ? `Account-${index}` : "Yida-Grok",
+              platform: first ? "openai" : "grok",
               credentials: { plan_type: "plus" },
             })),
           },
@@ -233,10 +172,19 @@ describe("upstream account pagination", () => {
       });
       expect(accounts).toHaveLength(101);
       expect(pages).toEqual(["1", "2"]);
+      expect(usageRequests).toEqual([
+        {
+          account_ids: Array.from({ length: 101 }, (_, index) => index + 1),
+          force: false,
+        },
+      ]);
       expect(accounts[100]).toMatchObject({
-        name: "EZARC-added",
+        id: 101,
+        name: "Yida-Grok",
+        platform: "grok",
         planType: "plus",
       });
+      expect(accounts[100]?.windows[0]?.usedPercent).toBe(27);
     } finally {
       vi.unstubAllGlobals();
       clearSub2ApiTokenCache();

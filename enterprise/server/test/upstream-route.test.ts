@@ -85,7 +85,7 @@ describe("upstream accounts", () => {
         expect(first.statusCode).toBe(200);
         expect(first.headers["cache-control"]).toBe("no-store");
         expect(first.json().items.map((a: { id: number }) => a.id)).toEqual([
-          39,
+          39, 99,
         ]);
         expect(first.json().codingPlanAvailable).toBe(false);
         expect((await get(planUrl)).statusCode).toBe(403);
@@ -93,7 +93,7 @@ describe("upstream accounts", () => {
           (await get("/api/v1/client/upstream/accounts"))
             .json()
             .items.map((a: { id: number }) => a.id),
-        ).toEqual([39]);
+        ).toEqual([39, 99]);
 
         expect((await update([12, CODING_PLAN_ACCOUNT_ID])).statusCode).toBe(
           200,
@@ -120,7 +120,7 @@ describe("upstream accounts", () => {
         headers: adminHeaders,
       });
       expect(all.json().items.map((a: { id: number }) => a.id)).toEqual([
-        39, 12,
+        39, 12, 99,
       ]);
       expect(all.json().codingPlanAvailable).toBe(true);
       expect(

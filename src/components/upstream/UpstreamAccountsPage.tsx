@@ -2,9 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Gauge, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type {
-  CodingPlanUsageResponse,
-  UpstreamAccount,
+import {
+  CODING_PLAN_ACCOUNT_NAME,
+  type CodingPlanUsageResponse,
+  type UpstreamAccount,
 } from "../../../enterprise/contracts/src/index.ts";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
@@ -165,7 +166,7 @@ function CodingPlanCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-body font-medium text-fg-1">
-            Libraton-火山方舟Codin Plan
+            {CODING_PLAN_ACCOUNT_NAME}
           </div>
           <div className="truncate text-caption text-fg-3">
             {data.providerId}

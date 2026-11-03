@@ -1,4 +1,4 @@
-/** Shared exclusion for live synchronization and previously recorded subscriptions. */
+/** Identifies Grok accounts for subscription cost exclusions. */
 export function isGrokAccount(account: {
   platform?: unknown;
   name?: unknown;
