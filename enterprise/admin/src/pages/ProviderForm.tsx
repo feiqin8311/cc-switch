@@ -121,6 +121,7 @@ export function toPayload(
 
 function initialValues(
   provider: AdminProvider | undefined,
+  mode: ProviderFormMode,
   nextKey: () => number,
 ): ProviderFormValues {
   if (!provider) {
@@ -138,7 +139,7 @@ function initialValues(
     };
   }
   return {
-    id: provider.id,
+    id: mode === "edit" ? provider.id : "",
     name: provider.name,
     baseUrl: provider.baseUrl,
     wireApi: provider.wireApi ?? "responses",
@@ -160,7 +161,7 @@ export function ProviderForm({
 }: {
   formId: string;
   mode: ProviderFormMode;
-  /** Required for `edit`. */
+  /** Existing service to edit, or template values for creation. */
   provider?: AdminProvider;
   /** Field errors from a 400 response, keyed by dotted path. */
   serverErrors?: Record<string, string>;
@@ -172,7 +173,7 @@ export function ProviderForm({
     return keyRef.current;
   };
   const [values, setValues] = useState<ProviderFormValues>(() =>
-    initialValues(provider, nextKey),
+    initialValues(provider, mode, nextKey),
   );
   const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
   const errors = { ...serverErrors, ...localErrors };

@@ -18,8 +18,10 @@ import {
   EmptyState,
   ErrorState,
   InlineError,
+  inputClass,
   LoadingState,
   PageHeader,
+  selectClass,
   Spinner,
   tableClass,
   tdClass,
@@ -46,7 +48,12 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
     }
     return map;
   }, [users.data]);
-  const [editing, setEditing] = useState<AdminProvider | "new" | null>(null);
+  const [editing, setEditing] = useState<{
+    mode: "edit" | "create";
+    provider?: AdminProvider;
+  } | null>(null);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
   const [deleting, setDeleting] = useState<AdminProvider | null>(null);
 
   const providers = useQuery({
@@ -54,6 +61,22 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
     queryFn: ({ signal }) =>
       client.get("/admin/providers", ListProvidersResponseSchema, signal),
   });
+  const keyword = search.trim().toLowerCase();
+  const filtered = (providers.data?.items ?? []).filter((p) => {
+    if (status !== "all" && p.enabled !== (status === "enabled")) return false;
+    return !keyword || [
+      p.name,
+      p.id,
+      p.baseUrl,
+      ...p.models.flatMap((m) => [m.id, m.displayName]),
+      ...p.allowedGroups,
+      ...p.allowedUserIds.map((id) => userMap.get(id) ?? id.slice(0, 8)),
+    ].some((value) => value.toLowerCase().includes(keyword));
+  });
+  const clearFilters = () => {
+    setSearch("");
+    setStatus("all");
+  };
 
   const remove = useMutation({
     mutationFn: (id: string) =>
@@ -75,13 +98,40 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
         title="模型与网关"
         description="配置上游模型服务。员工客户端通过企业网关访问，上游 API Key 不会离开服务器。"
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
+          <Button variant="primary" onClick={() => setEditing({ mode: "create" })}>
             <Plus className="size-4" />
             新建模型服务
           </Button>
         }
       />
       <Card className="overflow-x-auto">
+        {!!providers.data?.items.length && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              className={`${inputClass} max-w-sm`}
+              aria-label="搜索模型服务"
+              placeholder="搜索名称、ID、上游地址、模型或访问对象"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select
+              className={`${selectClass} max-w-32`}
+              aria-label="按状态筛选"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="all">全部状态</option>
+              <option value="enabled">启用</option>
+              <option value="disabled">停用</option>
+            </select>
+            {(search || status !== "all") && (
+              <Button size="sm" variant="ghost" onClick={clearFilters}>
+                清除筛选
+              </Button>
+            )}
+          </div>
+        )}
         {providers.isPending ? (
           <LoadingState />
         ) : providers.isError ? (
@@ -96,23 +146,38 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
           >
             还没有模型服务，点击右上角「新建模型服务」添加。
           </EmptyState>
+        ) : filtered.length === 0 ? (
+          <EmptyState title="没有匹配的模型服务">
+            请调整搜索词或清除筛选。
+          </EmptyState>
         ) : (
           <table className={tableClass}>
             <thead>
               <tr>
                 <th className={thClass}>名称</th>
+                <th className={thClass}>状态</th>
                 <th className={thClass}>ID</th>
                 <th className={thClass}>上游地址</th>
                 <th className={thClass}>模型数</th>
-                <th className={thClass}>允许访问</th>
-                <th className={thClass}>状态</th>
-                <th className={`${thClass} text-right`}>操作</th>
+                <th className={`${thClass} text-left`}>
+                  <span className="pl-1.5">允许访问</span>
+                </th>
+                <th className={`${thClass} text-left`}>
+                  <span className="pl-[calc(var(--spacing)*2.5+1px)]">操作</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {providers.data.items.map((p) => (
+              {filtered.map((p) => (
                 <tr key={p.id} className={trClass}>
                   <td className={tdClass}>{p.name}</td>
+                  <td className={`${tdClass} whitespace-nowrap`}>
+                    {p.enabled ? (
+                      <Badge tone="green">启用</Badge>
+                    ) : (
+                      <Badge tone="gray">停用</Badge>
+                    )}
+                  </td>
                   <td className={`${tdClass} font-mono text-xs`}>
                     <div>{p.id}</div>
                     <div
@@ -134,7 +199,7 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
                   >
                     {p.models.length}
                   </td>
-                  <td className={tdClass}>
+                  <td className={`${tdClass} text-left`}>
                     {p.allowedGroups.length === 0 &&
                     p.allowedUserIds.length === 0 ? (
                       <Badge tone="gray">全员不可用</Badge>
@@ -153,17 +218,13 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
                       </div>
                     )}
                   </td>
-                  <td className={tdClass}>
-                    {p.enabled ? (
-                      <Badge tone="green">启用</Badge>
-                    ) : (
-                      <Badge tone="gray">停用</Badge>
-                    )}
-                  </td>
-                  <td className={`${tdClass} text-right whitespace-nowrap`}>
+                  <td className={`${tdClass} text-left whitespace-nowrap`}>
                     <div className="inline-flex gap-1">
-                      <Button size="sm" onClick={() => setEditing(p)}>
+                      <Button size="sm" onClick={() => setEditing({ mode: "edit", provider: p })}>
                         编辑
+                      </Button>
+                      <Button size="sm" onClick={() => setEditing({ mode: "create", provider: p })}>
+                        复制创建
                       </Button>
                       <Button
                         size="sm"
@@ -184,8 +245,8 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
 
       {editing && (
         <ProviderDialog
-          key={editing === "new" ? "new" : editing.id}
-          provider={editing === "new" ? undefined : editing}
+          key={`${editing.mode}:${editing.provider?.id ?? ""}`}
+          {...editing}
           onClose={() => setEditing(null)}
         />
       )}
@@ -209,22 +270,24 @@ export function ProvidersPage({ embedded }: { embedded?: boolean } = {}) {
 }
 
 function ProviderDialog({
+  mode,
   provider,
   onClose,
 }: {
+  mode: "edit" | "create";
   provider?: AdminProvider;
   onClose(): void;
 }) {
   const client = useApi();
   const qc = useQueryClient();
   const toast = useToast();
-  const mode = provider ? "edit" : "create";
+  const existing = mode === "edit" ? provider : undefined;
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
   const save = useMutation({
     mutationFn: (payload: ProviderPayload) => {
-      if (!provider) {
+      if (!existing) {
         const body: CreateProviderRequest = {
           ...payload,
           apiKey: payload.apiKey ?? "",
@@ -239,13 +302,13 @@ function ProviderDialog({
       const { id: _id, ...rest } = payload;
       const body: UpdateProviderRequest = rest;
       return client.request(
-        `/admin/providers/${encodeURIComponent(provider.id)}`,
+        `/admin/providers/${encodeURIComponent(existing.id)}`,
         { method: "PATCH", body, schema: AdminProviderSchema },
       );
     },
     onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: PROVIDERS_KEY });
-      toast.success(provider ? `已保存 ${saved.name}` : `已创建 ${saved.name}`);
+      toast.success(existing ? `已保存 ${saved.name}` : `已创建 ${saved.name}`);
       onClose();
     },
     onError: (err) => {
@@ -267,7 +330,7 @@ function ProviderDialog({
     <Dialog
       open
       width="max-w-2xl"
-      title={provider ? `编辑模型服务 ${provider.id}` : "新建模型服务"}
+      title={existing ? `编辑模型服务 ${existing.id}` : provider ? "复制创建模型服务" : "新建模型服务"}
       onClose={onClose}
       footer={
         <>
@@ -279,11 +342,16 @@ function ProviderDialog({
             disabled={save.isPending}
           >
             {save.isPending && <Spinner className="size-3" />}
-            {provider ? "保存" : "创建"}
+            {existing ? "保存" : "创建"}
           </Button>
         </>
       }
     >
+      {provider && !existing && (
+        <p className="mb-4 text-sm text-muted-foreground">
+          已预填「{provider.name}」的配置。请填写新 ID 和 API Key，并确认访问范围后创建。
+        </p>
+      )}
       <ProviderForm
         formId="provider-form"
         mode={mode}
