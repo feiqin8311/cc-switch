@@ -19,6 +19,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Users as UsersIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { z } from "zod";
 import { useToast } from "../components/Toast";
 import {
   Button,
@@ -60,6 +61,7 @@ export function useUsers(enabled = true) {
     queryKey: USERS_KEY,
     queryFn: ({ signal }) =>
       client.get("/admin/users", ListUsersResponseSchema, signal),
+    refetchInterval: 30_000,
     enabled,
   });
 }
@@ -106,6 +108,26 @@ export function UsersPage() {
   const deleteTargets = (deletingUsers ?? []).filter(
     (u) => u.id !== session.user.id,
   );
+
+  const syncUpstream = useMutation({
+    mutationFn: () =>
+      client.request("/admin/users/sync-upstream", {
+        method: "POST",
+        schema: z.object({
+          created: z.number(),
+          updated: z.number(),
+          skipped: z.number(),
+        }),
+      }),
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: USERS_KEY });
+      void qc.invalidateQueries({ queryKey: ["admin", "user-options"] });
+      toast.success(
+        `上游同步完成：新增 ${result.created}，更新 ${result.updated}，跳过 ${result.skipped}`,
+      );
+    },
+    onError: (err) => toast.error(`上游同步失败：${describeError(err)}`),
+  });
 
   const remove = useMutation({
     mutationFn: async (targets: User[]) => {
@@ -177,6 +199,12 @@ export function UsersPage() {
           </p>
           {isAdmin && (
             <div className="flex shrink-0 items-center gap-2">
+              <Button
+                disabled={syncUpstream.isPending}
+                onClick={() => syncUpstream.mutate()}
+              >
+                {syncUpstream.isPending ? "同步中…" : "同步上游用户"}
+              </Button>
               <Button
                 className="font-normal shadow-none"
                 disabled={selectedUsers.length === 0}
@@ -759,14 +787,16 @@ function EditUserDialog({
       next.username = "2-32 位，中文或字母数字，可含 '.'、'_'、'-'";
     if (password && (password.length < 6 || password.length > 128))
       next.password = "密码长度需为 6-128 位";
-    if (groupName.trim().length > 64) next.groupName = "组名最多 64 个字符";
+    if (!user.upstreamSynced && groupName.trim().length > 64)
+      next.groupName = "组名最多 64 个字符";
     setErrors(next);
     setFormError(null);
     if (Object.keys(next).length > 0) return;
 
     const body: UpdateUserRequest = {};
     if (username.trim() !== user.username) body.username = username.trim();
-    if (groupName.trim() !== user.groupName) body.groupName = groupName.trim();
+    if (!user.upstreamSynced && groupName.trim() !== user.groupName)
+      body.groupName = groupName.trim();
     if (!isSelf && role !== user.role) body.role = role;
     if (!isSelf && disabled !== user.disabled) body.disabled = disabled;
     if (password) body.password = password;
@@ -840,14 +870,20 @@ function EditUserDialog({
           label="组"
           htmlFor="eu-group"
           error={errors.groupName}
-          hint={roleOnly ? undefined : "留空表示不分组"}
+          hint={
+            user.upstreamSynced
+              ? "分组来自上游，请在上游修改"
+              : roleOnly
+                ? undefined
+                : "留空表示不分组"
+          }
         >
           <input
             id="eu-group"
             className={inputClass}
             aria-invalid={!!errors.groupName}
             value={groupName}
-            readOnly={roleOnly}
+            readOnly={roleOnly || user.upstreamSynced}
             onChange={(e) => setGroupName(e.target.value)}
           />
         </Field>

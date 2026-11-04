@@ -22,34 +22,46 @@ const bytea = customType<{ data: Buffer; driverData: Buffer | Uint8Array }>({
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  username: text("username").notNull().unique(),
-  displayName: text("display_name").notNull(),
-  passwordHash: text("password_hash").notNull(),
-  role: text("role", {
-    enum: ["admin", "group_leader", "leader", "member", "viewer"],
-  }).notNull(),
-  disabled: boolean("disabled").notNull().default(false),
-  createdAt: createdAt(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
-  /** Sub2API ids and reserved CODING_PLAN_ACCOUNT_ID. Empty = none; admins see all. */
-  upstreamAccountIds: integer("upstream_account_ids")
-    .array()
-    .notNull()
-    .default(sql`'{}'::integer[]`),
-  /** Org group label. Empty means ungrouped. */
-  groupName: text("group_name").notNull().default(""),
-  /** null inherits role defaults; an empty array denies all admin menus. */
-  adminMenus: jsonb("admin_menus").$type<AdminMenu[] | null>(),
-  /** Set by the offboard action; cleared when the user is re-enabled. */
-  offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
-  /** Username of the admin who offboarded the user. */
-  offboardedBy: text("offboarded_by"),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    username: text("username").notNull().unique(),
+    displayName: text("display_name").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    role: text("role", {
+      enum: ["admin", "group_leader", "leader", "member", "viewer"],
+    }).notNull(),
+    disabled: boolean("disabled").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** Sub2API ids and reserved CODING_PLAN_ACCOUNT_ID. Empty = none; admins see all. */
+    upstreamAccountIds: integer("upstream_account_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::integer[]`),
+    /** Org group label. Empty means ungrouped. */
+    groupName: text("group_name").notNull().default(""),
+    /** Identity of a key-list entry imported from the configured upstream. */
+    upstreamKeyId: integer("upstream_key_id"),
+    upstreamKeyOrigin: text("upstream_key_origin"),
+    /** null inherits role defaults; an empty array denies all admin menus. */
+    adminMenus: jsonb("admin_menus").$type<AdminMenu[] | null>(),
+    /** Set by the offboard action; cleared when the user is re-enabled. */
+    offboardedAt: timestamp("offboarded_at", { withTimezone: true }),
+    /** Username of the admin who offboarded the user. */
+    offboardedBy: text("offboarded_by"),
+  },
+  (t) => [
+    uniqueIndex("users_upstream_key_identity_idx").on(
+      t.upstreamKeyOrigin,
+      t.upstreamKeyId,
+    ),
+  ],
+);
 
 /** One row per login (device). Revoking it invalidates its access and refresh tokens. */
 export const sessions = pgTable(

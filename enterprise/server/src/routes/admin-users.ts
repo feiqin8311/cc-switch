@@ -161,6 +161,13 @@ export async function adminUserRoutes(
       .limit(1);
     if (!existing) throw notFound("User not found");
     if (
+      existing.upstreamKeyId !== null &&
+      body.groupName !== undefined &&
+      body.groupName !== existing.groupName
+    ) {
+      throw forbidden("上游同步用户的分组请在上游修改");
+    }
+    if (
       isGroupLeader &&
       (!actor.groupName.trim() ||
         existing.groupName !== actor.groupName ||

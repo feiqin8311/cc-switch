@@ -74,7 +74,7 @@ function WindowRow({
         }
       >
         <div
-          className="h-full rounded-full bg-accent"
+          className="h-full rounded-full bg-primary"
           style={{ width: `${pct}%` }}
         />
       </div>

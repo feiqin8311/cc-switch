@@ -225,6 +225,7 @@ export const UserSchema = z.object({
   upstreamAccountIds: z.array(z.number().int()).default([]),
   /** Empty when the user is not in a group. */
   groupName: GroupNameSchema.default(""),
+  upstreamSynced: z.boolean().optional(),
   /** Set when an admin offboarded the user; cleared again if they are re-enabled. */
   offboardedAt: z.string().nullable().default(null),
   /** Username of the admin who offboarded the user. */

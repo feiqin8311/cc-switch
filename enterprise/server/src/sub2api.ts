@@ -312,6 +312,47 @@ async function authed(
   return envelopeData(body);
 }
 
+/** Read only the current upstream login's key list; never return key material. */
+export async function listUpstreamUserEntries(
+  cfg: Sub2ApiConfig,
+): Promise<Array<{ id: number; name: string; groupName: string }>> {
+  const result: Array<{ id: number; name: string; groupName: string }> = [];
+  for (let page = 1; page <= 10000; page++) {
+    const raw = await authed(cfg, `/api/v1/keys?page=${page}&page_size=100`);
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      !Array.isArray((raw as Record<string, unknown>).items)
+    ) {
+      throw new Error("上游密钥列表格式不正确");
+    }
+    const list = raw as { items: unknown[]; total?: number };
+    for (const value of list.items) {
+      if (!value || typeof value !== "object")
+        throw new Error("上游密钥记录格式不正确");
+      const entry = value as Record<string, unknown>;
+      const id = Number(entry.id);
+      const name = str(entry.name)?.trim();
+      if (!Number.isSafeInteger(id) || id <= 0 || !name)
+        throw new Error("上游密钥记录缺少名称或 ID");
+      const group = entry.group;
+      const groupName =
+        group && typeof group === "object"
+          ? str((group as Record<string, unknown>).name)?.trim()
+          : null;
+      if (entry.group_id != null && !groupName)
+        throw new Error("上游密钥分组信息不完整");
+      result.push({ id, name, groupName: groupName ?? "" });
+    }
+    const total = Number(list.total);
+    if (Number.isFinite(total) && total >= 0 && list.total != null) {
+      if (result.length >= total) return result;
+      if (list.items.length === 0) throw new Error("上游密钥列表分页不完整");
+    } else if (list.items.length < 100) return result;
+  }
+  throw new Error("上游密钥列表页数超过限制");
+}
+
 export async function listUpstreamAccounts(
   cfg: Sub2ApiConfig,
 ): Promise<UpstreamAccount[]> {

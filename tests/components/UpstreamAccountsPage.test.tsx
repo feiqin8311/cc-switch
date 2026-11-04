@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { CODING_PLAN_ACCOUNT_NAME } from "../../enterprise/contracts/src/index";
 import { UpstreamAccountsPage } from "@/components/upstream/UpstreamAccountsPage";
 import { renderWithQueryClient } from "../utils/testQueryClient";
 
@@ -41,7 +42,7 @@ describe("UpstreamAccountsPage", () => {
       },
     });
     renderWithQueryClient(<UpstreamAccountsPage />);
-    expect(await screen.findByText("火山方舟 Coding Plan")).toBeInTheDocument();
+    expect(await screen.findByText(CODING_PLAN_ACCOUNT_NAME)).toBeInTheDocument();
     expect(screen.getByText("2.05%")).toBeInTheDocument();
     expect(screen.getByText("6.39%")).toBeInTheDocument();
     expect(screen.getByText("33.97%")).toBeInTheDocument();
@@ -71,7 +72,7 @@ describe("UpstreamAccountsPage", () => {
       },
     });
     renderWithQueryClient(<UpstreamAccountsPage />);
-    expect(await screen.findByText("火山方舟 Coding Plan")).toBeInTheDocument();
+    expect(await screen.findByText(CODING_PLAN_ACCOUNT_NAME)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("火山方舟查询失败");
     for (const bar of screen.getAllByRole("progressbar")) {
       expect(bar).not.toHaveAttribute("aria-valuenow");

@@ -84,6 +84,10 @@ in `sessionStorage` (per tab).
 Migrations live in `server/drizzle/` and are applied on startup. After changing
 `server/src/db/schema.ts` run `pnpm --filter @ccse/server db:generate`.
 
+### 上游用户单向同步
+
+配置 `SUB2API_URL`（站点根地址）、`SUB2API_EMAIL` 和 `SUB2API_PASSWORD` 后，企业服务启动时和此后每 5 分钟读取该登录账号的 API 密钥列表，仅同步每条记录的名称和分组；也可在用户管理点击「同步上游用户」。不会保存或向上游写入密钥。匹配已有同名非管理员用户时保留其密码、角色和权限；新用户初始密码为 `123456`，请及时修改。上游关联用户的分组只能在上游修改，本地用户仍可在 CC 修改分组。上游删除记录不会自动删除或禁用 CC 用户。重复名称、无效用户名和已有身份冲突的记录会跳过；同步结果会显示跳过数量。启用需要更新企业服务端和管理后台并重启，数据库迁移在启动时自动执行。
+
 ### Sub2API 出站代理
 
 当服务端无法直连 Sub2API 时，在 `enterprise/.env` 设置 `SUB2API_PROXY_URL`，例如

@@ -93,6 +93,44 @@ function filterBy(label: string) {
 }
 
 describe("user group filtering", () => {
+  it("makes upstream groups read-only while local groups remain editable", async () => {
+    const syncedMember = members[0];
+    if (!syncedMember) throw new Error("Missing test user");
+    syncedMember.upstreamSynced = true;
+    try {
+      await show();
+      const edit = (name: string) => {
+        const row = screen
+          .getByRole("checkbox", { name: `选择 ${name}` })
+          .closest("tr");
+        if (!row) throw new Error("Missing user row");
+        fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
+      };
+      edit("alice");
+      expect(
+        (
+          within(screen.getByRole("dialog")).getByLabelText(
+            "组",
+          ) as HTMLInputElement
+        ).readOnly,
+      ).toBe(true);
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "取消",
+        }),
+      );
+      edit("bob");
+      expect(
+        (
+          within(screen.getByRole("dialog")).getByLabelText(
+            "组",
+          ) as HTMLInputElement
+        ).readOnly,
+      ).toBe(false);
+    } finally {
+      delete syncedMember.upstreamSynced;
+    }
+  });
   it("searches usernames within the selected group and clears selections", async () => {
     await show();
     fireEvent.click(screen.getByRole("checkbox", { name: "全选" }));
@@ -101,7 +139,10 @@ describe("user group filtering", () => {
     expect(screen.getAllByRole("row")).toHaveLength(2);
     expect(screen.getByRole("checkbox", { name: "选择 alice" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toBe("显示 1 / 5 位用户");
-    expect((screen.getByRole("checkbox", { name: "全选" }) as HTMLInputElement).checked).toBe(false);
+    expect(
+      (screen.getByRole("checkbox", { name: "全选" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
 
     filterBy("设计");
     expect(screen.getByText("没有符合筛选条件的用户")).toBeTruthy();
