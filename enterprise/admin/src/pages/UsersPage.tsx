@@ -87,6 +87,7 @@ export function UsersPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deletingUsers, setDeletingUsers] = useState<User[] | null>(null);
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const allUsers = users.data?.items ?? [];
   const groupNames = [
     ...new Set([
@@ -94,8 +95,11 @@ export function UsersPage() {
       ...(groupFilter ? [groupFilter] : []),
     ]),
   ].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const searchTerm = search.trim().toLocaleLowerCase();
   const filteredUsers = allUsers.filter(
-    (u) => groupFilter === null || u.groupName === groupFilter,
+    (u) =>
+      (groupFilter === null || u.groupName === groupFilter) &&
+      u.username.toLocaleLowerCase().includes(searchTerm),
   );
   const selectedUsers = filteredUsers.filter((u) => selected.includes(u.id));
   const deletableUsers = selectedUsers.filter((u) => u.id !== session.user.id);
@@ -237,6 +241,20 @@ export function UsersPage() {
             disabled={users.isPending || users.isError}
           />
         </div>
+        <div className="w-48">
+          <input
+            type="search"
+            className={inputClass}
+            aria-label="搜索用户名"
+            placeholder="搜索用户名"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setSelected([]);
+            }}
+            disabled={users.isPending || users.isError}
+          />
+        </div>
         {users.isSuccess && (
           <span className="text-xs text-muted-foreground" role="status">
             显示 {filteredUsers.length} / {allUsers.length} 位用户
@@ -260,7 +278,7 @@ export function UsersPage() {
             icon={<UsersIcon className="size-5 stroke-[1.5]" />}
             title="没有符合筛选条件的用户"
           >
-            请切换其他组或选择全部组。
+            请调整搜索词或切换分组。
           </EmptyState>
         ) : (
           <table className="w-full border-collapse text-left">

@@ -93,6 +93,23 @@ function filterBy(label: string) {
 }
 
 describe("user group filtering", () => {
+  it("searches usernames within the selected group and clears selections", async () => {
+    await show();
+    fireEvent.click(screen.getByRole("checkbox", { name: "全选" }));
+    const search = screen.getByRole("searchbox", { name: "搜索用户名" });
+    fireEvent.change(search, { target: { value: " ALI " } });
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByRole("checkbox", { name: "选择 alice" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("显示 1 / 5 位用户");
+    expect((screen.getByRole("checkbox", { name: "全选" }) as HTMLInputElement).checked).toBe(false);
+
+    filterBy("设计");
+    expect(screen.getByText("没有符合筛选条件的用户")).toBeTruthy();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByRole("checkbox", { name: "选择 carol" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("显示 1 / 5 位用户");
+  });
+
   it("saves independent menu grants below the account checklist", async () => {
     await show();
     const row = screen
