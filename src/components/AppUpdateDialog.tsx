@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { settingsApi } from "@/lib/api";
+import { useSettingsQuery } from "@/lib/query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { isMac } from "@/lib/platform";
@@ -25,6 +26,7 @@ import {
 export function AppUpdateDialog() {
   const { t } = useTranslation();
   const { state } = useAuth();
+  const { data: settings } = useSettingsQuery();
   const {
     hasUpdate,
     updateInfo,
@@ -41,6 +43,7 @@ export function AppUpdateDialog() {
     void checkUpdate().catch(() => {});
   }, [state.loggedIn, state.serverUrl, checkUpdate]);
   const open =
+    settings?.firstRunNoticeConfirmed === true &&
     hasUpdate &&
     !isDismissed &&
     updateInfo != null &&
@@ -71,7 +74,7 @@ export function AppUpdateDialog() {
         if (!next && !installing) dismissUpdate();
       }}
     >
-      <DialogContent zIndex="alert">
+      <DialogContent zIndex="top">
         <DialogHeader>
           <DialogTitle>{t("settings.updateDialogTitle")}</DialogTitle>
           <DialogDescription>
