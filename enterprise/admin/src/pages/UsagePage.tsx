@@ -1,10 +1,14 @@
 import {
+  DepartmentUsageResponseSchema,
   DeviceUsageResponseSchema,
   normalizeAccountCostDepartment,
+  ReconciledUsageResponseSchema,
+  type ReconciledUsageRow,
+  UpstreamAccountsResponseSchema,
   type UsageAccountCostsResponse,
   UsageAccountCostsResponseSchema,
-  UsageResponseSchema,
   type UsageRow,
+  UsageResponseSchema,
 } from "@ccse/contracts";
 import {
   keepPreviousData,
@@ -17,10 +21,12 @@ import {
   CalendarDays,
   ChevronDown,
   Pencil,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import {
   type FormEvent,
+  type ReactNode,
   useEffect,
   useId,
   useMemo,
@@ -336,8 +342,16 @@ export function UsagePage() {
   const [draft, setDraft] = useState({ from: initialFrom, to: initialTo });
   const [range, setRange] = useState({ from: initialFrom, to: initialTo });
   const [rangeError, setRangeError] = useState<string | null>(null);
-
-  const usage = useQuery({
+  const [overviewSource, setOverviewSource] =
+    useState<ReconciledUsageRow["source"]>("cc");
+  const [chartSource, setChartSource] =
+    useState<ReconciledUsageRow["source"]>("cc");
+  const [detailSource, setDetailSource] =
+    useState<ReconciledUsageRow["source"]>("cc");
+  const upstreamSelected = [overviewSource, chartSource, detailSource].includes(
+    "upstream",
+  );
+  const ccUsage = useQuery({
     queryKey: ["admin", "usage", range.from, range.to],
     queryFn: ({ signal }) =>
       client.request("/admin/usage", {
@@ -345,7 +359,16 @@ export function UsagePage() {
         schema: UsageResponseSchema,
         signal,
       }),
-    placeholderData: keepPreviousData,
+  });
+  const upstreamUsage = useQuery({
+    queryKey: ["admin", "usage-upstream", range.from, range.to],
+    queryFn: ({ signal }) =>
+      client.request("/admin/usage/upstream", {
+        query: range,
+        schema: ReconciledUsageResponseSchema,
+        signal,
+      }),
+    enabled: upstreamSelected,
   });
   const byDevice = useQuery({
     queryKey: ["admin", "usage-devices", range.from, range.to],
@@ -369,7 +392,23 @@ export function UsagePage() {
   // they have no usage.
   const usernames = useRef(new Map<string, string>());
 
-  const allRows = usage.data?.items ?? [];
+  const ccRows = useMemo<ReconciledUsageRow[]>(
+    () =>
+      (ccUsage.data?.items ?? []).map((row) => ({
+        ...row,
+        source: "cc",
+        actualRequests: 0,
+        estimatedRequests:
+          row.estimatedCostUsd === null
+            ? 0
+            : row.requests - (row.unpricedRequests ?? 0),
+      })),
+    [ccUsage.data],
+  );
+  const upstreamRows = useMemo(
+    () => upstreamUsage.data?.items ?? [],
+    [upstreamUsage.data],
+  );
   const deviceRows = byDevice.data?.items ?? [];
   const options = useMemo(() => {
     const users = new Map<string, string>();
@@ -379,7 +418,7 @@ export function UsagePage() {
       users.set(user.id, user.username);
       usernames.current.set(user.id, user.username);
     }
-    for (const r of [...allRows, ...deviceRows]) {
+    for (const r of [...ccRows, ...upstreamRows, ...deviceRows]) {
       users.set(r.userId, r.username);
       usernames.current.set(r.userId, r.username);
       groups.set(r.groupName, groupLabel(r.groupName));
@@ -397,12 +436,21 @@ export function UsagePage() {
       })),
       providers: optionsOf(providers, filters.providerIds),
     };
-  }, [allRows, deviceRows, filters, groupUsers.data]);
+  }, [ccRows, upstreamRows, deviceRows, filters, groupUsers.data]);
 
-  const rows = useMemo(
-    () => allRows.filter((r) => matches(filters, r)),
-    [allRows, filters],
+  const filteredCcRows = useMemo(
+    () => ccRows.filter((r) => matches(filters, r)),
+    [ccRows, filters],
   );
+  const filteredUpstreamRows = useMemo(
+    () => upstreamRows.filter((r) => matches(filters, r)),
+    [upstreamRows, filters],
+  );
+  const rowsFor = (source: ReconciledUsageRow["source"]) =>
+    source === "cc" ? filteredCcRows : filteredUpstreamRows;
+  const chartRows = rowsFor(chartSource);
+  const overviewRows = rowsFor(overviewSource);
+  const selectedDetailRows = rowsFor(detailSource);
   const devicesShown = useMemo(() => {
     const map = new Map<
       string,
@@ -446,49 +494,49 @@ export function UsagePage() {
   const byUser = useMemo(
     () =>
       aggregate(
-        rows,
+        chartRows,
         (r) => r.userId,
         (r) => r.username,
       ),
-    [rows],
+    [chartRows],
   );
   const byDepartment = useMemo(
     () =>
       aggregate(
-        rows,
+        chartRows,
         (r) => r.groupName,
         (r) => groupLabel(r.groupName),
       ),
-    [rows],
+    [chartRows],
   );
   const byModel = useMemo(
     () =>
       aggregate(
-        rows,
+        chartRows,
         (r) => `${r.providerId}\u0000${r.model}`,
-        (r) => r.model,
+        (r) => `${r.model} · ${r.providerId}`,
       ),
-    [rows],
+    [chartRows],
   );
   const detailRows = useMemo(
     () =>
-      [...rows].sort(
+      [...selectedDetailRows].sort(
         (a, b) =>
           b.date.localeCompare(a.date) ||
           a.username.localeCompare(b.username, "zh-CN") ||
           a.providerId.localeCompare(b.providerId) ||
           a.model.localeCompare(b.model),
       ),
-    [rows],
+    [selectedDetailRows],
   );
   const grand = useMemo(
     () =>
       aggregate(
-        rows,
+        overviewRows,
         () => "all",
         () => "合计",
       )[0],
-    [rows],
+    [overviewRows],
   );
 
   const applyRange = (next: { from: string; to: string }) => {
@@ -515,12 +563,56 @@ export function UsagePage() {
     e.preventDefault();
     applyRange(draft);
   };
+  const panelStatus = (
+    source: ReconciledUsageRow["source"],
+    emptyText: string,
+  ): ReactNode => {
+    const query = source === "cc" ? ccUsage : upstreamUsage;
+    if (query.isPending) return <LoadingState />;
+    if (query.isError)
+      return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
+    if (source === "upstream" && !upstreamUsage.data?.configured)
+      return (
+        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+          未配置上游服务
+        </div>
+      );
+    if (rowsFor(source).length === 0)
+      return (
+        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+          {emptyText}
+        </div>
+      );
+    return null;
+  };
+  const overviewStatus = panelStatus(overviewSource, "暂无概览数据");
+  const detailStatus = panelStatus(detailSource, "暂无明细数据");
+  const chartQuery = chartSource === "cc" ? ccUsage : upstreamUsage;
+  const chartStatus =
+    chartQuery.isPending ||
+    chartQuery.isError ||
+    (chartSource === "upstream" && !upstreamUsage.data?.configured) ? (
+      panelStatus(chartSource, "暂无 Tokens 数据")
+    ) : chartRows.length === 0 ? (
+      <EmptyState
+        icon={<BarChart3 className="size-5 stroke-[1.5]" />}
+        title={filtering ? "没有符合筛选条件的用量" : "暂无用量记录"}
+      >
+        {filtering ? (
+          <Button variant="ghost" onClick={() => setFilters(NO_FILTERS)}>
+            清空筛选
+          </Button>
+        ) : (
+          `${range.from} 至 ${range.to} 没有用量记录`
+        )}
+      </EmptyState>
+    ) : null;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="用量统计"
-        description="按 UTC 日期统计经企业网关产生的请求数与 token 用量。"
+        description="按 UTC 日期统计请求数与 token 用量。"
       />
       <form
         onSubmit={onSubmit}
@@ -534,12 +626,12 @@ export function UsagePage() {
             onApply={applyRange}
             error={rangeError}
           />
-          <Field label="用户">
+          <Field label="用户 / API 密钥">
             <MultiSelect
               className="w-full"
               aria-label="按用户筛选"
-              allLabel="全部用户"
-              unit="个用户"
+              allLabel="全部用户 / 密钥"
+              unit="个用户或密钥"
               options={options.users}
               value={filters.userIds}
               onChange={(userIds) => setFilters((f) => ({ ...f, userIds }))}
@@ -588,12 +680,28 @@ export function UsagePage() {
               <Search className="size-3.5" />
               查询
             </Button>
-            {usage.isFetching && !usage.isPending && (
+            {upstreamSelected && (
+              <Button
+                type="button"
+                disabled={upstreamUsage.isFetching}
+                onClick={() => upstreamUsage.refetch()}
+              >
+                {upstreamUsage.isFetching ? "同步中" : "刷新上游"}
+              </Button>
+            )}
+            {(ccUsage.isFetching || upstreamUsage.isFetching) && (
               <Spinner className="mb-2" />
             )}
           </div>
         </div>
       </form>
+      {upstreamSelected && upstreamUsage.data && (
+        <p className="text-xs text-muted-foreground">
+          {upstreamUsage.data.configured
+            ? `上游数据更新时间：${new Date(upstreamUsage.data.syncedAt ?? "").toLocaleString()}`
+            : "未配置上游服务"}
+        </p>
+      )}
 
       {devicesShown.length > 0 && (
         <Card className="overflow-x-auto">
@@ -627,79 +735,51 @@ export function UsagePage() {
         </Card>
       )}
 
-      {grand && (
-        <Card>
-          <div className="border-b border-border/50 pb-2.5 text-xs font-medium text-foreground">
-            概览指标
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
-            <Stat label="请求数" value={grand.requests} unit="次" />
-            <Stat label="输入 tokens" value={grand.inputTokens} compact />
-            <Stat
-              label="输出 tokens"
-              value={grand.outputTokens}
-              compact
-            />
-            <Stat
-              label="总 tokens"
-              value={grand.inputTokens + grand.outputTokens}
-              compact
-            />
-          </div>
-        </Card>
-      )}
+      <Card>
+        <div className="flex flex-wrap items-center gap-3 border-b border-border/50 pb-2.5">
+          <h2 className="text-sm font-medium text-foreground">概览指标</h2>
+          <SourceTabs
+            label="概览指标来源"
+            source={overviewSource}
+            onSourceChange={setOverviewSource}
+          />
+        </div>
+        {overviewStatus ??
+          (grand && (
+            <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
+              <Stat label="请求数" value={grand.requests} unit="次" />
+              <Stat label="输入 tokens" value={grand.inputTokens} compact />
+              <Stat label="输出 tokens" value={grand.outputTokens} compact />
+              <Stat
+                label="总 tokens"
+                value={grand.inputTokens + grand.outputTokens}
+                compact
+              />
+            </div>
+          ))}
+      </Card>
       {(session.user.role === "admin" ||
         session.user.role === "leader" ||
         session.user.role === "group_leader") && <AccountStats />}
-      {usage.isPending ? (
-        <Card>
-          <LoadingState />
-        </Card>
-      ) : usage.isError ? (
-        <Card>
-          <ErrorState error={usage.error} onRetry={() => usage.refetch()} />
-        </Card>
-      ) : rows.length === 0 && filtering && allRows.length > 0 ? (
-        <Card>
-          <EmptyState
-            icon={<BarChart3 className="size-5 stroke-[1.5]" />}
-            title="没有符合筛选条件的用量"
-          >
-            <Button variant="ghost" onClick={() => setFilters(NO_FILTERS)}>
-              清空筛选
-            </Button>
-          </EmptyState>
-        </Card>
-      ) : rows.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<BarChart3 className="size-5 stroke-[1.5]" />}
-            title="暂无用量记录"
-          >
-            {range.from} 至 {range.to} 没有用量记录
-          </EmptyState>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-6">
-          <TokenChart
-            rows={
-              { user: byUser, department: byDepartment, model: byModel }[
-                tokenGrouping
-              ]
-            }
-            grouping={tokenGrouping}
-            onGroupingChange={setTokenGrouping}
-          />
-          <p className="text-xs text-muted-foreground">
-            费用按内置模型参考单价估算，普通输入、输出、缓存命中和缓存写入分别计价，
-            不含订阅费用分摊、供应商折扣、长上下文或时段加价。单价更新后历史估算会随之变化；
-            无匹配单价的请求不计入金额，并标注未计价或部分计价。
-            {rows.some((row) => row.legacyRequests > 0) &&
-              "旧记录未采集缓存写入和上游计价模型，按请求模型估算，缓存写入按 0 处理，金额可能偏低。"}
-          </p>
-          <DetailsTable rows={detailRows} />
-        </div>
-      )}
+      <TokenChart
+        rows={
+          { user: byUser, department: byDepartment, model: byModel }[
+            tokenGrouping
+          ]
+        }
+        grouping={tokenGrouping}
+        onGroupingChange={setTokenGrouping}
+        source={chartSource}
+        onSourceChange={setChartSource}
+        status={chartStatus}
+      />
+      {session.user.role === "admin" && <DepartmentUsage />}
+      <DetailsTable
+        rows={detailRows}
+        source={detailSource}
+        onSourceChange={setDetailSource}
+        status={detailStatus}
+      />
     </div>
   );
 }
@@ -2374,18 +2454,14 @@ const usdFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 6,
 });
 
-function EstimatedCost({
-  row,
-}: {
-  row: Pick<
-    UsageRow,
-    "estimatedCostUsd" | "unpricedRequests" | "requests" | "legacyRequests"
-  >;
-}) {
+function EstimatedCost({ row }: { row: ReconciledUsageRow }) {
   const cost = row.estimatedCostUsd;
   const unpriced = row.unpricedRequests ?? (cost === null ? row.requests : 0);
   const explanation = [
-    "按模型参考单价估算（USD）",
+    row.actualRequests ? `${row.actualRequests} 次使用上游费用` : "",
+    row.estimatedRequests
+      ? `${row.estimatedRequests} 次按模型参考单价估算`
+      : "",
     unpriced > 0 ? `${unpriced} 次请求无匹配单价，未计入金额` : "",
     row.legacyRequests > 0
       ? `${row.legacyRequests} 次旧请求未采集缓存写入，按 0 处理`
@@ -2400,14 +2476,67 @@ function EstimatedCost({
         : cost > 0 && cost < 0.000001
           ? "<$0.000001"
           : usdFormatter.format(cost)}
+      {cost !== null && row.estimatedRequests > 0 && (
+        <span className="ml-1 text-xs text-muted-foreground">
+          （{row.actualRequests ? "含估算" : "估算"}）
+        </span>
+      )}
       {cost !== null && unpriced > 0 && (
-        <span className="ml-1 text-xs text-muted-foreground">（部分）</span>
+        <span className="ml-1 text-xs text-muted-foreground">
+          （部分未计价）
+        </span>
       )}
     </span>
   );
 }
 
-function DetailsTable({ rows }: { rows: UsageRow[] }) {
+function SourceTabs({
+  label,
+  source,
+  onSourceChange,
+}: {
+  label: string;
+  source: ReconciledUsageRow["source"];
+  onSourceChange(source: ReconciledUsageRow["source"]): void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="inline-flex rounded-md bg-muted p-0.5"
+    >
+      {(
+        [
+          ["cc", "CC Switch"],
+          ["upstream", "上游"],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={source === value}
+          onClick={() => onSourceChange(value)}
+          className={`rounded px-3 py-1 text-xs ${source === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DetailsTable({
+  rows,
+  source,
+  onSourceChange,
+  status,
+}: {
+  rows: ReconciledUsageRow[];
+  source: ReconciledUsageRow["source"];
+  onSourceChange(source: ReconciledUsageRow["source"]): void;
+  status: ReactNode;
+}) {
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [rows]);
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -2415,27 +2544,33 @@ function DetailsTable({ rows }: { rows: UsageRow[] }) {
 
   return (
     <Card className="overflow-x-auto">
-      <h2 className="border-b border-border/50 px-4 py-2.5 font-serif text-sm font-medium text-foreground">
-        明细
-      </h2>
+      <div className="flex flex-wrap items-center gap-3 border-b border-border/50 px-4 py-2.5">
+        <h2 className="font-serif text-sm font-medium text-foreground">明细</h2>
+        <SourceTabs
+          label="明细来源"
+          source={source}
+          onSourceChange={onSourceChange}
+        />
+      </div>
+      {status}
       <table className={tableClass} aria-label="明细">
         <thead>
           <tr>
             <th className={thClass}>日期</th>
-            <th className={thClass}>用户</th>
+            <th className={thClass}>{source === "cc" ? "用户" : "API 密钥"}</th>
             <th className={thClass}>模型服务</th>
             <th className={thClass}>模型</th>
             <th className={numTh}>请求数</th>
             <th className={numTh}>输入 tokens</th>
             <th className={numTh}>输出 tokens</th>
             <th className={numTh}>总 tokens</th>
-            <th className={`${numTh} whitespace-nowrap`}>估算费用（USD）</th>
+            <th className={`${numTh} whitespace-nowrap`}>费用（USD）</th>
           </tr>
         </thead>
         <tbody>
           {pageRows.map((r) => (
             <tr
-              key={`${r.date}|${r.userId}|${r.providerId}|${r.model}`}
+              key={`${r.date}|${r.userId}|${r.groupName}|${r.providerId}|${r.model}`}
               className={trClass}
             >
               <td className={`${tdClass} whitespace-nowrap`}>{r.date}</td>
@@ -2469,10 +2604,16 @@ function TokenChart({
   rows,
   grouping,
   onGroupingChange,
+  source,
+  onSourceChange,
+  status,
 }: {
   rows: Totals[];
   grouping: TokenGrouping;
   onGroupingChange: (grouping: TokenGrouping) => void;
+  source: ReconciledUsageRow["source"];
+  onSourceChange(source: ReconciledUsageRow["source"]): void;
+  status: ReactNode;
 }) {
   const title = TOKEN_GROUPING_OPTIONS.find(
     (option) => option.value === grouping,
@@ -2488,7 +2629,14 @@ function TokenChart({
   return (
     <Card>
       <div className="border-b border-border/50 px-4 py-2.5">
-        <h2 className="sr-only">{title}</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <h2 className="text-sm font-medium text-foreground">Tokens 统计</h2>
+          <SourceTabs
+            label="Tokens 统计来源"
+            source={source}
+            onSourceChange={onSourceChange}
+          />
+        </div>
         <div className="w-44">
           <Select
             aria-label="tokens 统计维度"
@@ -2498,60 +2646,336 @@ function TokenChart({
           />
         </div>
       </div>
-      <div className="flex items-center gap-4 px-4 pt-3 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-sm bg-foreground/80" />
-          输入
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-sm bg-brand" />
-          输出
-        </span>
-      </div>
-      <figure aria-label={title} className="overflow-x-auto px-4 pb-4 pt-2">
-        <div
-          className="flex h-56 items-end gap-3"
-          style={{ minWidth: `${Math.max(data.length * 56, 240)}px` }}
-        >
-          {data.map((d) => {
-            const h = (d.total / max) * 100;
-            const inPct = d.total ? (d.input / d.total) * 100 : 0;
-            const outPct = 100 - inPct;
-            return (
-              <div
-                key={d.key}
-                role="group"
-                aria-label={d.name}
-                className={`flex h-full flex-1 flex-col items-center justify-end gap-1.5 ${grouping !== "user" ? "min-w-max" : "min-w-12"}`}
-              >
-                <span
-                  className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
-                  title={`${formatNumber(d.total)} tokens`}
-                >
-                  {formatCompactTokens(d.total)}
-                </span>
-                <div
-                  className="flex w-8 flex-col-reverse overflow-hidden rounded-t-md"
-                  style={{ height: `${d.total > 0 ? Math.max(h, 2) : 0}%` }}
-                  title={`${d.name}：输入 ${formatNumber(d.input)}，输出 ${formatNumber(d.output)}`}
-                >
+      {status ?? (
+        <>
+          <div className="flex items-center gap-4 px-4 pt-3 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 rounded-sm bg-foreground/80" />
+              输入
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 rounded-sm bg-brand" />
+              输出
+            </span>
+          </div>
+          <figure aria-label={title} className="overflow-x-auto px-4 pb-4 pt-2">
+            <div
+              className="flex h-56 items-end gap-3"
+              style={{ minWidth: `${Math.max(data.length * 56, 240)}px` }}
+            >
+              {data.map((d) => {
+                const h = (d.total / max) * 100;
+                const inPct = d.total ? (d.input / d.total) * 100 : 0;
+                const outPct = 100 - inPct;
+                return (
                   <div
-                    className="bg-foreground/80"
-                    style={{ height: `${inPct}%` }}
-                  />
-                  <div className="bg-brand" style={{ height: `${outPct}%` }} />
-                </div>
-                <span
-                  className={`text-xs ${grouping !== "user" ? "whitespace-nowrap" : "max-w-16 truncate"}`}
-                  title={d.name}
-                >
-                  {d.name}
-                </span>
+                    key={d.key}
+                    role="group"
+                    aria-label={d.name}
+                    className={`flex h-full flex-1 flex-col items-center justify-end gap-1.5 ${grouping !== "user" ? "min-w-max" : "min-w-12"}`}
+                  >
+                    <span
+                      className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+                      title={`${formatNumber(d.total)} tokens`}
+                    >
+                      {formatCompactTokens(d.total)}
+                    </span>
+                    <div
+                      className="flex w-8 flex-col-reverse overflow-hidden rounded-t-md"
+                      style={{ height: `${d.total > 0 ? Math.max(h, 2) : 0}%` }}
+                      title={`${d.name}：输入 ${formatNumber(d.input)}，输出 ${formatNumber(d.output)}`}
+                    >
+                      <div
+                        className="bg-foreground/80"
+                        style={{ height: `${inPct}%` }}
+                      />
+                      <div
+                        className="bg-brand"
+                        style={{ height: `${outPct}%` }}
+                      />
+                    </div>
+                    <span
+                      className={`text-xs ${grouping !== "user" ? "whitespace-nowrap" : "max-w-16 truncate"}`}
+                      title={d.name}
+                    >
+                      {d.name}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </figure>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function DepartmentUsage() {
+  const client = useApi();
+  const session = useSession();
+  const queryClient = useQueryClient();
+  const canReadUsers =
+    session.permissions.includes("users.manage") ||
+    session.permissions.includes("users.group.manage");
+  const canReadAccounts =
+    session.permissions.includes("audit.read") ||
+    session.permissions.includes("upstream.read") ||
+    session.permissions.includes("users.manage");
+  const users = useUsers(canReadUsers);
+  const meter = useQuery({
+    queryKey: ["admin", "department-usage"],
+    queryFn: ({ signal }) =>
+      client.request("/admin/usage/departments", {
+        schema: DepartmentUsageResponseSchema,
+        signal,
+      }),
+    enabled: canReadUsers && canReadAccounts,
+    refetchInterval: 60_000,
+  });
+  const accounts = useQuery({
+    queryKey: ["admin", "upstream", "accounts"],
+    queryFn: ({ signal }) =>
+      client.request("/admin/upstream/accounts", {
+        schema: UpstreamAccountsResponseSchema,
+        signal,
+      }),
+    enabled: canReadAccounts,
+    refetchInterval: 60_000,
+  });
+  const departments = [
+    ...new Set(
+      (users.data?.items ?? [])
+        .map((user) => user.groupName.trim())
+        .filter(Boolean),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<number[]>([]);
+  const availableAccounts = accounts.data?.items ?? [];
+  const selected = meter.data?.assignments ?? {};
+  const save = useMutation({
+    mutationFn: () =>
+      client.request("/admin/usage/departments", {
+        method: "PUT",
+        body: { department: editing, accountIds: draft },
+        schema: DepartmentUsageResponseSchema,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["admin", "department-usage"], data);
+      setEditing(null);
+    },
+  });
+  const refresh = useMutation({
+    mutationFn: () =>
+      client.request("/admin/usage/departments/refresh", {
+        method: "POST",
+        schema: DepartmentUsageResponseSchema,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["admin", "department-usage"], data);
+      void accounts.refetch();
+    },
+  });
+  const percent = (value: number) =>
+    new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);
+  const selectedIds = new Set(Object.values(selected).flat());
+  const sampleTimes = (meter.data?.accounts ?? [])
+    .filter((item) => selectedIds.has(item.id) && item.sampledAt)
+    .map((item) => Date.parse(item.sampledAt ?? ""))
+    .filter(Number.isFinite);
+  const latestSample = sampleTimes.length ? Math.max(...sampleTimes) : null;
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-3 border-b border-border/50 px-4 py-2.5">
+        <h2 className="text-sm font-medium text-foreground">部门用量</h2>
+        <span className="text-xs text-muted-foreground">
+          {meter.data?.month ?? ""} · 7d 增量按四周折算
+        </span>
+        <Button
+          className="ml-auto"
+          size="sm"
+          onClick={() => refresh.mutate()}
+          disabled={!canReadAccounts || refresh.isPending}
+        >
+          <RefreshCw
+            className={`size-3.5 ${refresh.isPending ? "animate-spin" : ""}`}
+          />
+          刷新
+        </Button>
+      </div>
+      <div className="space-y-4 px-4 py-4">
+        {!canReadUsers && (
+          <p className="text-sm text-muted-foreground">无权读取用户组</p>
+        )}
+        {canReadUsers && users.isPending && <LoadingState />}
+        {canReadUsers && users.isError && (
+          <ErrorState
+            error={users.error}
+            onRetry={() => void users.refetch()}
+          />
+        )}
+        {canReadUsers && users.isSuccess && departments.length === 0 && (
+          <p className="text-sm text-muted-foreground">暂无用户组</p>
+        )}
+        {!canReadAccounts && (
+          <p className="text-sm text-muted-foreground">无权读取上游账号</p>
+        )}
+        {canReadAccounts && accounts.isError && (
+          <ErrorState
+            error={accounts.error}
+            onRetry={() => void accounts.refetch()}
+          />
+        )}
+        {accounts.data?.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {accounts.data.error}
+          </p>
+        )}
+        {meter.isError && (
+          <ErrorState
+            error={meter.error}
+            onRetry={() => void meter.refetch()}
+          />
+        )}
+        {meter.data?.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {meter.data.error}
+          </p>
+        )}
+        {refresh.isError && (
+          <InlineError>{describeError(refresh.error)}</InlineError>
+        )}
+        {departments.map((department) => {
+          const ids = selected[department] ?? [];
+          const items = ids.map((id) =>
+            meter.data?.accounts.find((item) => item.id === id),
+          );
+          const complete = items.every((item) => item?.sampledAt);
+          const total = items.reduce((sum, item) => sum + (item?.used ?? 0), 0);
+          const capacity = ids.length * 100;
+          const width = capacity ? Math.min(100, (total / capacity) * 100) : 0;
+          const incomplete = items.some((item) => item?.incomplete);
+          return (
+            <div key={department} className="flex flex-wrap items-center gap-3">
+              <span className="w-32 shrink-0 break-words text-sm text-foreground">
+                {department}
+              </span>
+              <div
+                className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted"
+                aria-hidden="true"
+              >
+                <div
+                  className="h-full rounded-full bg-foreground"
+                  style={{ width: `${width}%` }}
+                />
               </div>
+              <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                {complete ? `${percent(total)}%` : "暂无完整数据"} / {capacity}%
+                {incomplete && (
+                  <span title="采集间隔或窗口异常可能造成误差">
+                    （估算不完整）
+                  </span>
+                )}
+              </span>
+              <Button
+                size="sm"
+                aria-label={`编辑${department}账号`}
+                title={`编辑${department}账号`}
+                disabled={
+                  !canReadAccounts ||
+                  !accounts.data ||
+                  !!accounts.data.error ||
+                  !meter.data
+                }
+                onClick={() => {
+                  save.reset();
+                  setDraft(selected[department] ?? []);
+                  setEditing(department);
+                }}
+              >
+                <Pencil className="size-3.5" />
+              </Button>
+            </div>
+          );
+        })}
+        {latestSample !== null && (
+          <p className="text-xs text-muted-foreground">
+            最近读取：
+            {new Date(latestSample).toLocaleString("zh-CN", {
+              timeZone: "Asia/Shanghai",
+            })}
+            （北京时间，上游可能使用缓存）
+          </p>
+        )}
+      </div>
+      <Dialog
+        open={editing !== null}
+        title={`编辑${editing ?? ""}账号`}
+        onClose={() => setEditing(null)}
+        footer={
+          <>
+            <Button onClick={() => setEditing(null)}>取消</Button>
+            <Button
+              variant="primary"
+              onClick={() => save.mutate()}
+              disabled={save.isPending}
+            >
+              {save.isPending ? "保存中" : "保存"}
+            </Button>
+          </>
+        }
+      >
+        {save.isError && <InlineError>{describeError(save.error)}</InlineError>}
+        <div className="max-h-80 space-y-3 overflow-y-auto">
+          {draft
+            .filter(
+              (id) => !availableAccounts.some((account) => account.id === id),
+            )
+            .map((id) => (
+              <label key={id} className="flex items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked
+                  onChange={() =>
+                    setDraft((current) => current.filter((item) => item !== id))
+                  }
+                />
+                上游账号 #{id}（已不可用）
+              </label>
+            ))}
+          {availableAccounts.length === 0 && (
+            <p className="text-sm text-muted-foreground">暂无上游账号</p>
+          )}
+          {availableAccounts.map((account) => {
+            const weekly = account.windows.find((window) => window.id === "7d");
+            return (
+              <label
+                key={account.id}
+                className="flex items-center gap-3 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.includes(account.id)}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      event.target.checked
+                        ? [...current, account.id]
+                        : current.filter((id) => id !== account.id),
+                    )
+                  }
+                />
+                <span className="min-w-0 flex-1 break-words">
+                  {account.name}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  7d {weekly ? `${weekly.usedPercent}%` : "暂无数据"}
+                </span>
+              </label>
             );
           })}
         </div>
-      </figure>
+      </Dialog>
     </Card>
   );
 }
@@ -2574,7 +2998,7 @@ function Stat({
       </div>
       <div className="mt-1.5 text-2xl font-serif font-normal text-foreground tabular-nums">
         {compact ? formatCompactTokens(value) : formatNumber(value)}
-        {unit && <span className="ml-1 text-sm">{unit}</span>}
+        {unit && <span className="ml-1 text-sm"> {unit}</span>}
       </div>
     </Card>
   );

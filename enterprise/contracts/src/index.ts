@@ -569,6 +569,17 @@ export const UsageRowSchema = z.object({
 export type UsageRow = z.infer<typeof UsageRowSchema>;
 export const UsageResponseSchema = z.object({ items: z.array(UsageRowSchema) });
 export type UsageResponse = z.infer<typeof UsageResponseSchema>;
+export const ReconciledUsageRowSchema = UsageRowSchema.extend({
+  source: z.enum(["cc", "upstream"]),
+  actualRequests: z.number().int().nonnegative(),
+  estimatedRequests: z.number().int().nonnegative(),
+});
+export type ReconciledUsageRow = z.infer<typeof ReconciledUsageRowSchema>;
+export const ReconciledUsageResponseSchema = z.object({
+  items: z.array(ReconciledUsageRowSchema),
+  configured: z.boolean(),
+  syncedAt: z.string().nullable(),
+});
 
 export const ManualAccountCostSchema = z.object({
   billingMonth: z
@@ -1497,3 +1508,17 @@ export const UpstreamAccountsResponseSchema = z.object({
 export type UpstreamAccountsResponse = z.infer<
   typeof UpstreamAccountsResponseSchema
 >;
+
+export const DepartmentUsageResponseSchema = z.object({
+  month: z.string(),
+  error: z.string().nullable(),
+  assignments: z.record(z.string(), z.array(z.number().int().positive())),
+  accounts: z.array(
+    z.object({
+      id: z.number().int().positive(),
+      used: z.number().nonnegative(),
+      sampledAt: z.string().nullable(),
+      incomplete: z.boolean(),
+    }),
+  ),
+});

@@ -99,6 +99,27 @@
       "when": 1793100000000,
       "tag": "0013_upstream_user_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0014_upstream_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0015_usage_request_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793400000000,
+      "tag": "0016_usage_key_hashes",
+      "breakpoints": true
     }
   ]
 }

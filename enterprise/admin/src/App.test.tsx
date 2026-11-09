@@ -84,6 +84,12 @@ const FIXTURES: Record<string, unknown> = {
     ],
   },
   "/admin/usage/devices": { items: [] },
+  "/admin/usage/departments": {
+    month: "2026-11",
+    error: null,
+    assignments: {},
+    accounts: [],
+  },
   "/admin/usage/account-costs": {
     configured: true,
     unpricedCount: 0,
@@ -1109,6 +1115,100 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
+  it("persists and displays shared upstream account usage for departments", async () => {
+    const meter: {
+      month: string;
+      error: null;
+      assignments: Record<string, number[]>;
+      accounts: Array<{
+        id: number;
+        used: number;
+        sampledAt: string;
+        incomplete: boolean;
+      }>;
+    } = { month: "2026-11", error: null, assignments: {}, accounts: [] };
+    renderAt("/usage", permissionsForRole("admin"), admin, (route, init) => {
+      if (route === "/admin/users")
+        return Response.json({
+          items: [
+            { ...admin, groupName: "技术部" },
+            { ...leaver, groupName: "产品部" },
+          ],
+        });
+      if (route === "/admin/usage/departments") {
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body));
+          meter.assignments[body.department] = body.accountIds;
+          meter.accounts = [
+            {
+              id: 39,
+              used: 0.75,
+              sampledAt: "2026-11-09T10:00:00.000Z",
+              incomplete: false,
+            },
+          ];
+        }
+        return Response.json(meter);
+      }
+      return undefined;
+    });
+    const heading = await screen.findByRole("heading", { name: "部门用量" });
+    const section = heading.parentElement?.parentElement;
+    if (!section) throw new Error("Department usage section is missing");
+    await screen.findByRole("button", { name: "编辑技术部账号" });
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "编辑技术部账号",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "编辑技术部账号" }));
+    let dialog = screen.getByRole("dialog", { name: "编辑技术部账号" });
+    expect(within(dialog).getByText("7d 3%")).toBeTruthy();
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /Feiqin-Gpt/ }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await within(section).findByText("0.75% / 100%")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "编辑产品部账号" }));
+    dialog = screen.getByRole("dialog", { name: "编辑产品部账号" });
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /Feiqin-Gpt/ }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(within(section).getAllByText("0.75% / 100%")).toHaveLength(2),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "编辑产品部账号" }));
+    dialog = screen.getByRole("dialog", { name: "编辑产品部账号" });
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /Feiqin-Gpt/ }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(within(section).getAllByText("0.75% / 100%")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "近7天" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "选择时间范围" })).getByRole(
+        "button",
+        { name: "今天" },
+      ),
+    );
+    expect(within(section).getAllByText("0.75% / 100%")).toHaveLength(2);
+    const tokenHeading = screen.getByRole("heading", { name: "Tokens 统计" });
+    const detailsHeading = screen.getByRole("heading", { name: "明细" });
+    expect(
+      tokenHeading.compareDocumentPosition(heading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      heading.compareDocumentPosition(detailsHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("shows only tokens in all chart dimensions while keeping costs in details", async () => {
     const base = {
       date: "2026-10-26",
@@ -1157,7 +1257,7 @@ describe("App", () => {
     const details = screen.getByRole("table", { name: "明细" });
     expect(
       within(details).getAllByRole("columnheader").at(-1)?.textContent,
-    ).toBe("估算费用（USD）");
+    ).toBe("费用（USD）");
     const alice = within(users).getByRole("group", { name: "alice" });
     expect(within(alice).getByTitle("3,300 tokens")).toBeTruthy();
     for (const [value, label] of [
@@ -1177,7 +1277,9 @@ describe("App", () => {
     expect(within(models).getAllByTitle("2,200 tokens")).toHaveLength(2);
     expect(within(details).getByText("$1.25")).toBeTruthy();
     expect(within(details).getByText("$2.50")).toBeTruthy();
-    expect(screen.getByText(/旧记录未采集缓存写入和上游计价模型/)).toBeTruthy();
+    expect(
+      within(details).getAllByTitle(/旧请求未采集缓存写入/).length,
+    ).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
     fireEvent.click(await screen.findByRole("option", { name: "bob" }));
@@ -1253,6 +1355,108 @@ describe("App", () => {
       screen.getAllByRole("button", { name: "清空筛选" })[0] as HTMLElement,
     );
     expect((await screen.findAllByText("gpt-5")).length).toBeGreaterThan(0);
+  });
+
+  it("switches overview, token chart and details independently", async () => {
+    const row = {
+      date: "2026-10-12",
+      userId: "alice",
+      username: "alice",
+      groupName: "研发",
+      providerId: "main",
+      model: "gpt-5",
+      requests: 1,
+      inputTokens: 100,
+      outputTokens: 10,
+      actualRequests: 1,
+      estimatedRequests: 0,
+      estimatedCostUsd: 0.1,
+    };
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage"
+        ? Response.json({ items: [row] })
+        : route === "/admin/usage/upstream"
+          ? Response.json({
+              items: [
+                {
+                  ...row,
+                  source: "upstream",
+                  userId: "upstream-key:1",
+                  username: "上游密钥",
+                  inputTokens: 200,
+                },
+              ],
+              configured: true,
+              syncedAt: "2026-10-12T12:00:00Z",
+            })
+          : undefined,
+    );
+    await screen.findByRole("figure", { name: "按用户 tokens" });
+    const overviewTabs = screen.getByRole("tablist", { name: "概览指标来源" });
+    const chartTabs = screen.getByRole("tablist", { name: "Tokens 统计来源" });
+    const detailTabs = screen.getByRole("tablist", { name: "明细来源" });
+    expect(screen.getByRole("heading", { name: "Tokens 统计" })).toBeTruthy();
+    fireEvent.click(within(overviewTabs).getByRole("tab", { name: "上游" }));
+    expect(await screen.findByText("200", { selector: "div" })).toBeTruthy();
+    expect(
+      within(chartTabs)
+        .getByRole("tab", { name: "CC Switch" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      within(detailTabs)
+        .getByRole("tab", { name: "CC Switch" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      within(screen.getByRole("table", { name: "明细" })).getByText("100"),
+    ).toBeTruthy();
+    fireEvent.click(within(chartTabs).getByRole("tab", { name: "上游" }));
+    expect(
+      within(screen.getByRole("figure", { name: "按用户 tokens" })).getByTitle(
+        "上游密钥：输入 200，输出 10",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(within(detailTabs).getByRole("tab", { name: "上游" }));
+    expect(
+      within(screen.getByRole("table", { name: "明细" })).getByText("200"),
+    ).toBeTruthy();
+    fireEvent.click(
+      within(overviewTabs).getByRole("tab", { name: "CC Switch" }),
+    );
+    expect(
+      within(chartTabs)
+        .getByRole("tab", { name: "上游" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      within(detailTabs)
+        .getByRole("tab", { name: "上游" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("keeps each source selector usable when the selected data is unavailable", async () => {
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage/upstream"
+        ? Response.json(
+            { error: { code: "bad_request", message: "unavailable" } },
+            { status: 400 },
+          )
+        : undefined,
+    );
+    await screen.findByRole("figure", { name: "按用户 tokens" });
+    const overviewTabs = screen.getByRole("tablist", { name: "概览指标来源" });
+    fireEvent.click(within(overviewTabs).getByRole("tab", { name: "上游" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "加载失败",
+    );
+    expect(screen.getByRole("figure", { name: "按用户 tokens" })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "明细" })).toBeTruthy();
+    fireEvent.click(
+      within(overviewTabs).getByRole("tab", { name: "CC Switch" }),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("offboards a user instead of deleting them", async () => {

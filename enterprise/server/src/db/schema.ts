@@ -171,6 +171,8 @@ export const usageRecords = pgTable(
     cacheCreationTokens: integer("cache_creation_tokens"),
     /** Upstream response model when supplied; otherwise the requested model. */
     pricingModel: text("pricing_model"),
+    /** API Hub's correlation ID, when its response supplied one. */
+    upstreamRequestId: text("upstream_request_id"),
     status: integer("status").notNull(),
     latencyMs: integer("latency_ms").notNull(),
     deviceId: uuid("device_id"),
@@ -184,6 +186,39 @@ export const usageRecords = pgTable(
     ),
     index("usage_time_idx").on(t.createdAt),
   ],
+);
+
+/** Raw upstream usage, keyed by installation and upstream record identity. */
+export const upstreamUsageRecords = pgTable(
+  "upstream_usage_records",
+  {
+    origin: text("origin").notNull(),
+    upstreamId: integer("upstream_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    payload: jsonb("payload")
+      .$type<import("../sub2api.ts").UpstreamUsageRecord>()
+      .notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.origin, t.upstreamId] }),
+    index("upstream_usage_created_at_idx").on(t.origin, t.createdAt),
+  ],
+);
+
+export const upstreamUsageKeys = pgTable(
+  "upstream_usage_keys",
+  {
+    origin: text("origin").notNull(),
+    keyId: integer("key_id").notNull(),
+    keyHash: text("key_hash").notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.origin, t.keyId] })],
 );
 
 // ---------------------------------------------------------------------------

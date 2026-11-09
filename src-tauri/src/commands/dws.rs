@@ -1,4 +1,4 @@
-//! DingTalk Workspace CLI (`dws`) connector: status, install, login.
+//! DingTalk Workspace CLI (`dws`) connector: status, install, uninstall, login.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -178,6 +178,35 @@ pub fn is_installed() -> bool {
     find_dws().is_some()
 }
 
+/// Remove detected executables, including a second copy exposed by PATH after
+/// removing the default installation. Keep credentials and user data intact.
+pub fn uninstall_blocking() -> Result<(), String> {
+    uninstall_detected(find_dws)
+}
+
+fn uninstall_detected(mut find: impl FnMut() -> Option<PathBuf>) -> Result<(), String> {
+    let mut removed = std::collections::HashSet::new();
+    while let Some(bin) = find() {
+        if !removed.insert(bin.clone()) {
+            return Err(format!(
+                "卸载后仍检测到 dws：{}，请关闭相关进程后重试",
+                bin.display()
+            ));
+        }
+        match std::fs::remove_file(&bin) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(format!(
+                    "无法卸载 dws（{}）：{e}。请关闭正在使用 dws 的程序并检查文件权限后重试",
+                    bin.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn install_blocking() -> Result<DwsStatus, String> {
     run_installer()?;
     find_dws()
@@ -334,7 +363,63 @@ pub async fn dws_open_login() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_logged_in, parse_version};
+    use super::{parse_logged_in, parse_version, uninstall_detected};
+
+    #[test]
+    fn uninstall_removes_all_detected_binaries_but_keeps_user_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bins = [tmp.path().join("dws.exe"), tmp.path().join("other/dws.exe")];
+        std::fs::create_dir(tmp.path().join("other")).unwrap();
+        for bin in &bins {
+            std::fs::write(bin, b"binary").unwrap();
+        }
+        let credentials = tmp.path().join("credentials.json");
+        std::fs::write(&credentials, b"keep").unwrap();
+
+        uninstall_detected(|| bins.iter().find(|bin| bin.is_file()).cloned()).unwrap();
+
+        assert!(bins.iter().all(|bin| !bin.exists()));
+        assert_eq!(std::fs::read(credentials).unwrap(), b"keep");
+        // Uninstalling an already removed connector is harmless.
+        uninstall_detected(|| None).unwrap();
+    }
+
+    #[test]
+    fn uninstall_reports_removal_errors_without_deleting_directories() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("dws.exe");
+        std::fs::create_dir(&bin).unwrap();
+        let data = bin.join("keep.txt");
+        std::fs::write(&data, b"keep").unwrap();
+
+        let error = uninstall_detected(|| Some(bin.clone())).unwrap_err();
+
+        assert!(error.contains("无法卸载 dws"), "{error}");
+        assert_eq!(std::fs::read(data).unwrap(), b"keep");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn uninstall_reports_locked_executable_and_can_be_retried() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("dws.exe");
+        std::fs::write(&bin, b"binary").unwrap();
+        let handle = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ: deny deletion while open.
+            .open(&bin)
+            .unwrap();
+
+        let error = uninstall_detected(|| bin.is_file().then(|| bin.clone())).unwrap_err();
+        assert!(error.contains("无法卸载 dws"), "{error}");
+        assert!(bin.is_file());
+
+        drop(handle);
+        uninstall_detected(|| bin.is_file().then(|| bin.clone())).unwrap();
+        assert!(!bin.exists());
+    }
 
     #[test]
     fn parses_version_line() {

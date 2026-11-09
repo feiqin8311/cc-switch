@@ -30,7 +30,7 @@ describe("AppUpdateDialog", () => {
     mocks.settings = undefined;
   });
 
-  it("waits for settings and first-run confirmation before showing an update", () => {
+  it("waits for settings and first-run confirmation before showing an update", async () => {
     const { rerender } = render(<AppUpdateDialog />);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
@@ -40,6 +40,6 @@ describe("AppUpdateDialog", () => {
 
     mocks.settings = { firstRunNoticeConfirmed: true };
     rerender(<AppUpdateDialog />);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 });

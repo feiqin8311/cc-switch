@@ -292,6 +292,7 @@ export async function adminProviderRoutes(
             gte(usageRecords.createdAt, from),
             actor.role === "group_leader" ? groupScope(actor) : undefined,
             lt(usageRecords.createdAt, new Date(to.getTime() + DAY_MS)),
+            sql`(${usageRecords.inputTokens} <> 0 or ${usageRecords.outputTokens} <> 0)`,
           ),
         )
         .groupBy(

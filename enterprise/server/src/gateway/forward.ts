@@ -134,6 +134,7 @@ async function forwardRaw(
 ): Promise<void> {
   const { provider, user } = ctx;
   const started = Date.now();
+  let upstreamRequestId: string | null = null;
   const log = req.log.child({ providerId: provider.id, userId: user.id });
 
   const record = async (status: number, usage: TokenUsage) => {
@@ -150,6 +151,7 @@ async function forwardRaw(
         status,
         latencyMs: Date.now() - started,
         deviceId: ctx.deviceId,
+        upstreamRequestId,
       });
     } catch (err) {
       log.error(
@@ -216,6 +218,15 @@ async function forwardRaw(
     throw upstreamError("Upstream provider is unreachable");
   } finally {
     clearTimeout(headersTimer);
+  }
+
+  if (
+    config.sub2api &&
+    new URL(provider.baseUrl).origin === new URL(config.sub2api.url).origin
+  ) {
+    const id = upstream.headers.get("x-client-request-id")?.trim();
+    if (id && id.length <= 57 && /^[\x21-\x7e]+$/.test(id))
+      upstreamRequestId = `client:${id}`;
   }
 
   const contentType = upstream.headers.get("content-type") ?? "";

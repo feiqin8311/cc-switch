@@ -1,0 +1,150 @@
+import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import type { Db } from "../db/client.ts";
+import { settings } from "../db/schema.ts";
+import type { WeeklyUsageSample } from "../sub2api.ts";
+
+const MeterSchema = z.object({
+  lastPercent: z.number().nonnegative(),
+  resetsAt: z.string().nullable(),
+  sampledAt: z.string(),
+  months: z.record(z.string(), z.number().nonnegative()),
+  incompleteMonths: z.array(z.string()),
+});
+const StateSchema = z.object({
+  assignments: z.record(z.string(), z.array(z.number().int().positive())),
+  meters: z.record(z.string(), MeterSchema),
+  error: z.string().nullable().default(null),
+});
+type State = z.infer<typeof StateSchema>;
+const emptyState = (): State => ({ assignments: {}, meters: {}, error: null });
+
+export function shanghaiMonth(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+  }).format(date);
+}
+
+export function meterKey(origin: string): string {
+  return `department-usage:${createHash("sha256").update(origin).digest("hex")}`;
+}
+
+/** Updates only from valid observations; a cross-month observation establishes a baseline. */
+export function applyWeeklySample(
+  state: State,
+  sample: WeeklyUsageSample,
+  at: Date,
+): void {
+  const id = String(sample.id);
+  const month = shanghaiMonth(at);
+  const current = state.meters[id];
+  const mark = (list: string[], value: string) => {
+    if (!list.includes(value)) list.push(value);
+  };
+  if (!current) {
+    state.meters[id] = {
+      lastPercent: sample.usedPercent,
+      resetsAt: sample.resetsAt,
+      sampledAt: at.toISOString(),
+      months: { [month]: month < "2026-12" ? sample.usedPercent / 4 : 0 },
+      incompleteMonths: month < "2026-12" && sample.resetsAt ? [] : [month],
+    };
+    return;
+  }
+  const previousTime = Date.parse(current.sampledAt);
+  if (at.getTime() <= previousTime) return;
+  const previousMonth = shanghaiMonth(new Date(previousTime));
+  if (month !== previousMonth) {
+    current.months[month] ??= 0;
+    // The interval around midnight cannot be attributed precisely from snapshots.
+    mark(current.incompleteMonths, previousMonth);
+    mark(current.incompleteMonths, month);
+  } else {
+    const oldReset = current.resetsAt ? Date.parse(current.resetsAt) : NaN;
+    const newReset = sample.resetsAt ? Date.parse(sample.resetsAt) : NaN;
+    const resetAdvanced =
+      Number.isFinite(oldReset) &&
+      Number.isFinite(newReset) &&
+      newReset > oldReset + 60_000;
+    const resetPassed =
+      Number.isFinite(oldReset) &&
+      previousTime < oldReset &&
+      at.getTime() >= oldReset;
+    const dropped = sample.usedPercent < current.lastPercent;
+    const reset = resetAdvanced || (dropped && resetPassed);
+    if (
+      reset ||
+      dropped ||
+      !Number.isFinite(oldReset) ||
+      !Number.isFinite(newReset) ||
+      newReset < oldReset - 60_000 ||
+      at.getTime() - previousTime > 2 * 60_000
+    )
+      mark(current.incompleteMonths, month);
+    // An unexplained decrease might be a correction, not a real reset.
+    const increase = reset
+      ? sample.usedPercent
+      : Math.max(0, sample.usedPercent - current.lastPercent);
+    current.months[month] = (current.months[month] ?? 0) + increase / 4;
+  }
+  current.lastPercent = sample.usedPercent;
+  current.resetsAt = sample.resetsAt;
+  current.sampledAt = at.toISOString();
+}
+
+export async function readDepartmentState(db: Db, key: string): Promise<State> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, key));
+  return row ? StateSchema.parse(row.value) : emptyState();
+}
+
+export async function updateDepartmentState(
+  db: Db,
+  key: string,
+  update: (state: State) => void,
+): Promise<State> {
+  return db.transaction(async (tx) => {
+    await tx
+      .insert(settings)
+      .values({ key, value: emptyState() })
+      .onConflictDoNothing();
+    const [row] = await tx
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, key))
+      .for("update");
+    if (!row) throw new Error("Missing department usage state");
+    const state = StateSchema.parse(row.value);
+    update(state);
+    await tx
+      .update(settings)
+      .set({ value: state, updatedAt: new Date() })
+      .where(eq(settings.key, key));
+    return state;
+  });
+}
+
+export function departmentUsageView(state: State, now: Date) {
+  const month = shanghaiMonth(now);
+  return {
+    month,
+    error: state.error,
+    assignments: state.assignments,
+    accounts: Object.entries(state.meters).map(([id, meter]) => ({
+      id: Number(id),
+      used: meter.months[month] ?? 0,
+      sampledAt:
+        shanghaiMonth(new Date(meter.sampledAt)) === month
+          ? meter.sampledAt
+          : null,
+      incomplete:
+        meter.incompleteMonths.includes(month) ||
+        shanghaiMonth(new Date(meter.sampledAt)) !== month,
+    })),
+  };
+}

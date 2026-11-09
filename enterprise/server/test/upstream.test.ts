@@ -5,6 +5,7 @@ import {
   accountFromSub2Api,
   clearSub2ApiTokenCache,
   listUpstreamAccounts,
+  readWeeklyUsageSamples,
 } from "../src/sub2api.ts";
 
 function user(role: UserRow["role"], ids: number[]): UserRow {
@@ -133,6 +134,50 @@ describe("visibleUpstreamAccounts", () => {
 });
 
 describe("upstream account pagination", () => {
+  it("distinguishes a valid zero weekly value from missing or invalid data", async () => {
+    clearSub2ApiTokenCache();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        if (new URL(String(input)).pathname.endsWith("/auth/login"))
+          return Response.json({
+            data: { access_token: "test-token", expires_in: 3600 },
+          });
+        return Response.json({
+          data: {
+            usage: {
+              "1": {
+                seven_day: {
+                  utilization: 0,
+                  resets_at: "2026-11-16T00:00:00Z",
+                },
+              },
+              "2": { seven_day: {} },
+              "3": { seven_day: { utilization: null } },
+              "4": { seven_day: { utilization: "  " } },
+            },
+          },
+        });
+      }),
+    );
+    try {
+      const samples = await readWeeklyUsageSamples(
+        {
+          url: "https://upstream.test",
+          email: "test@example.com",
+          password: "test-only",
+        },
+        [1, 2, 3, 4],
+      );
+      expect(samples).toEqual([
+        { id: 1, usedPercent: 0, resetsAt: "2026-11-16T00:00:00.000Z" },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      clearSub2ApiTokenCache();
+    }
+  });
+
   it("syncs Grok accounts and their usage beyond the first page", async () => {
     clearSub2ApiTokenCache();
     const pages: Array<string | null> = [];

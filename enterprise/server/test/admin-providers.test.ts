@@ -230,6 +230,16 @@ describe("admin usage", () => {
         outputTokens: 2,
         createdAt: at("2026-03-01T23:59:59Z"),
       },
+      {
+        ...base,
+        status: 499,
+        userId: adminId,
+        providerId: "p1",
+        model: "gpt-5",
+        inputTokens: 0,
+        outputTokens: 0,
+        createdAt: at("2026-03-01T12:00:00Z"),
+      },
       // same day, different model / user
       {
         ...base,

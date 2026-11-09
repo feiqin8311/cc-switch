@@ -802,23 +802,24 @@ fn parse_connector_definition(bytes: &[u8]) -> Result<&'static str, String> {
     }
 }
 
-fn install_connector_blocking(
-    item: &MarketItem,
-    package: &Path,
-) -> Result<InstalledItem, String> {
+fn install_connector_blocking(item: &MarketItem, package: &Path) -> Result<InstalledItem, String> {
     let bytes = fs::read(package).map_err(|e| format!("Failed to read the package: {e}"))?;
     let kind = parse_connector_definition(&bytes)?;
     if kind == "dws" && !crate::commands::is_installed() {
         crate::commands::install_blocking()?;
     }
-    Ok(InstalledItem {
+    Ok(connector_record(item))
+}
+
+fn connector_record(item: &MarketItem) -> InstalledItem {
+    InstalledItem {
         kind: MarketItemKind::Connector,
         version: item.version.clone(),
         sha256: normalize_sha(&item.sha256),
         installed_at: now_rfc3339(),
         skill_dir: None,
         skill_id: None,
-    })
+    }
 }
 
 /// Remove the prompt; when it is the enabled one, AGENTS.md is cleared first.
@@ -1143,7 +1144,7 @@ fn install_plugin_blocking(
 // Install / uninstall orchestration
 // ---------------------------------------------------------------------------
 
-/// Remove an installed item (skill or plugin) and drop it from `state` (saved).
+/// Remove an installed item and only then drop it from `state` (saved).
 fn remove_installed_blocking(
     db: &Arc<Database>,
     paths: &MarketPaths,
@@ -1180,8 +1181,7 @@ fn remove_installed_blocking(
             McpService::delete_server_in(db, id).map_err(|e| e.to_string())?;
         }
         MarketItemKind::Prompt => remove_prompt_blocking(db, id)?,
-        // dws stays on disk; employees may still use it outside the market.
-        MarketItemKind::Connector => {}
+        MarketItemKind::Connector => crate::commands::uninstall_blocking()?,
     }
     state.items.remove(id);
     save_state(&paths.state_file, state)
@@ -1243,8 +1243,7 @@ fn is_present(
         MarketItemKind::Plugin => paths.marketplace_dir.join("plugins").join(id).is_dir(),
         MarketItemKind::Mcp => mcp_server_exists(db, id).unwrap_or(false),
         MarketItemKind::Prompt => codex_prompts(db).is_ok_and(|p| p.contains_key(&prompt_id(id))),
-        // Presence is the market state row; the dws binary is not removed on uninstall.
-        MarketItemKind::Connector => true,
+        MarketItemKind::Connector => crate::commands::is_installed(),
     }
 }
 
@@ -1259,15 +1258,27 @@ fn list_entry(item: MarketItem, installed: Option<&InstalledItem>) -> MarketList
 fn build_list(
     items: Vec<MarketItem>,
     state: &MarketState,
+    dws_installed: bool,
     present: impl Fn(&str, &InstalledItem) -> bool,
 ) -> Vec<MarketListEntry> {
     items
         .into_iter()
         .map(|item| {
+            // Older clients removed only the market record on uninstall. Detect
+            // the remaining CLI so the market still offers a real uninstall.
+            let detected = (item.kind == MarketItemKind::Connector && dws_installed)
+                .then(|| connector_record(&item));
             let installed = state
                 .items
                 .get(&item.id)
-                .filter(|inst| present(&item.id, inst));
+                .filter(|inst| {
+                    if inst.kind == MarketItemKind::Connector {
+                        dws_installed
+                    } else {
+                        present(&item.id, inst)
+                    }
+                })
+                .or(detected.as_ref());
             list_entry(item, installed)
         })
         .collect()
@@ -1285,7 +1296,11 @@ pub async fn list(
     }
     let items = fetch_items(session).await?;
     let state = load_state(&paths.state_file);
-    Ok(build_list(items, &state, |id, inst| {
+    let dws_installed = items
+        .iter()
+        .any(|item| item.kind == MarketItemKind::Connector)
+        && crate::commands::is_installed();
+    Ok(build_list(items, &state, dws_installed, |id, inst| {
         is_present(db, paths, id, inst)
     }))
 }
@@ -1328,11 +1343,15 @@ pub async fn uninstall(
     id: &str,
 ) -> Result<(), String> {
     validate_item_id(id)?;
+    let mut detected_connector = None;
     if has_install_permission(&session.state().await) {
         let items = fetch_items(session).await?;
         if items.iter().any(|i| i.id == id && i.mandatory) {
             return Err("Mandatory items cannot be uninstalled".into());
         }
+        detected_connector = items
+            .into_iter()
+            .find(|item| item.id == id && item.kind == MarketItemKind::Connector);
     }
     let _guard = op_lock().lock().await;
     let (db, paths, id) = (db.clone(), paths.clone(), id.to_string());
@@ -1342,6 +1361,12 @@ pub async fn uninstall(
             .items
             .get(&id)
             .cloned()
+            .or_else(|| {
+                detected_connector
+                    .as_ref()
+                    .filter(|_| crate::commands::is_installed())
+                    .map(connector_record)
+            })
             .ok_or_else(|| format!("Marketplace item '{id}' is not installed"))?;
         remove_installed_blocking(&db, &paths, &mut state, &id, &installed)
     })
@@ -1905,7 +1930,7 @@ mod tests {
             item("fresh", MarketItemKind::Plugin, "1", "dd"),
             item("gone", MarketItemKind::Skill, "1", "aa"),
         ];
-        let list = build_list(items, &state, |id, _| id != "gone");
+        let list = build_list(items, &state, false, |id, _| id != "gone");
         let flags: Vec<_> = list
             .iter()
             .map(|e| {
@@ -1926,6 +1951,41 @@ mod tests {
                 ("gone", None, false),
             ]
         );
+    }
+
+    #[test]
+    fn connector_list_tracks_the_binary_even_without_a_market_record() {
+        let connector = item("dingtalk", MarketItemKind::Connector, "2", "aa");
+        let state = MarketState::default();
+
+        // Old clients deleted only the state row. The remaining executable must
+        // still expose an uninstall action, just like the installed tab.
+        let list = build_list(vec![connector.clone()], &state, true, |_, _| false);
+        assert_eq!(list[0].installed_version.as_deref(), Some("2"));
+        assert!(!list[0].update_available);
+        assert!(state.items.is_empty());
+
+        let list = build_list(vec![connector], &state, false, |_, _| true);
+        assert_eq!(list[0].installed_version, None);
+    }
+
+    #[test]
+    fn connector_list_drops_stale_records_and_preserves_update_detection() {
+        let connector = item("dingtalk", MarketItemKind::Connector, "2", "bb");
+        let mut state = MarketState::default();
+        state.items.insert(
+            connector.id.clone(),
+            connector_record(&item("dingtalk", MarketItemKind::Connector, "1", "aa")),
+        );
+
+        let list = build_list(vec![connector.clone()], &state, true, |_, _| true);
+        assert_eq!(list[0].installed_version.as_deref(), Some("1"));
+        assert!(list[0].update_available);
+
+        // A state row alone must not mark an externally removed CLI installed.
+        let list = build_list(vec![connector], &state, false, |_, _| true);
+        assert_eq!(list[0].installed_version, None);
+        assert!(!list[0].update_available);
     }
 
     #[test]

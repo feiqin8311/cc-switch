@@ -312,6 +312,116 @@ async function authed(
   return envelopeData(body);
 }
 
+export interface UpstreamUsageRecord {
+  id: number;
+  apiKeyId: number;
+  apiKeyName?: string | null;
+  accountName?: string | null;
+  groupName?: string | null;
+  requestId: string | null;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  imageCount: number;
+  imageInputTokens: number;
+  imageOutputTokens: number;
+  actualCost: number | null;
+  totalCost: number | null;
+  createdAt: string;
+}
+
+/** Read all pages; the upstream can report an approximate total. */
+export async function listUpstreamUsage(
+  cfg: Sub2ApiConfig,
+  from: string,
+  to: string,
+): Promise<UpstreamUsageRecord[]> {
+  const result = new Map<number, UpstreamUsageRecord>();
+  const count = (value: unknown, field: string): number => {
+    const n = Number(value ?? 0);
+    if (!Number.isSafeInteger(n) || n < 0)
+      throw new Error(`上游用量记录 ${field} 格式不正确`);
+    return n;
+  };
+  const cost = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0)
+      throw new Error("上游用量记录费用格式不正确");
+    return n;
+  };
+  for (let page = 1; page <= 10000; page++) {
+    const query = new URLSearchParams({
+      page: String(page),
+      page_size: "100",
+      start_date: from,
+      end_date: to,
+      timezone: "UTC",
+    });
+    const raw = await authed(cfg, `/api/v1/admin/usage?${query}`);
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      !Array.isArray((raw as Record<string, unknown>).items)
+    )
+      throw new Error("上游用量列表格式不正确");
+    const batch = (raw as { items: unknown[] }).items;
+    let added = 0;
+    for (const value of batch) {
+      if (!value || typeof value !== "object")
+        throw new Error("上游用量记录格式不正确");
+      const row = value as Record<string, unknown>;
+      const id = count(row.id, "id");
+      const apiKeyId = count(row.api_key_id, "api_key_id");
+      const model = str(row.model);
+      const createdAt = str(row.created_at);
+      if (
+        !id ||
+        !apiKeyId ||
+        !model ||
+        !createdAt ||
+        !Number.isFinite(Date.parse(createdAt))
+      )
+        throw new Error("上游用量记录缺少必要字段");
+      if (!result.has(id)) added++;
+      const nameOf = (value: unknown) =>
+        value && typeof value === "object"
+          ? str((value as Record<string, unknown>).name)
+          : null;
+      result.set(id, {
+        id,
+        apiKeyId,
+        apiKeyName: nameOf(row.api_key),
+        accountName: nameOf(row.account),
+        groupName: nameOf(row.group),
+        requestId: str(row.request_id),
+        model,
+        inputTokens: count(row.input_tokens, "input_tokens"),
+        outputTokens: count(row.output_tokens, "output_tokens"),
+        cacheReadTokens: count(row.cache_read_tokens, "cache_read_tokens"),
+        cacheCreationTokens: count(
+          row.cache_creation_tokens,
+          "cache_creation_tokens",
+        ),
+        imageCount: count(row.image_count, "image_count"),
+        imageInputTokens: count(row.image_input_tokens, "image_input_tokens"),
+        imageOutputTokens: count(
+          row.image_output_tokens,
+          "image_output_tokens",
+        ),
+        actualCost: cost(row.actual_cost),
+        totalCost: cost(row.total_cost),
+        createdAt,
+      });
+    }
+    if (batch.length < 100) return [...result.values()];
+    if (!added) throw new Error("上游用量分页重复，无法确认同步完整");
+  }
+  throw new Error("上游用量页数超过限制");
+}
+
 /** Read only the current upstream login's key list; never return key material. */
 export async function listUpstreamUserEntries(
   cfg: Sub2ApiConfig,
@@ -395,6 +505,55 @@ export async function listUpstreamAccounts(
     const id = String(Math.floor(num(it.id)));
     return accountFromSub2Api(it, usageMap[id]);
   });
+}
+
+export interface WeeklyUsageSample {
+  id: number;
+  usedPercent: number;
+  resetsAt: string | null;
+}
+
+/** Unlike the display adapter, missing usage is not treated as zero. */
+export async function readWeeklyUsageSamples(
+  cfg: Sub2ApiConfig,
+  ids: number[],
+): Promise<WeeklyUsageSample[]> {
+  if (ids.length === 0) return [];
+  const result = await authed(cfg, "/api/v1/admin/accounts/usage/batch", {
+    method: "POST",
+    body: JSON.stringify({ account_ids: ids, force: false }),
+  });
+  if (!result || typeof result !== "object" || !("usage" in result))
+    throw new Error("上游未返回账号用量");
+  const usage = (result as { usage: unknown }).usage;
+  if (!usage || typeof usage !== "object")
+    throw new Error("上游账号用量格式不正确");
+  const samples: WeeklyUsageSample[] = [];
+  for (const id of ids) {
+    const entry = (usage as Record<string, unknown>)[String(id)];
+    if (!entry || typeof entry !== "object") continue;
+    const weekly = (entry as Record<string, unknown>).seven_day;
+    if (!weekly || typeof weekly !== "object") continue;
+    const data = weekly as Record<string, unknown>;
+    const value = data.utilization;
+    if (
+      (typeof value !== "number" && typeof value !== "string") ||
+      (typeof value === "string" && !value.trim())
+    )
+      continue;
+    const usedPercent = Number(value);
+    if (!Number.isFinite(usedPercent) || usedPercent < 0) continue;
+    const reset = str(data.resets_at);
+    samples.push({
+      id,
+      usedPercent,
+      resetsAt:
+        reset && Number.isFinite(Date.parse(reset))
+          ? new Date(reset).toISOString()
+          : null,
+    });
+  }
+  return samples;
 }
 
 /** Tests / login-failure recovery. */

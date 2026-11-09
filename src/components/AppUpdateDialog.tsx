@@ -18,6 +18,44 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+const UPDATE_DIALOG_ATTRIBUTE = "data-app-update-dialog";
+
+function useOtherDialogPresent() {
+  // Wait for the DOM to be inspected before allowing an automatic dialog.
+  const [otherDialogPresent, setOtherDialogPresent] = useState(true);
+
+  useEffect(() => {
+    const update = () => {
+      const dialogs = document.querySelectorAll(
+        '[role="dialog"], [role="alertdialog"]',
+      );
+      setOtherDialogPresent(
+        Array.from(dialogs).some(
+          (dialog) => !dialog.hasAttribute(UPDATE_DIALOG_ATTRIBUTE),
+        ),
+      );
+    };
+    const containsDialog = (node: Node) =>
+      node instanceof Element &&
+      (node.matches('[role="dialog"], [role="alertdialog"]') ||
+        node.querySelector('[role="dialog"], [role="alertdialog"]') !== null);
+    const observer = new MutationObserver((records) => {
+      if (
+        records.some((record) =>
+          [...record.addedNodes, ...record.removedNodes].some(containsDialog),
+        )
+      ) {
+        update();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    update();
+    return () => observer.disconnect();
+  }, []);
+
+  return otherDialogPresent;
+}
+
 /**
  * 启动、登录后以及每小时检查一次；发现新版本先在后台下载并校验签名，
  * 下好再弹出。点“立即重启”直接安装已下载的包并重启；“稍后”过几小时再提醒，
@@ -27,6 +65,7 @@ export function AppUpdateDialog() {
   const { t } = useTranslation();
   const { state } = useAuth();
   const { data: settings } = useSettingsQuery();
+  const otherDialogPresent = useOtherDialogPresent();
   const {
     hasUpdate,
     updateInfo,
@@ -44,6 +83,7 @@ export function AppUpdateDialog() {
   }, [state.loggedIn, state.serverUrl, checkUpdate]);
   const open =
     settings?.firstRunNoticeConfirmed === true &&
+    !otherDialogPresent &&
     hasUpdate &&
     !isDismissed &&
     updateInfo != null &&
@@ -74,7 +114,7 @@ export function AppUpdateDialog() {
         if (!next && !installing) dismissUpdate();
       }}
     >
-      <DialogContent zIndex="top">
+      <DialogContent zIndex="top" data-app-update-dialog="">
         <DialogHeader>
           <DialogTitle>{t("settings.updateDialogTitle")}</DialogTitle>
           <DialogDescription>

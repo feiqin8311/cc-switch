@@ -139,7 +139,10 @@ async function startUpstream(): Promise<Upstream> {
         res.end(JSON.stringify({ error: { message: "bad things" } }));
         return;
       }
-      res.writeHead(200, { "content-type": "application/json" });
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "x-client-request-id": "test-correlation-id",
+      });
       res.end(
         JSON.stringify({
           id: "resp_2",
@@ -534,6 +537,20 @@ describe("gateway forwarding", () => {
       cacheCreationTokens: 5,
       pricingModel: "gpt-5",
     });
+  });
+
+  it("records the API Hub correlation header for subsequent reconciliation", async () => {
+    ctx.config.sub2api = {
+      url: upstream.baseUrl,
+      email: "test",
+      password: "test",
+    };
+    await createProvider();
+    const key = await issueKey((await loginAs("member")).accessToken);
+    await callResponses(key, { model: "gpt-5", input: "hello" });
+    expect((await usageRows())[0]?.upstreamRequestId).toBe(
+      "client:test-correlation-id",
+    );
   });
 
   it("delivers SSE chunks before the upstream finishes (no buffering)", async () => {
