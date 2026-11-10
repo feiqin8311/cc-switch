@@ -25,6 +25,7 @@ import { retentionRoutes } from "./routes/retention.ts";
 import { upstreamRoutes } from "./routes/upstream.ts";
 import { closeSub2ApiConnections } from "./sub2api.ts";
 import { registerUpdates } from "./updates.ts";
+import { createUpstreamDatabaseReader } from "./usage/read-upstream-database.ts";
 import { createUpstreamUsageSync } from "./usage/sync-upstream.ts";
 import { createUpstreamUserSync } from "./users/upstream-sync.ts";
 import { createCodingPlanReader } from "./volcengine.ts";
@@ -35,6 +36,9 @@ export interface AppDeps {
   authenticate: (req: FastifyRequest) => Promise<void>;
   readCodingPlan: () => Promise<CodingPlanUsageResponse>;
   syncUsage: ReturnType<typeof createUpstreamUsageSync> | null;
+  readUpstreamUsage:
+    | ReturnType<typeof createUpstreamDatabaseReader>["read"]
+    | null;
 }
 
 function parseUsageSyncRange(body: unknown): { from: string; to: string } {
@@ -108,12 +112,19 @@ export async function buildApp(
   const syncUsage = config.sub2api
     ? createUpstreamUsageSync(db, config.sub2api)
     : null;
+  const upstreamDatabase = config.sub2apiUsageDatabaseUrl
+    ? createUpstreamDatabaseReader(config.sub2apiUsageDatabaseUrl)
+    : null;
+  app.addHook("onClose", async () => {
+    await upstreamDatabase?.close();
+  });
   const deps: AppDeps = {
     db,
     config,
     authenticate: createAuthenticate(db, config.jwtSecret),
     readCodingPlan: createCodingPlanReader(config.volcengine),
     syncUsage,
+    readUpstreamUsage: upstreamDatabase?.read ?? null,
   };
   const syncUsers = createUpstreamUserSync(db, config.sub2api);
   let syncTimer: ReturnType<typeof setInterval> | undefined;
@@ -124,7 +135,7 @@ export async function buildApp(
       backgroundSync = syncUsers().catch((err: unknown) =>
         app.log.error({ err }, "上游用户同步失败"),
       );
-      if (syncUsage && !backgroundUsageSync) {
+      if (syncUsage && !upstreamDatabase && !backgroundUsageSync) {
         const now = new Date();
         const to = now.toISOString().slice(0, 10);
         const from = new Date(now.getTime() - 2 * 86_400_000)

@@ -36,6 +36,8 @@ const EnvSchema = z.object({
   SUB2API_URL: z.string().optional(),
   SUB2API_EMAIL: z.string().optional(),
   SUB2API_PASSWORD: z.string().optional(),
+  /** Separate, read-only API Hub database connection. */
+  SUB2API_USAGE_DATABASE_URL: z.string().trim().optional(),
   SUB2API_PROXY_URL: z
     .string()
     .trim()
@@ -64,6 +66,7 @@ export interface AppConfig {
   host: string;
   port: number;
   databaseUrl?: string;
+  sub2apiUsageDatabaseUrl?: string;
   dataDir: string;
   jwtSecret: Uint8Array;
   /** 32-byte AES-256-GCM key. */
@@ -112,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host: e.HOST,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
+    sub2apiUsageDatabaseUrl: e.SUB2API_USAGE_DATABASE_URL || undefined,
     dataDir: e.DATA_DIR,
     jwtSecret: new TextEncoder().encode(
       e.JWT_SECRET ?? loadOrCreateDevSecret(join(e.DATA_DIR, "dev-jwt-secret")),

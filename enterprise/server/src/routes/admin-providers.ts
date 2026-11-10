@@ -10,7 +10,7 @@ import {
   type UsageResponse,
   type UsageRow,
 } from "@ccse/contracts";
-import { and, asc, count, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
@@ -91,7 +91,20 @@ export async function adminProviderRoutes(
 
   app.get("/admin/providers", guard, async () => {
     const rows = await db.select().from(providers).orderBy(asc(providers.id));
-    const res: ListProvidersResponse = { items: rows.map(toAdminProvider) };
+    const ids = [...new Set(rows.flatMap((row) => row.allowedUserIds))];
+    const existingUsers = ids.length
+      ? await db
+          .select({ id: users.id })
+          .from(users)
+          .where(inArray(users.id, ids))
+      : [];
+    const existingIds = new Set(existingUsers.map((user) => user.id));
+    const res: ListProvidersResponse = {
+      items: rows.map((row) => ({
+        ...toAdminProvider(row),
+        allowedUserIds: row.allowedUserIds.filter((id) => existingIds.has(id)),
+      })),
+    };
     return res;
   });
 

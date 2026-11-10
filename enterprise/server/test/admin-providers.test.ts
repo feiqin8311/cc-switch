@@ -185,6 +185,60 @@ describe("admin providers", () => {
     expect(ok.json().allowedGroups).toEqual(["研发部"]);
   });
 
+  it("omits previously deleted users from existing provider settings", async () => {
+    const member = await createMember("member", "existing-member");
+    const missingId = "00000000-0000-0000-0000-000000000000";
+    await api("POST", "/admin/providers", {
+      ...basePayload,
+      allowedUserIds: [member.user.id],
+    });
+    // Simulate a provider left behind by a user deletion before this fix.
+    await ctx.db
+      .update(providers)
+      .set({ allowedUserIds: [missingId, member.user.id] })
+      .where(eq(providers.id, "openai-main"));
+
+    const list = await api("GET", "/admin/providers");
+    const provider = ListProvidersResponseSchema.parse(list.json()).items[0];
+    expect(provider?.allowedUserIds).toEqual([member.user.id]);
+
+    const other = await createMember("member", "other-member");
+    const updated = await api("PATCH", "/admin/providers/openai-main", {
+      allowedUserIds: [...(provider?.allowedUserIds ?? []), other.user.id],
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().allowedUserIds).toEqual([
+      member.user.id,
+      other.user.id,
+    ]);
+  });
+
+  it("removes a deleted user from all provider permissions", async () => {
+    const deleted = await createMember("member", "deleted-member");
+    const retained = await createMember("member", "retained-member");
+    for (const id of ["provider-one", "provider-two"]) {
+      const res = await api("POST", "/admin/providers", {
+        ...basePayload,
+        id,
+        allowedUserIds: [deleted.user.id, retained.user.id],
+      });
+      expect(res.statusCode).toBe(201);
+    }
+
+    const result = await api("DELETE", `/admin/users/${deleted.user.id}`);
+    expect(result.statusCode).toBe(204);
+    const rows = await ctx.db.select().from(providers);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.allowedUserIds).toEqual([retained.user.id]);
+      expect(row.allowedGroups).toEqual(basePayload.allowedGroups);
+    }
+    const updated = await api("PATCH", "/admin/providers/provider-one", {
+      allowedUserIds: [retained.user.id, adminId],
+    });
+    expect(updated.statusCode).toBe(200);
+  });
+
   it("forbids members and viewers", async () => {
     await api("POST", "/admin/providers", basePayload);
     const member = await createMember("member", "mia");

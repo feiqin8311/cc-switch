@@ -154,6 +154,7 @@ export function UsersPage() {
       const failed = results.filter((r) => r.error !== null);
       qc.invalidateQueries({ queryKey: USERS_KEY });
       qc.invalidateQueries({ queryKey: ["admin", "user-options"] });
+      qc.invalidateQueries({ queryKey: ["admin", "providers"] });
       setSelected((prev) => prev.filter((id) => !deletedIds.has(id)));
       setDeletingUsers(null);
       if (deletedIds.size > 0)

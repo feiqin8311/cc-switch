@@ -88,6 +88,21 @@ Migrations live in `server/drizzle/` and are applied on startup. After changing
 
 配置 `SUB2API_URL`（站点根地址）、`SUB2API_EMAIL` 和 `SUB2API_PASSWORD` 后，企业服务启动时和此后每 5 分钟读取该登录账号的 API 密钥列表，仅同步每条记录的名称和分组；也可在用户管理点击「同步上游用户」。不会保存或向上游写入密钥。匹配已有同名非管理员用户时保留其密码、角色和权限；新用户初始密码为 `123456`，请及时修改。上游关联用户的分组只能在上游修改，本地用户仍可在 CC 修改分组。上游删除记录不会自动删除或禁用 CC 用户。重复名称、无效用户名和已有身份冲突的记录会跳过；同步结果会显示跳过数量。启用需要更新企业服务端和管理后台并重启，数据库迁移在启动时自动执行。
 
+### 上游用量数据库读取
+
+可选设置 `SUB2API_USAGE_DATABASE_URL` 为 API Hub 的独立 PostgreSQL 只读连接地址，
+与 CC Switch 自身的 `DATABASE_URL` 不同。配置后，上游用量统计直接按 UTC 日期、
+API 密钥、分组、上游账号和模型在数据库内汇总，不再分页读取每条记录，也不会运行
+原来的定时上游明细同步。上游账号 5h/7d 和部门用量仍通过原有接口获取。
+
+仅使用具有必要列 `SELECT` 权限的专用账号，不要使用 root 或 PostgreSQL 管理员。
+查询使用 `usage_logs`、`api_keys`、`groups` 和 `accounts`；不要授予密钥、账号凭据
+等敏感列的读取权限。API Hub 如果只监听本机，需要先建立受控的私有网络或 SSH 隧道；
+不要为此直接开放公网数据库端口。连接 URL 和密码只放在服务端环境变量，不要提交代码。
+如未配置该变量，继续使用原有 API 明细同步；配置后连接失败会显示错误，不会悄悄回退。
+概览的上游输入 Tokens 不包含缓存，输出 Tokens 为原始输出，总 Tokens 包含输入、输出和缓存。
+查询范围目前以 UTC 自然日为准，界面现有的“近24小时”实际覆盖昨天和今天两个 UTC 日期。
+
 ### Sub2API 出站代理
 
 当服务端无法直连 Sub2API 时，在 `enterprise/.env` 设置 `SUB2API_PROXY_URL`，例如
@@ -208,6 +223,27 @@ streaming responses on `/gateway/` (e.g. `proxy_read_timeout 600s;
 proxy_buffering off;` in nginx) and request bodies up to 32 MB.
 
 Back up the Postgres volume and `SECRETS_KEY`.
+
+### Department usage estimation
+
+The department meter polls the selected upstream accounts once per minute.
+An account shared by multiple departments is sampled once; each department
+sums its selected account totals and has a capacity of 100% per account.
+Before December 2026, the first valid 7d percentage is divided by four and
+counted once. Every subsequent observation adds
+`(current7d - previous7d) / 4` when the percentage rises, and zero when unchanged.
+A lower percentage is treated as a new window: add `current7d / 4` without
+subtracting the accumulated total. Every valid reading becomes the next
+comparison baseline. Reset timestamps never contribute usage. Missing or invalid
+percentages leave the baseline unchanged.
+
+At the start of each calendar month in Asia/Shanghai, the new month starts
+at zero and the first observation establishes a baseline without backfilling
+the current 7d value. Department totals do not follow the page's date filter.
+This is a snapshot estimate: changes between observations, including usage
+before an unobserved decrease or around midnight, cannot be reconstructed.
+Previously accumulated totals are retained; correcting an older overcount
+requires a separate reconciliation of the saved data.
 
 ### Subscription renewal accounting
 

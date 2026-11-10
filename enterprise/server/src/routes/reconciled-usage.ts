@@ -9,7 +9,7 @@ const DAY = 86_400_000;
 
 export async function reconciledUsageRoutes(
   app: FastifyInstance,
-  { config, authenticate, syncUsage }: AppDeps,
+  { config, authenticate, syncUsage, readUpstreamUsage }: AppDeps,
 ) {
   app.get(
     "/admin/usage/upstream",
@@ -34,9 +34,17 @@ export async function reconciledUsageRoutes(
         to = parse(range.to) + DAY;
       if (to <= from || to - from > 92 * DAY)
         throw new AppError(400, "bad_request", "Invalid usage date range");
+      const actor = authOf(req).user;
+      if (readUpstreamUsage) {
+        const items = await readUpstreamUsage(
+          new Date(from),
+          new Date(to),
+          actor.role === "group_leader" ? actor.groupName : null,
+        );
+        return { items, configured: true, syncedAt: new Date().toISOString() };
+      }
       if (!syncUsage || !config.sub2api)
         return { items: [], configured: false, syncedAt: null };
-      const actor = authOf(req).user;
       const records = await syncUsage(range.from, range.to);
       const items = new Map<string, ReconciledUsageRow>();
       for (const record of records) {

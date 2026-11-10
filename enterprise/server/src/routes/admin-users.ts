@@ -6,7 +6,7 @@ import {
   permissionsForUser,
   UpdateUserRequestSchema,
 } from "@ccse/contracts";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppDeps } from "../app.ts";
@@ -17,7 +17,13 @@ import {
 } from "../auth/guard.ts";
 import { hashPassword } from "../auth/password.ts";
 import { revokeAllUserSessions } from "../auth/sessions.ts";
-import { auditEvents, devices, sessions, users } from "../db/schema.ts";
+import {
+  auditEvents,
+  devices,
+  providers,
+  sessions,
+  users,
+} from "../db/schema.ts";
 import { AppError, forbidden, notFound, parseBody } from "../errors.ts";
 import { toUserDto } from "../users/dto.ts";
 import { groupScope } from "../users/scope.ts";
@@ -336,11 +342,20 @@ export async function adminUserRoutes(
     const actor = authOf(req).user;
     if (id === actor.id) throw forbidden("You cannot delete yourself");
 
-    const deleted = await db
-      .delete(users)
-      .where(eq(users.id, id))
-      .returning({ id: users.id });
-    if (deleted.length === 0) throw notFound("User not found");
+    await db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(users)
+        .where(eq(users.id, id))
+        .returning({ id: users.id });
+      if (deleted.length === 0) throw notFound("User not found");
+      await tx
+        .update(providers)
+        .set({
+          allowedUserIds: sql`array_remove(${providers.allowedUserIds}, ${id}::uuid)`,
+          updatedAt: new Date(),
+        })
+        .where(sql`${id}::uuid = any(${providers.allowedUserIds})`);
+    });
 
     req.log.info({ actor: actor.id, userId: id }, "user deleted");
     return reply.status(204).send();

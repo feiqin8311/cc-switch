@@ -79,6 +79,16 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v : null;
 }
 
+function usagePercent(value: unknown): number | null {
+  if (
+    (typeof value !== "number" && typeof value !== "string") ||
+    (typeof value === "string" && !value.trim())
+  )
+    return null;
+  const percent = Number(value);
+  return Number.isFinite(percent) && percent >= 0 ? percent : null;
+}
+
 function groupNames(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const names: string[] = [];
@@ -113,7 +123,7 @@ function windowFromUsage(
       : extra.codex_7d_reset_after_seconds;
   return {
     id,
-    usedPercent: num(u.utilization) || num(extraPct),
+    usedPercent: usagePercent(u.utilization) ?? num(extraPct),
     remainingSeconds: Math.max(
       0,
       Math.floor(num(u.remaining_seconds) || num(extraRemain)),
@@ -535,14 +545,8 @@ export async function readWeeklyUsageSamples(
     const weekly = (entry as Record<string, unknown>).seven_day;
     if (!weekly || typeof weekly !== "object") continue;
     const data = weekly as Record<string, unknown>;
-    const value = data.utilization;
-    if (
-      (typeof value !== "number" && typeof value !== "string") ||
-      (typeof value === "string" && !value.trim())
-    )
-      continue;
-    const usedPercent = Number(value);
-    if (!Number.isFinite(usedPercent) || usedPercent < 0) continue;
+    const usedPercent = usagePercent(data.utilization);
+    if (usedPercent === null) continue;
     const reset = str(data.resets_at);
     samples.push({
       id,

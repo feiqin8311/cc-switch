@@ -54,6 +54,81 @@ describe("department usage estimation", () => {
     expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
   });
 
+  it("never adds a whole window when only its reset timestamp changes", () => {
+    const state: State = { assignments: {}, meters: {}, error: null };
+    applyWeeklySample(state, sample(1, 27), date("2026-11-09T08:00:00Z"));
+    applyWeeklySample(state, sample(2, 33), date("2026-11-09T08:00:00Z"));
+    for (const [index, reset] of [
+      "2026-11-16T02:02:00Z",
+      "2026-11-16T02:00:00Z",
+      "2026-11-23T02:00:00Z",
+      null,
+    ].entries()) {
+      const at = date(`2026-11-09T08:0${index + 1}:00Z`);
+      applyWeeklySample(state, sample(1, 27, reset), at);
+      applyWeeklySample(state, sample(2, 33, reset), at);
+      expect(
+        departmentUsageView(state, at).accounts.map((a) => a.used),
+      ).toEqual([6.75, 8.25]);
+    }
+    applyWeeklySample(
+      state,
+      sample(1, 28, "2026-11-23T02:02:00Z"),
+      date("2026-11-09T08:05:00Z"),
+    );
+    expect(state.meters["1"]?.months["2026-11"]).toBe(7);
+  });
+
+  it.each(["2026-11-16T02:00:00Z", "2026-11-23T02:00:00Z", null])(
+    "counts a lower reading as new window usage regardless of reset time %s",
+    (reset) => {
+      const state: State = { assignments: {}, meters: {}, error: null };
+      applyWeeklySample(state, sample(1, 50), date("2026-11-09T08:00:00Z"));
+      applyWeeklySample(state, sample(1, 60), date("2026-11-09T08:01:00Z"));
+      expect(state.meters["1"]?.months["2026-11"]).toBe(15);
+      applyWeeklySample(
+        state,
+        sample(1, 20, reset),
+        date("2026-11-09T08:02:00Z"),
+      );
+      expect(state.meters["1"]?.months["2026-11"]).toBe(20);
+      expect(state.meters["1"]?.lastPercent).toBe(20);
+      applyWeeklySample(
+        state,
+        sample(1, 20, reset),
+        date("2026-11-09T08:03:00Z"),
+      );
+      expect(state.meters["1"]?.months["2026-11"]).toBe(20);
+      applyWeeklySample(
+        state,
+        sample(1, 30, reset),
+        date("2026-11-09T08:04:00Z"),
+      );
+      expect(state.meters["1"]?.months["2026-11"]).toBe(22.5);
+    },
+  );
+
+  it("converts four fully observed 100 percent weekly windows to 100 percent", () => {
+    const state: State = { assignments: {}, meters: {}, error: null };
+    for (const [day, percent] of [
+      [2, 0],
+      [8, 100],
+      [9, 0],
+      [15, 100],
+      [16, 0],
+      [22, 100],
+      [23, 0],
+      [29, 100],
+    ] as const) {
+      applyWeeklySample(
+        state,
+        sample(1, percent, null),
+        date(`2026-11-${String(day).padStart(2, "0")}T08:00:00Z`),
+      );
+    }
+    expect(state.meters["1"]?.months["2026-11"]).toBe(100);
+  });
+
   it("clears at Shanghai December, baselines the old value, and counts after a 7d reset", () => {
     const state: State = { assignments: {}, meters: {}, error: null };
     applyWeeklySample(
@@ -101,11 +176,27 @@ describe("department usage estimation", () => {
     expect(state.meters["1"]?.lastPercent).toBe(30);
   });
 
-  it("marks a missing window reset time as uncertain", () => {
+  it("baselines a lower reading at the month boundary without adding it", () => {
+    const state: State = { assignments: {}, meters: {}, error: null };
+    applyWeeklySample(state, sample(1, 60), date("2026-11-30T15:59:00Z"));
+    applyWeeklySample(state, sample(1, 20), date("2026-11-30T16:00:00Z"));
+    expect(state.meters["1"]?.months["2026-11"]).toBe(15);
+    expect(state.meters["1"]?.months["2026-12"]).toBe(0);
+    applyWeeklySample(state, sample(1, 30), date("2026-11-30T16:01:00Z"));
+    expect(state.meters["1"]?.months["2026-12"]).toBe(2.5);
+  });
+
+  it("counts increases and a zero baseline without requiring reset timestamps", () => {
     const state: State = { assignments: {}, meters: {}, error: null };
     applyWeeklySample(state, sample(1, 9, null), date("2026-11-09T08:00:00Z"));
     expect(state.meters["1"]?.months["2026-11"]).toBe(2.25);
-    expect(state.meters["1"]?.incompleteMonths).toContain("2026-11");
+    expect(state.meters["1"]?.incompleteMonths).toEqual([]);
+    applyWeeklySample(state, sample(1, 59, null), date("2026-11-09T08:01:00Z"));
+    expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
+    applyWeeklySample(state, sample(1, 0, null), date("2026-11-09T08:02:00Z"));
+    expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
+    applyWeeklySample(state, sample(1, 50, null), date("2026-11-09T08:03:00Z"));
+    expect(state.meters["1"]?.months["2026-11"]).toBe(27.25);
   });
 
   it("stores shared assignments, updates accounts once, and survives a new app instance", async () => {
@@ -140,7 +231,7 @@ describe("department usage estimation", () => {
           method: "PUT",
           url,
           headers,
-          payload: { department, accountIds: [1, 2] },
+          payload: { department, accountIds: [1, 1, 2] },
         });
         expect(response.statusCode).toBe(200);
       }
@@ -157,6 +248,22 @@ describe("department usage estimation", () => {
       result = (
         await ctx.app.inject({ method: "POST", url: `${url}/refresh`, headers })
       ).json();
+      expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
+        14.75, 6,
+      ]);
+      vi.setSystemTime(date("2026-11-09T08:02:00Z"));
+      vi.mocked(readWeeklyUsageSamples).mockResolvedValue([
+        sample(1, 59, "2026-11-16T02:02:00Z"),
+        sample(2, 24, "2026-11-16T02:02:00Z"),
+      ]);
+      vi.mocked(readWeeklyUsageSamples).mockClear();
+      result = (
+        await ctx.app.inject({ method: "POST", url: `${url}/refresh`, headers })
+      ).json();
+      expect(readWeeklyUsageSamples).toHaveBeenCalledExactlyOnceWith(
+        expect.anything(),
+        [1, 2],
+      );
       expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
         14.75, 6,
       ]);

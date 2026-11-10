@@ -50,7 +50,7 @@ export function applyWeeklySample(
       resetsAt: sample.resetsAt,
       sampledAt: at.toISOString(),
       months: { [month]: month < "2026-12" ? sample.usedPercent / 4 : 0 },
-      incompleteMonths: month < "2026-12" && sample.resetsAt ? [] : [month],
+      incompleteMonths: month < "2026-12" ? [] : [month],
     };
     return;
   }
@@ -63,31 +63,13 @@ export function applyWeeklySample(
     mark(current.incompleteMonths, previousMonth);
     mark(current.incompleteMonths, month);
   } else {
-    const oldReset = current.resetsAt ? Date.parse(current.resetsAt) : NaN;
-    const newReset = sample.resetsAt ? Date.parse(sample.resetsAt) : NaN;
-    const resetAdvanced =
-      Number.isFinite(oldReset) &&
-      Number.isFinite(newReset) &&
-      newReset > oldReset + 60_000;
-    const resetPassed =
-      Number.isFinite(oldReset) &&
-      previousTime < oldReset &&
-      at.getTime() >= oldReset;
     const dropped = sample.usedPercent < current.lastPercent;
-    const reset = resetAdvanced || (dropped && resetPassed);
-    if (
-      reset ||
-      dropped ||
-      !Number.isFinite(oldReset) ||
-      !Number.isFinite(newReset) ||
-      newReset < oldReset - 60_000 ||
-      at.getTime() - previousTime > 2 * 60_000
-    )
+    if (dropped || at.getTime() - previousTime > 2 * 60_000)
       mark(current.incompleteMonths, month);
-    // An unexplained decrease might be a correction, not a real reset.
-    const increase = reset
+    // A lower reading starts a new window; timestamps alone never add usage.
+    const increase = dropped
       ? sample.usedPercent
-      : Math.max(0, sample.usedPercent - current.lastPercent);
+      : sample.usedPercent - current.lastPercent;
     current.months[month] = (current.months[month] ?? 0) + increase / 4;
   }
   current.lastPercent = sample.usedPercent;

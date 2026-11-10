@@ -112,6 +112,21 @@ describe("accountFromSub2Api", () => {
     expect(acc.currentConcurrency).toBe(0);
     expect(acc.maxConcurrency).toBe(0);
   });
+
+  it("prefers valid zero usage from the batch over older cached percentages", () => {
+    const acc = accountFromSub2Api(
+      {
+        id: 1,
+        name: "x",
+        extra: { codex_5h_used_percent: 12.5, codex_7d_used_percent: 40 },
+      },
+      {
+        five_hour: { utilization: 0 },
+        seven_day: { utilization: "0" },
+      },
+    );
+    expect(acc.windows.map((window) => window.usedPercent)).toEqual([0, 0]);
+  });
 });
 
 describe("visibleUpstreamAccounts", () => {

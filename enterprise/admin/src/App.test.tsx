@@ -1436,6 +1436,49 @@ describe("App", () => {
     ).toBe("true");
   });
 
+  it("shows fresh upstream input separately while retaining cache in total tokens", async () => {
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
+      route === "/admin/usage/upstream"
+        ? Response.json({
+            items: [
+              {
+                date: "2026-11-10",
+                userId: "upstream-key:1",
+                username: "key-1",
+                groupName: "group-a",
+                providerId: "account-a",
+                model: "gpt-5",
+                requests: 2,
+                inputTokens: 125,
+                outputTokens: 10,
+                cachedTokens: 20,
+                cacheCreationTokens: 5,
+                estimatedCostUsd: 0,
+                actualRequests: 2,
+                estimatedRequests: 0,
+                source: "upstream",
+              },
+            ],
+            configured: true,
+            syncedAt: "2026-11-10T12:00:00Z",
+          })
+        : undefined,
+    );
+    const overviewTabs = await screen.findByRole("tablist", {
+      name: "概览指标来源",
+    });
+    fireEvent.click(within(overviewTabs).getByRole("tab", { name: "上游" }));
+    await screen.findByText("100", { selector: "div" });
+    expect(
+      screen.getByText("输入 tokens", { selector: "div" }).nextElementSibling
+        ?.textContent,
+    ).toBe("100");
+    expect(
+      screen.getByText("总 tokens", { selector: "div" }).nextElementSibling
+        ?.textContent,
+    ).toBe("135");
+  });
+
   it("keeps each source selector usable when the selected data is unavailable", async () => {
     renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
       route === "/admin/usage/upstream"

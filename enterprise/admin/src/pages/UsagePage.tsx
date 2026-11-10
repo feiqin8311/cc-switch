@@ -7,8 +7,8 @@ import {
   UpstreamAccountsResponseSchema,
   type UsageAccountCostsResponse,
   UsageAccountCostsResponseSchema,
-  type UsageRow,
   UsageResponseSchema,
+  type UsageRow,
 } from "@ccse/contracts";
 import {
   keepPreviousData,
@@ -538,6 +538,14 @@ export function UsagePage() {
       )[0],
     [overviewRows],
   );
+  const overviewInputTokens =
+    overviewSource === "upstream" && grand
+      ? grand.inputTokens -
+        overviewRows.reduce(
+          (total, row) => total + row.cachedTokens + row.cacheCreationTokens,
+          0,
+        )
+      : grand?.inputTokens;
 
   const applyRange = (next: { from: string; to: string }) => {
     if (!next.from || !next.to) {
@@ -698,7 +706,7 @@ export function UsagePage() {
       {upstreamSelected && upstreamUsage.data && (
         <p className="text-xs text-muted-foreground">
           {upstreamUsage.data.configured
-            ? `上游数据更新时间：${new Date(upstreamUsage.data.syncedAt ?? "").toLocaleString()}`
+            ? `上游数据查询时间：${new Date(upstreamUsage.data.syncedAt ?? "").toLocaleString()}`
             : "未配置上游服务"}
         </p>
       )}
@@ -748,7 +756,11 @@ export function UsagePage() {
           (grand && (
             <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
               <Stat label="请求数" value={grand.requests} unit="次" />
-              <Stat label="输入 tokens" value={grand.inputTokens} compact />
+              <Stat
+                label="输入 tokens"
+                value={overviewInputTokens ?? 0}
+                compact
+              />
               <Stat label="输出 tokens" value={grand.outputTokens} compact />
               <Stat
                 label="总 tokens"
@@ -2747,7 +2759,7 @@ function DepartmentUsage() {
     ...new Set(
       (users.data?.items ?? [])
         .map((user) => user.groupName.trim())
-        .filter(Boolean),
+        .filter((group) => group.length > 0 && group !== "GROK-运营部-EZARC"),
     ),
   ].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const [editing, setEditing] = useState<string | null>(null);
