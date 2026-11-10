@@ -11,14 +11,17 @@ const MeterSchema = z.object({
   sampledAt: z.string(),
   months: z.record(z.string(), z.number().nonnegative()),
   incompleteMonths: z.array(z.string()),
+  needsBaseline: z.boolean().optional(),
 });
 const StateSchema = z.object({
   assignments: z.record(z.string(), z.array(z.number().int().positive())),
   meters: z.record(z.string(), MeterSchema),
   error: z.string().nullable().default(null),
+  counterVersion: z.string().optional(),
 });
 type State = z.infer<typeof StateSchema>;
 const emptyState = (): State => ({ assignments: {}, meters: {}, error: null });
+const COUNTER_VERSION = "increments-only-2026-11-10";
 
 export function shanghaiMonth(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -49,15 +52,18 @@ export function applyWeeklySample(
       lastPercent: sample.usedPercent,
       resetsAt: sample.resetsAt,
       sampledAt: at.toISOString(),
-      months: { [month]: month < "2026-12" ? sample.usedPercent / 4 : 0 },
-      incompleteMonths: month < "2026-12" ? [] : [month],
+      months: { [month]: 0 },
+      incompleteMonths: [],
     };
     return;
   }
   const previousTime = Date.parse(current.sampledAt);
   if (at.getTime() <= previousTime) return;
   const previousMonth = shanghaiMonth(new Date(previousTime));
-  if (month !== previousMonth) {
+  if (current.needsBaseline) {
+    current.months[month] = 0;
+    current.needsBaseline = false;
+  } else if (month !== previousMonth) {
     current.months[month] ??= 0;
     // The interval around midnight cannot be attributed precisely from snapshots.
     mark(current.incompleteMonths, previousMonth);
@@ -102,6 +108,32 @@ export async function updateDepartmentState(
       .for("update");
     if (!row) throw new Error("Missing department usage state");
     const state = StateSchema.parse(row.value);
+    if (state.counterVersion !== COUNTER_VERSION) {
+      const now = new Date();
+      const month = shanghaiMonth(now);
+      // Keep the old counters before the one-time restart. Baseline only from
+      // a fresh successful sample, including accounts unavailable at startup.
+      if (
+        Object.keys(state.meters).length ||
+        Object.keys(state.assignments).length
+      )
+        await tx
+          .insert(settings)
+          .values({
+            key: `${key}:backup:${COUNTER_VERSION}`,
+            value: { savedAt: now.toISOString(), state: row.value },
+          })
+          .onConflictDoNothing();
+      for (const meter of Object.values(state.meters)) {
+        meter.months[month] = 0;
+        meter.needsBaseline = true;
+        meter.incompleteMonths = meter.incompleteMonths.filter(
+          (value) => value !== month,
+        );
+      }
+      state.counterVersion = COUNTER_VERSION;
+      state.error = null;
+    }
     update(state);
     await tx
       .update(settings)
@@ -121,10 +153,12 @@ export function departmentUsageView(state: State, now: Date) {
       id: Number(id),
       used: meter.months[month] ?? 0,
       sampledAt:
+        !meter.needsBaseline &&
         shanghaiMonth(new Date(meter.sampledAt)) === month
           ? meter.sampledAt
           : null,
       incomplete:
+        !!meter.needsBaseline ||
         meter.incompleteMonths.includes(month) ||
         shanghaiMonth(new Date(meter.sampledAt)) !== month,
     })),

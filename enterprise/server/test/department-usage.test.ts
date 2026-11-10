@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { users } from "../src/db/schema.ts";
+import { settings, users } from "../src/db/schema.ts";
 import {
   accountFromSub2Api,
   listUpstreamAccounts,
@@ -9,7 +9,8 @@ import {
 import {
   applyWeeklySample,
   departmentUsageView,
-  type readDepartmentState,
+  meterKey,
+  readDepartmentState,
   shanghaiMonth,
 } from "../src/usage/department-usage.ts";
 import { ADMIN, bearer, login, setup } from "./helpers.ts";
@@ -39,19 +40,19 @@ afterEach(() => {
 });
 
 describe("department usage estimation", () => {
-  it("counts the current November windows once, then quarters their changes", () => {
+  it("starts from zero even in November, then quarters only subsequent changes", () => {
     const state: State = { assignments: {}, meters: {}, error: null };
     const now = date("2026-11-09T08:00:00Z");
     applyWeeklySample(state, sample(1, 9), now);
     applyWeeklySample(state, sample(2, 24), now);
     state.assignments = { EZARC: [1, 2], 技术部: [1, 2] };
     expect(departmentUsageView(state, now).accounts.map((a) => a.used)).toEqual(
-      [2.25, 6],
+      [0, 0],
     );
     applyWeeklySample(state, sample(1, 59), date("2026-11-09T08:01:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(12.5);
     applyWeeklySample(state, sample(1, 59), date("2026-11-09T08:02:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(12.5);
   });
 
   it("never adds a whole window when only its reset timestamp changes", () => {
@@ -69,14 +70,14 @@ describe("department usage estimation", () => {
       applyWeeklySample(state, sample(2, 33, reset), at);
       expect(
         departmentUsageView(state, at).accounts.map((a) => a.used),
-      ).toEqual([6.75, 8.25]);
+      ).toEqual([0, 0]);
     }
     applyWeeklySample(
       state,
       sample(1, 28, "2026-11-23T02:02:00Z"),
       date("2026-11-09T08:05:00Z"),
     );
-    expect(state.meters["1"]?.months["2026-11"]).toBe(7);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(0.25);
   });
 
   it.each(["2026-11-16T02:00:00Z", "2026-11-23T02:00:00Z", null])(
@@ -85,26 +86,26 @@ describe("department usage estimation", () => {
       const state: State = { assignments: {}, meters: {}, error: null };
       applyWeeklySample(state, sample(1, 50), date("2026-11-09T08:00:00Z"));
       applyWeeklySample(state, sample(1, 60), date("2026-11-09T08:01:00Z"));
-      expect(state.meters["1"]?.months["2026-11"]).toBe(15);
+      expect(state.meters["1"]?.months["2026-11"]).toBe(2.5);
       applyWeeklySample(
         state,
         sample(1, 20, reset),
         date("2026-11-09T08:02:00Z"),
       );
-      expect(state.meters["1"]?.months["2026-11"]).toBe(20);
+      expect(state.meters["1"]?.months["2026-11"]).toBe(7.5);
       expect(state.meters["1"]?.lastPercent).toBe(20);
       applyWeeklySample(
         state,
         sample(1, 20, reset),
         date("2026-11-09T08:03:00Z"),
       );
-      expect(state.meters["1"]?.months["2026-11"]).toBe(20);
+      expect(state.meters["1"]?.months["2026-11"]).toBe(7.5);
       applyWeeklySample(
         state,
         sample(1, 30, reset),
         date("2026-11-09T08:04:00Z"),
       );
-      expect(state.meters["1"]?.months["2026-11"]).toBe(22.5);
+      expect(state.meters["1"]?.months["2026-11"]).toBe(10);
     },
   );
 
@@ -164,7 +165,7 @@ describe("department usage estimation", () => {
       date("2026-12-08T00:01:01Z"),
     );
     expect(state.meters["1"]?.months["2026-12"]).toBe(25);
-    expect(state.meters["1"]?.months["2026-11"]).toBe(7.5);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(0);
     expect(state.meters["1"]?.incompleteMonths).toContain("2026-12");
   });
 
@@ -180,7 +181,7 @@ describe("department usage estimation", () => {
     const state: State = { assignments: {}, meters: {}, error: null };
     applyWeeklySample(state, sample(1, 60), date("2026-11-30T15:59:00Z"));
     applyWeeklySample(state, sample(1, 20), date("2026-11-30T16:00:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(15);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(0);
     expect(state.meters["1"]?.months["2026-12"]).toBe(0);
     applyWeeklySample(state, sample(1, 30), date("2026-11-30T16:01:00Z"));
     expect(state.meters["1"]?.months["2026-12"]).toBe(2.5);
@@ -189,14 +190,128 @@ describe("department usage estimation", () => {
   it("counts increases and a zero baseline without requiring reset timestamps", () => {
     const state: State = { assignments: {}, meters: {}, error: null };
     applyWeeklySample(state, sample(1, 9, null), date("2026-11-09T08:00:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(2.25);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(0);
     expect(state.meters["1"]?.incompleteMonths).toEqual([]);
     applyWeeklySample(state, sample(1, 59, null), date("2026-11-09T08:01:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(12.5);
     applyWeeklySample(state, sample(1, 0, null), date("2026-11-09T08:02:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(14.75);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(12.5);
     applyWeeklySample(state, sample(1, 50, null), date("2026-11-09T08:03:00Z"));
-    expect(state.meters["1"]?.months["2026-11"]).toBe(27.25);
+    expect(state.meters["1"]?.months["2026-11"]).toBe(25);
+  });
+
+  it("backs up old counters and restarts every account only once, even after missing samples or a restart", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(date("2026-11-10T08:00:00Z"));
+    const ctx = await setup(env);
+    const key = meterKey(`${env.SUB2API_URL}\n${env.SUB2API_EMAIL}`);
+    const legacy: State = {
+      assignments: { EZARC: [1, 2], 技术部: [1, 2] },
+      error: "old error",
+      meters: {
+        "1": {
+          lastPercent: 60,
+          resetsAt: "2026-11-16T02:00:00Z",
+          sampledAt: "2026-11-10T07:59:00Z",
+          months: { "2026-10": 7, "2026-11": 63.5 },
+          incompleteMonths: ["2026-10", "2026-11"],
+        },
+        "2": {
+          lastPercent: 33,
+          resetsAt: "2026-11-16T02:00:00Z",
+          sampledAt: "2026-11-10T07:59:00Z",
+          months: { "2026-11": 40 },
+          incompleteMonths: ["2026-11"],
+        },
+      },
+    };
+    try {
+      await ctx.db
+        .update(settings)
+        .set({ value: legacy })
+        .where(eq(settings.key, key));
+      const { buildApp } = await import("../src/app.ts");
+      const restarted = await buildApp(ctx.db, ctx.config);
+      try {
+        const session = await login(restarted, ADMIN.username, ADMIN.password);
+        const headers = bearer(session.accessToken);
+        const url = "/api/v1/admin/usage/departments";
+        const initial = (await restarted.inject({ url, headers })).json();
+        expect(initial.assignments).toEqual(legacy.assignments);
+        expect(initial.accounts).toEqual([
+          { id: 1, used: 0, sampledAt: null, incomplete: true },
+          { id: 2, used: 0, sampledAt: null, incomplete: true },
+        ]);
+        const [backup] = await ctx.db
+          .select({ value: settings.value })
+          .from(settings)
+          .where(eq(settings.key, `${key}:backup:increments-only-2026-11-10`));
+        expect(backup?.value).toEqual({
+          savedAt: "2026-11-10T08:00:00.000Z",
+          state: legacy,
+        });
+
+        vi.mocked(readWeeklyUsageSamples).mockRejectedValueOnce(
+          new Error("offline"),
+        );
+        await restarted.inject({
+          method: "POST",
+          url: `${url}/refresh`,
+          headers,
+        });
+        expect(
+          (await readDepartmentState(ctx.db, key)).meters["1"]?.needsBaseline,
+        ).toBe(true);
+
+        vi.setSystemTime(date("2026-11-10T08:01:00Z"));
+        vi.mocked(readWeeklyUsageSamples).mockResolvedValue([sample(1, 5)]);
+        await restarted.inject({
+          method: "POST",
+          url: `${url}/refresh`,
+          headers,
+        });
+        let state = await readDepartmentState(ctx.db, key);
+        expect(state.meters["1"]?.months["2026-11"]).toBe(0);
+        expect(state.meters["1"]?.lastPercent).toBe(5);
+        expect(state.meters["2"]?.needsBaseline).toBe(true);
+
+        vi.setSystemTime(date("2026-11-10T08:02:00Z"));
+        vi.mocked(readWeeklyUsageSamples).mockResolvedValue([
+          sample(1, 9),
+          sample(2, 70),
+        ]);
+        const result = (
+          await restarted.inject({
+            method: "POST",
+            url: `${url}/refresh`,
+            headers,
+          })
+        ).json();
+        expect(
+          result.accounts.map((account: { used: number }) => account.used),
+        ).toEqual([1, 0]);
+        state = await readDepartmentState(ctx.db, key);
+        expect(state.meters["1"]?.months["2026-10"]).toBe(7);
+
+        const again = await buildApp(ctx.db, ctx.config);
+        try {
+          expect((await again.inject({ url, headers })).json()).toEqual(result);
+          const [sameBackup] = await ctx.db
+            .select({ value: settings.value })
+            .from(settings)
+            .where(
+              eq(settings.key, `${key}:backup:increments-only-2026-11-10`),
+            );
+          expect(sameBackup).toEqual(backup);
+        } finally {
+          await again.close();
+        }
+      } finally {
+        await restarted.close();
+      }
+    } finally {
+      await ctx.close();
+    }
   });
 
   it("stores shared assignments, updates accounts once, and survives a new app instance", async () => {
@@ -238,7 +353,7 @@ describe("department usage estimation", () => {
       let result = (await ctx.app.inject({ url, headers })).json();
       expect(result.assignments).toEqual({ EZARC: [1, 2], 技术部: [1, 2] });
       expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
-        2.25, 6,
+        0, 0,
       ]);
       vi.setSystemTime(date("2026-11-09T08:01:00Z"));
       vi.mocked(readWeeklyUsageSamples).mockResolvedValue([
@@ -249,7 +364,7 @@ describe("department usage estimation", () => {
         await ctx.app.inject({ method: "POST", url: `${url}/refresh`, headers })
       ).json();
       expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
-        14.75, 6,
+        12.5, 0,
       ]);
       vi.setSystemTime(date("2026-11-09T08:02:00Z"));
       vi.mocked(readWeeklyUsageSamples).mockResolvedValue([
@@ -265,14 +380,14 @@ describe("department usage estimation", () => {
         [1, 2],
       );
       expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
-        14.75, 6,
+        12.5, 0,
       ]);
       vi.mocked(readWeeklyUsageSamples).mockRejectedValue(new Error("offline"));
       result = (
         await ctx.app.inject({ method: "POST", url: `${url}/refresh`, headers })
       ).json();
       expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
-        14.75, 6,
+        12.5, 0,
       ]);
       expect(result.error).toContain("采集失败");
       expect((await ctx.app.inject({ url })).statusCode).toBe(401);
@@ -282,7 +397,7 @@ describe("department usage estimation", () => {
         result = (await restarted.inject({ url, headers })).json();
         expect(result.assignments.EZARC).toEqual([1, 2]);
         expect(result.accounts.map((a: { used: number }) => a.used)).toEqual([
-          14.75, 6,
+          12.5, 0,
         ]);
       } finally {
         await restarted.close();

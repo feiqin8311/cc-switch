@@ -36,6 +36,7 @@ export async function departmentUsageRoutes(
     ? "demo"
     : `${config.sub2api?.url ?? "unconfigured"}\n${config.sub2api?.email ?? ""}`;
   const key = meterKey(origin);
+  await updateDepartmentState(db, key, () => {});
   const checkAdmin = (req: Parameters<typeof authOf>[0]) => {
     if (authOf(req).user.role !== "admin") throw forbidden();
   };
