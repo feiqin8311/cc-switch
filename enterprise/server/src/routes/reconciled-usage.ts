@@ -1,39 +1,111 @@
-import { type ReconciledUsageRow, UsageQuerySchema } from "@ccse/contracts";
+import {
+  type ReconciledUsageRow,
+  UpstreamUsageSummaryQuerySchema,
+  UsageQuerySchema,
+} from "@ccse/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppDeps } from "../app.ts";
 import { authOf, requireAnyPermission } from "../auth/guard.ts";
 import { AppError, parseBody } from "../errors.ts";
 import { estimateCostUsd } from "../gateway/pricing.ts";
+import {
+  emptyUsageSummary,
+  readUpstreamSummary,
+  readUpstreamUsageOptions,
+} from "../usage/read-upstream-summary.ts";
 
 const DAY = 86_400_000;
+
+function usageRange(range: { from: string; to: string }) {
+  const parse = (value: string) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (!Number.isFinite(+date) || date.toISOString().slice(0, 10) !== value)
+      throw new AppError(400, "bad_request", "Invalid date");
+    return +date;
+  };
+  const from = parse(range.from);
+  const to = parse(range.to) + DAY;
+  if (to <= from || to - from > 92 * DAY)
+    throw new AppError(400, "bad_request", "Invalid usage date range");
+  return { from, to };
+}
 
 export async function reconciledUsageRoutes(
   app: FastifyInstance,
   { config, authenticate, syncUsage, readUpstreamUsage }: AppDeps,
 ) {
+  const guard = [
+    authenticate,
+    requireAnyPermission("audit.read", "usage.read", "usage.group.read"),
+  ];
+  app.get(
+    "/admin/usage/upstream/options",
+    { preHandler: guard },
+    async (req) => {
+      if (!config.sub2api) return { users: [], groups: [], providers: [] };
+      const actor = authOf(req).user;
+      try {
+        return await readUpstreamUsageOptions(
+          config.sub2api,
+          actor.role === "group_leader" ? actor.groupName : null,
+          actor.role === "admin" ? null : actor.upstreamAccountIds,
+        );
+      } catch (error) {
+        req.log.warn({ err: error }, "upstream usage filter options failed");
+        throw new AppError(502, "upstream_error", "读取上游筛选列表失败");
+      }
+    },
+  );
+  app.post(
+    "/admin/usage/upstream/summary",
+    { preHandler: guard },
+    async (req) => {
+      const query = parseBody(UpstreamUsageSummaryQuerySchema, req.body);
+      usageRange(query);
+      if (!config.sub2api)
+        return {
+          totals: emptyUsageSummary(),
+          configured: false,
+          syncedAt: null,
+        };
+      const actor = authOf(req).user;
+      if (actor.role === "group_leader") {
+        if (
+          !actor.groupName.trim() ||
+          (query.groups.length > 0 && !query.groups.includes(actor.groupName))
+        )
+          return {
+            totals: emptyUsageSummary(),
+            configured: true,
+            syncedAt: new Date().toISOString(),
+          };
+        query.groups = [actor.groupName];
+      }
+      try {
+        return {
+          totals: await readUpstreamSummary(config.sub2api, query),
+          configured: true,
+          syncedAt: new Date().toISOString(),
+        };
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        req.log.warn({ err: error }, "upstream usage summary failed");
+        throw new AppError(
+          502,
+          "upstream_error",
+          "读取上游概览失败，请稍后重试",
+        );
+      }
+    },
+  );
   app.get(
     "/admin/usage/upstream",
     {
-      preHandler: [
-        authenticate,
-        requireAnyPermission("audit.read", "usage.read", "usage.group.read"),
-      ],
+      preHandler: guard,
     },
     async (req) => {
       const range = parseBody(UsageQuerySchema, req.query);
-      const parse = (value: string) => {
-        const date = new Date(`${value}T00:00:00.000Z`);
-        if (
-          !Number.isFinite(+date) ||
-          date.toISOString().slice(0, 10) !== value
-        )
-          throw new AppError(400, "bad_request", "Invalid date");
-        return +date;
-      };
-      const from = parse(range.from),
-        to = parse(range.to) + DAY;
-      if (to <= from || to - from > 92 * DAY)
-        throw new AppError(400, "bad_request", "Invalid usage date range");
+      const { from, to } = usageRange(range);
       const actor = authOf(req).user;
       if (readUpstreamUsage) {
         const items = await readUpstreamUsage(

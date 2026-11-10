@@ -84,6 +84,11 @@ const FIXTURES: Record<string, unknown> = {
     ],
   },
   "/admin/usage/devices": { items: [] },
+  "/admin/usage/upstream/options": {
+    users: [{ id: "upstream-key:1", username: "API Hub 用户" }],
+    groups: ["研发"],
+    providers: ["API Hub 账号"],
+  },
   "/admin/usage/departments": {
     month: "2026-11",
     error: null,
@@ -1372,25 +1377,38 @@ describe("App", () => {
       estimatedRequests: 0,
       estimatedCostUsd: 0.1,
     };
-    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
-      route === "/admin/usage"
-        ? Response.json({ items: [row] })
-        : route === "/admin/usage/upstream"
-          ? Response.json({
-              items: [
-                {
-                  ...row,
-                  source: "upstream",
-                  userId: "upstream-key:1",
-                  username: "上游密钥",
-                  inputTokens: 200,
-                },
-              ],
-              configured: true,
-              syncedAt: "2026-10-12T12:00:00Z",
-            })
-          : undefined,
-    );
+    const reads: string[] = [];
+    renderAt("/usage", permissionsForRole("admin"), admin, (route) => {
+      reads.push(route);
+      return route === "/admin/usage/upstream/summary"
+        ? Response.json({
+            configured: true,
+            syncedAt: "2026-10-12T12:00:00Z",
+            totals: {
+              requests: 1,
+              inputTokens: 200,
+              outputTokens: 10,
+              totalTokens: 210,
+            },
+          })
+        : route === "/admin/usage"
+          ? Response.json({ items: [row] })
+          : route === "/admin/usage/upstream"
+            ? Response.json({
+                items: [
+                  {
+                    ...row,
+                    source: "upstream",
+                    userId: "upstream-key:1",
+                    username: "上游密钥",
+                    inputTokens: 200,
+                  },
+                ],
+                configured: true,
+                syncedAt: "2026-10-12T12:00:00Z",
+              })
+            : undefined;
+    });
     await screen.findByRole("figure", { name: "按用户 tokens" });
     const overviewTabs = screen.getByRole("tablist", { name: "概览指标来源" });
     const chartTabs = screen.getByRole("tablist", { name: "Tokens 统计来源" });
@@ -1398,6 +1416,12 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Tokens 统计" })).toBeTruthy();
     fireEvent.click(within(overviewTabs).getByRole("tab", { name: "上游" }));
     expect(await screen.findByText("200", { selector: "div" })).toBeTruthy();
+    expect(reads).not.toContain("/admin/usage/upstream");
+    const overviewSection = overviewTabs.parentElement?.parentElement;
+    if (!overviewSection) throw new Error("Overview section is missing");
+    expect(
+      within(overviewSection).getByRole("button", { name: "刷新上游概览" }),
+    ).toBeTruthy();
     expect(
       within(chartTabs)
         .getByRole("tab", { name: "CC Switch" })
@@ -1412,11 +1436,13 @@ describe("App", () => {
       within(screen.getByRole("table", { name: "明细" })).getByText("100"),
     ).toBeTruthy();
     fireEvent.click(within(chartTabs).getByRole("tab", { name: "上游" }));
-    expect(
-      within(screen.getByRole("figure", { name: "按用户 tokens" })).getByTitle(
-        "上游密钥：输入 200，输出 10",
-      ),
-    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        within(
+          screen.getByRole("figure", { name: "按用户 tokens" }),
+        ).getByTitle("上游密钥：输入 200，输出 10"),
+      ).toBeTruthy(),
+    );
     fireEvent.click(within(detailTabs).getByRole("tab", { name: "上游" }));
     expect(
       within(screen.getByRole("table", { name: "明细" })).getByText("200"),
@@ -1437,33 +1463,25 @@ describe("App", () => {
   });
 
   it("shows fresh upstream input separately while retaining cache in total tokens", async () => {
-    renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
-      route === "/admin/usage/upstream"
+    const requests: { route: string; body?: Record<string, unknown> }[] = [];
+    renderAt("/usage", permissionsForRole("admin"), admin, (route, init) => {
+      requests.push({
+        route,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return route === "/admin/usage/upstream/summary"
         ? Response.json({
-            items: [
-              {
-                date: "2026-11-10",
-                userId: "upstream-key:1",
-                username: "key-1",
-                groupName: "group-a",
-                providerId: "account-a",
-                model: "gpt-5",
-                requests: 2,
-                inputTokens: 125,
-                outputTokens: 10,
-                cachedTokens: 20,
-                cacheCreationTokens: 5,
-                estimatedCostUsd: 0,
-                actualRequests: 2,
-                estimatedRequests: 0,
-                source: "upstream",
-              },
-            ],
             configured: true,
             syncedAt: "2026-11-10T12:00:00Z",
+            totals: {
+              requests: 2,
+              inputTokens: 100,
+              outputTokens: 10,
+              totalTokens: 135,
+            },
           })
-        : undefined,
-    );
+        : undefined;
+    });
     const overviewTabs = await screen.findByRole("tablist", {
       name: "概览指标来源",
     });
@@ -1477,11 +1495,49 @@ describe("App", () => {
       screen.getByText("总 tokens", { selector: "div" }).nextElementSibling
         ?.textContent,
     ).toBe("135");
+    const first = requests.find(
+      (request) => request.route === "/admin/usage/upstream/summary",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "近7天" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "选择时间范围" })).getByRole(
+        "button",
+        { name: "今天" },
+      ),
+    );
+    await waitFor(() => {
+      const latest = requests
+        .filter((request) => request.route === "/admin/usage/upstream/summary")
+        .at(-1);
+      expect(latest?.body?.from).toBe(latest?.body?.to);
+      expect(latest?.body?.from).not.toBe(first?.body?.from);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "按组筛选" }));
+    fireEvent.click(await screen.findByRole("option", { name: "研发" }));
+    await waitFor(() => {
+      const latest = requests
+        .filter((request) => request.route === "/admin/usage/upstream/summary")
+        .at(-1);
+      expect(latest?.body?.groups).toEqual(["研发"]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "按用户筛选" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "API Hub 用户" }),
+    );
+    await waitFor(() => {
+      const latest = requests
+        .filter((request) => request.route === "/admin/usage/upstream/summary")
+        .at(-1);
+      expect(latest?.body?.userIds).toEqual(["upstream-key:1"]);
+    });
+    expect(
+      requests.some((request) => request.route === "/admin/usage/upstream"),
+    ).toBe(false);
   });
 
   it("keeps each source selector usable when the selected data is unavailable", async () => {
     renderAt("/usage", permissionsForRole("admin"), admin, (route) =>
-      route === "/admin/usage/upstream"
+      route === "/admin/usage/upstream/summary"
         ? Response.json(
             { error: { code: "bad_request", message: "unavailable" } },
             { status: 400 },

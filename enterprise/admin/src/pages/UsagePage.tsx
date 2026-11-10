@@ -5,6 +5,8 @@ import {
   ReconciledUsageResponseSchema,
   type ReconciledUsageRow,
   UpstreamAccountsResponseSchema,
+  UpstreamUsageOptionsResponseSchema,
+  UpstreamUsageSummaryResponseSchema,
   type UsageAccountCostsResponse,
   UsageAccountCostsResponseSchema,
   UsageResponseSchema,
@@ -348,9 +350,35 @@ export function UsagePage() {
     useState<ReconciledUsageRow["source"]>("cc");
   const [detailSource, setDetailSource] =
     useState<ReconciledUsageRow["source"]>("cc");
-  const upstreamSelected = [overviewSource, chartSource, detailSource].includes(
-    "upstream",
-  );
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const upstreamSelected = [chartSource, detailSource].includes("upstream");
+  const upstreamSummary = useQuery({
+    queryKey: [
+      "admin",
+      "usage-upstream-summary",
+      range.from,
+      range.to,
+      filters,
+    ],
+    queryFn: ({ signal }) =>
+      client.request("/admin/usage/upstream/summary", {
+        method: "POST",
+        body: { ...range, ...filters },
+        schema: UpstreamUsageSummaryResponseSchema,
+        signal,
+      }),
+    enabled: overviewSource === "upstream",
+  });
+  const upstreamOptions = useQuery({
+    queryKey: ["admin", "usage-upstream-options"],
+    queryFn: ({ signal }) =>
+      client.request("/admin/usage/upstream/options", {
+        schema: UpstreamUsageOptionsResponseSchema,
+        signal,
+      }),
+    enabled: overviewSource === "upstream",
+    staleTime: 60_000,
+  });
   const ccUsage = useQuery({
     queryKey: ["admin", "usage", range.from, range.to],
     queryFn: ({ signal }) =>
@@ -381,7 +409,6 @@ export function UsagePage() {
     placeholderData: keepPreviousData,
   });
 
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [tokenGrouping, setTokenGrouping] = useState<TokenGrouping>("user");
   const filtering =
     filters.userIds.length +
@@ -424,6 +451,16 @@ export function UsagePage() {
       groups.set(r.groupName, groupLabel(r.groupName));
       if (r.providerId) providers.set(r.providerId, r.providerId);
     }
+    if (overviewSource === "upstream") {
+      for (const user of upstreamOptions.data?.users ?? []) {
+        users.set(user.id, user.username);
+        usernames.current.set(user.id, user.username);
+      }
+      for (const group of upstreamOptions.data?.groups ?? [])
+        groups.set(group, groupLabel(group));
+      for (const provider of upstreamOptions.data?.providers ?? [])
+        providers.set(provider, provider);
+    }
     for (const id of filters.userIds) {
       const name = usernames.current.get(id);
       if (name && !users.has(id)) users.set(id, name);
@@ -436,7 +473,15 @@ export function UsagePage() {
       })),
       providers: optionsOf(providers, filters.providerIds),
     };
-  }, [ccRows, upstreamRows, deviceRows, filters, groupUsers.data]);
+  }, [
+    ccRows,
+    upstreamRows,
+    deviceRows,
+    filters,
+    groupUsers.data,
+    overviewSource,
+    upstreamOptions.data,
+  ]);
 
   const filteredCcRows = useMemo(
     () => ccRows.filter((r) => matches(filters, r)),
@@ -538,14 +583,13 @@ export function UsagePage() {
       )[0],
     [overviewRows],
   );
-  const overviewInputTokens =
-    overviewSource === "upstream" && grand
-      ? grand.inputTokens -
-        overviewRows.reduce(
-          (total, row) => total + row.cachedTokens + row.cacheCreationTokens,
-          0,
-        )
-      : grand?.inputTokens;
+  const overviewTotals =
+    overviewSource === "upstream"
+      ? upstreamSummary.data?.totals
+      : grand && {
+          ...grand,
+          totalTokens: grand.inputTokens + grand.outputTokens,
+        };
 
   const applyRange = (next: { from: string; to: string }) => {
     if (!next.from || !next.to) {
@@ -593,7 +637,21 @@ export function UsagePage() {
       );
     return null;
   };
-  const overviewStatus = panelStatus(overviewSource, "暂无概览数据");
+  const overviewStatus =
+    overviewSource === "cc" ? (
+      panelStatus("cc", "暂无概览数据")
+    ) : upstreamSummary.isPending ? (
+      <LoadingState />
+    ) : upstreamSummary.isError ? (
+      <ErrorState
+        error={upstreamSummary.error}
+        onRetry={() => void upstreamSummary.refetch()}
+      />
+    ) : !upstreamSummary.data.configured ? (
+      <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+        未配置上游服务
+      </p>
+    ) : null;
   const detailStatus = panelStatus(detailSource, "暂无明细数据");
   const chartQuery = chartSource === "cc" ? ccUsage : upstreamUsage;
   const chartStatus =
@@ -751,24 +809,53 @@ export function UsagePage() {
             source={overviewSource}
             onSourceChange={setOverviewSource}
           />
+          {overviewSource === "upstream" && (
+            <Button
+              className="ml-auto"
+              size="sm"
+              title="刷新上游概览"
+              aria-label="刷新上游概览"
+              disabled={upstreamSummary.isFetching}
+              onClick={() => void upstreamSummary.refetch()}
+            >
+              <RefreshCw
+                className={`size-3.5 ${upstreamSummary.isFetching ? "animate-spin" : ""}`}
+              />
+            </Button>
+          )}
         </div>
+        {overviewSource === "upstream" && upstreamOptions.isError && (
+          <InlineError>{describeError(upstreamOptions.error)}</InlineError>
+        )}
         {overviewStatus ??
-          (grand && (
+          (overviewTotals && (
             <div className="mt-4 grid grid-cols-2 gap-3 text-left xl:grid-cols-4">
-              <Stat label="请求数" value={grand.requests} unit="次" />
+              <Stat label="请求数" value={overviewTotals.requests} unit="次" />
               <Stat
                 label="输入 tokens"
-                value={overviewInputTokens ?? 0}
+                value={overviewTotals.inputTokens}
                 compact
               />
-              <Stat label="输出 tokens" value={grand.outputTokens} compact />
+              <Stat
+                label="输出 tokens"
+                value={overviewTotals.outputTokens}
+                compact
+              />
               <Stat
                 label="总 tokens"
-                value={grand.inputTokens + grand.outputTokens}
+                value={overviewTotals.totalTokens}
                 compact
               />
             </div>
           ))}
+        {overviewSource === "upstream" && upstreamSummary.data?.syncedAt && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            查询时间：
+            {new Date(upstreamSummary.data.syncedAt).toLocaleString("zh-CN", {
+              timeZone: "Asia/Shanghai",
+            })}
+          </p>
+        )}
       </Card>
       {(session.user.role === "admin" ||
         session.user.role === "leader" ||

@@ -253,7 +253,9 @@ async function fetchSub2Api(
       ? "登录上游"
       : path.startsWith("/api/v1/admin/accounts/usage/")
         ? "读取账号用量"
-        : "读取账号列表";
+        : path.startsWith("/api/v1/admin/usage/stats")
+          ? "读取上游汇总"
+          : "读取账号列表";
     throw new Error(
       `${stage}失败：${connectionFailure(error)}；连接地址：${origin}`,
       { cause: error },
@@ -287,7 +289,7 @@ async function login(cfg: Sub2ApiConfig): Promise<string> {
   return token;
 }
 
-async function authed(
+export async function readSub2Api(
   cfg: Sub2ApiConfig,
   path: string,
   init: RequestInit = {},
@@ -321,6 +323,8 @@ async function authed(
   }
   return envelopeData(body);
 }
+
+const authed = readSub2Api;
 
 export interface UpstreamUsageRecord {
   id: number;

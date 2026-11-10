@@ -129,24 +129,11 @@ export async function buildApp(
   const syncUsers = createUpstreamUserSync(db, config.sub2api);
   let syncTimer: ReturnType<typeof setInterval> | undefined;
   let backgroundSync: Promise<unknown> | undefined;
-  let backgroundUsageSync: Promise<unknown> | undefined;
   if (config.sub2api && config.env !== "test") {
     const run = () => {
       backgroundSync = syncUsers().catch((err: unknown) =>
         app.log.error({ err }, "上游用户同步失败"),
       );
-      if (syncUsage && !upstreamDatabase && !backgroundUsageSync) {
-        const now = new Date();
-        const to = now.toISOString().slice(0, 10);
-        const from = new Date(now.getTime() - 2 * 86_400_000)
-          .toISOString()
-          .slice(0, 10);
-        backgroundUsageSync = syncUsage(from, to)
-          .catch((err: unknown) => app.log.error({ err }, "上游用量同步失败"))
-          .finally(() => {
-            backgroundUsageSync = undefined;
-          });
-      }
     };
     app.addHook("onReady", async () => {
       run();
@@ -157,7 +144,6 @@ export async function buildApp(
   app.addHook("onClose", async () => {
     if (syncTimer) clearInterval(syncTimer);
     await backgroundSync;
-    await backgroundUsageSync;
   });
 
   await app.register(

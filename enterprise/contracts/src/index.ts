@@ -546,6 +546,31 @@ export const UsageQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
+export const UpstreamUsageSummaryQuerySchema = UsageQuerySchema.extend({
+  userIds: z.array(z.string().max(200)).max(100).default([]),
+  groups: z.array(z.string().max(200)).max(100).default([]),
+  providerIds: z.array(z.string().max(200)).max(100).default([]),
+});
+export type UpstreamUsageSummaryQuery = z.infer<
+  typeof UpstreamUsageSummaryQuerySchema
+>;
+export const UsageSummarySchema = z.object({
+  requests: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type UsageSummary = z.infer<typeof UsageSummarySchema>;
+export const UpstreamUsageSummaryResponseSchema = z.object({
+  configured: z.boolean(),
+  syncedAt: z.string().nullable(),
+  totals: UsageSummarySchema,
+});
+export const UpstreamUsageOptionsResponseSchema = z.object({
+  users: z.array(z.object({ id: z.string(), username: z.string() })),
+  groups: z.array(z.string()),
+  providers: z.array(z.string()),
+});
 export const UsageRowSchema = z.object({
   date: z.string(),
   userId: z.string(),
